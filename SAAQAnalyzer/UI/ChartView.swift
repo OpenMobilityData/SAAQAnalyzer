@@ -1,6 +1,7 @@
 import SwiftUI
 import Charts
 import UniformTypeIdentifiers
+import AppKit
 
 /// Main chart view for displaying time series data
 struct ChartView: View {
@@ -209,7 +210,7 @@ struct ChartView: View {
             return (minValue - range * 0.1)...(maxValue + range * 0.1)
         }
     }
-    
+
     /// Get symbol for series index
     private func symbolForIndex(_ index: Int) -> BasicChartSymbolShape {
         let symbols: [BasicChartSymbolShape] = [
@@ -383,13 +384,171 @@ struct ExportButton: View {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.nameFieldStringValue = "saaq_chart_\(Date().timeIntervalSince1970).png"
-        
+
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
-            
-            // TODO: Implement chart rendering to image
-            // This would require capturing the chart view and rendering it to an image
-            print("PNG export to: \(url)")
+
+            // Build the chart content separately to avoid compiler timeout
+            let chartContent: AnyView
+            if dataSeries.isEmpty {
+                chartContent = AnyView(
+                    Text("No data available")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                        .frame(width: 900, height: 500)
+                )
+            } else {
+                // Simple line chart for export with axis fixes
+                let chartView = Chart {
+                    ForEach(dataSeries, id: \.id) { series in
+                        ForEach(series.points, id: \.year) { point in
+                            LineMark(
+                                x: .value("Year", point.year),
+                                y: .value("Count", point.value)
+                            )
+                            .foregroundStyle(series.color)
+                            .lineStyle(StrokeStyle(lineWidth: 6))
+                        }
+                    }
+                }
+                .chartXAxis {
+                    AxisMarks { value in
+                        AxisValueLabel {
+                            if let year = value.as(Double.self) {
+                                Text(String(format: "%.0f", year))
+                                    .fontWeight(.bold)
+                            }
+                        }
+                    }
+                }
+                .chartPlotStyle { plotArea in
+                    plotArea
+                        .background(Color(red: 0.9, green: 0.9, blue: 0.9))
+                }
+                .chartXScale(domain: .automatic(includesZero: false))
+                .chartYScale(domain: .automatic(includesZero: true))
+                .frame(width: 900, height: 500)
+
+                chartContent = AnyView(chartView)
+            }
+
+            // Build simplified legend for export
+            let legendView = Group {
+                if dataSeries.count > 1 {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Series")
+                            .font(.headline)
+                            .foregroundColor(.black)
+
+                        ForEach(Array(dataSeries.enumerated()), id: \.element.id) { index, series in
+                            HStack {
+                                Rectangle()
+                                    .fill(series.color)
+                                    .frame(width: 12, height: 12)
+                                Text(series.name)
+                                    .font(.caption)
+                                    .foregroundColor(.black)
+                                    .lineLimit(2)
+                                Spacer()
+                            }
+                        }
+                    }
+                    .padding()
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(8)
+                }
+            }
+
+            // Assemble the complete export view
+            let exportView = VStack(spacing: 16) {
+                Text("SAAQ Vehicle Registration Data")
+                    .font(.title)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.black)
+
+                chartContent
+
+                legendView
+
+                Text("Generated on \(Date().formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(24)
+            .background(Color.white)
+            .frame(width: 1000, height: 700)
+
+            // Render using ImageRenderer (macOS 13+)
+            if #available(macOS 13.0, *) {
+                let renderer = ImageRenderer(content: exportView)
+                renderer.scale = 2.0  // High DPI for crisp export
+
+                if let nsImage = renderer.nsImage {
+                    // Convert NSImage to PNG data
+                    if let tiffData = nsImage.tiffRepresentation,
+                       let bitmapRep = NSBitmapImageRep(data: tiffData),
+                       let pngData = bitmapRep.representation(using: .png, properties: [:]) {
+
+                        do {
+                            try pngData.write(to: url)
+                            print("✅ PNG exported successfully to: \(url.path)")
+                            print("📊 Chart rendered with \(dataSeries.count) data series")
+                        } catch {
+                            print("❌ Error writing PNG file: \(error)")
+                        }
+                    } else {
+                        print("❌ Error converting image to PNG format")
+                    }
+                } else {
+                    print("❌ Error rendering chart to image")
+                }
+            } else {
+                // Fallback for older macOS versions - create basic white image
+                print("⚠️ ImageRenderer requires macOS 13.0+, creating basic placeholder")
+
+                let width = 1000
+                let height = 700
+                let colorSpace = CGColorSpaceCreateDeviceRGB()
+                let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+
+                guard let context = CGContext(data: nil,
+                                            width: width,
+                                            height: height,
+                                            bitsPerComponent: 8,
+                                            bytesPerRow: width * 4,
+                                            space: colorSpace,
+                                            bitmapInfo: bitmapInfo) else {
+                    print("❌ Error creating graphics context")
+                    return
+                }
+
+                // Fill with white background
+                context.setFillColor(CGColor.white)
+                context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+
+                // Create PNG data
+                guard let cgImage = context.makeImage() else {
+                    print("❌ Error creating image")
+                    return
+                }
+
+                let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: width, height: height))
+
+                if let tiffData = nsImage.tiffRepresentation,
+                   let bitmapRep = NSBitmapImageRep(data: tiffData),
+                   let pngData = bitmapRep.representation(using: .png, properties: [:]) {
+
+                    do {
+                        try pngData.write(to: url)
+                        print("✅ PNG exported to: \(url.path)")
+                        print("📄 Note: Placeholder image created (requires macOS 13+ for full chart rendering)")
+                    } catch {
+                        print("❌ Error writing PNG file: \(error)")
+                    }
+                } else {
+                    print("❌ Error converting image to PNG format")
+                }
+            }
         }
     }
     
