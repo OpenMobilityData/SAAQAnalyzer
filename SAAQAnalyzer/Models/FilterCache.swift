@@ -9,6 +9,7 @@ class FilterCache {
         static let years = "FilterCache.years"
         static let regions = "FilterCache.regions" 
         static let mrcs = "FilterCache.mrcs"
+        static let municipalities = "FilterCache.municipalities"
         static let classifications = "FilterCache.classifications"
         static let lastUpdated = "FilterCache.lastUpdated"
         static let dataVersion = "FilterCache.dataVersion"
@@ -46,6 +47,10 @@ class FilterCache {
         return userDefaults.stringArray(forKey: CacheKeys.mrcs) ?? []
     }
     
+    func getCachedMunicipalities() -> [String] {
+        return userDefaults.stringArray(forKey: CacheKeys.municipalities) ?? []
+    }
+    
     func getCachedClassifications() -> [String] {
         return userDefaults.stringArray(forKey: CacheKeys.classifications) ?? []
     }
@@ -53,15 +58,16 @@ class FilterCache {
     // MARK: - Cache Writing
     
     /// Update the entire cache with fresh data
-    func updateCache(years: [Int], regions: [String], mrcs: [String], classifications: [String], dataVersion: String) {
+    func updateCache(years: [Int], regions: [String], mrcs: [String], municipalities: [String], classifications: [String], dataVersion: String) {
         userDefaults.set(years, forKey: CacheKeys.years)
         userDefaults.set(regions, forKey: CacheKeys.regions)
         userDefaults.set(mrcs, forKey: CacheKeys.mrcs)
+        userDefaults.set(municipalities, forKey: CacheKeys.municipalities)
         userDefaults.set(classifications, forKey: CacheKeys.classifications)
         userDefaults.set(Date(), forKey: CacheKeys.lastUpdated)
         userDefaults.set(dataVersion, forKey: CacheKeys.dataVersion)
         
-        print("💾 Filter cache updated with \(years.count) years, \(regions.count) regions, \(mrcs.count) MRCs, \(classifications.count) classifications")
+        print("💾 Filter cache updated with \(years.count) years, \(regions.count) regions, \(mrcs.count) MRCs, \(municipalities.count) municipalities, \(classifications.count) classifications")
     }
     
     /// Clear the entire cache
@@ -69,6 +75,7 @@ class FilterCache {
         userDefaults.removeObject(forKey: CacheKeys.years)
         userDefaults.removeObject(forKey: CacheKeys.regions)
         userDefaults.removeObject(forKey: CacheKeys.mrcs)
+        userDefaults.removeObject(forKey: CacheKeys.municipalities)
         userDefaults.removeObject(forKey: CacheKeys.classifications)
         userDefaults.removeObject(forKey: CacheKeys.lastUpdated)
         userDefaults.removeObject(forKey: CacheKeys.dataVersion)
