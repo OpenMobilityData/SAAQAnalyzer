@@ -30,6 +30,7 @@ struct ContentView: View {
     @State private var chartData: [FilteredDataSeries] = []
     @State private var selectedSeries: FilteredDataSeries?
     @State private var showingImportProgress = false
+    @State private var isAddingSeries = false
     
     // Import handling state
     @State private var showingDuplicateYearAlert = false
@@ -79,8 +80,14 @@ struct ContentView: View {
                 Button {
                     addNewSeries()
                 } label: {
-                    Label("Add Series", systemImage: "plus.circle")
+                    if isAddingSeries {
+                        Label("Adding Series...", systemImage: "arrow.triangle.2.circlepath")
+                            .symbolEffect(.rotate, isActive: isAddingSeries)
+                    } else {
+                        Label("Add Series", systemImage: "plus.circle")
+                    }
                 }
+                .disabled(isAddingSeries)
                 
                 // Export button
                 ExportMenu(chartData: chartData)
@@ -99,6 +106,18 @@ struct ContentView: View {
                     
                     ImportProgressView(progressManager: progressManager)
                         .frame(maxWidth: 600)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+            
+            // Series query progress overlay
+            if isAddingSeries {
+                ZStack {
+                    Color.black.opacity(0.2)
+                        .ignoresSafeArea()
+                    
+                    SeriesQueryProgressView()
+                        .frame(maxWidth: 400)
                         .transition(.scale.combined(with: .opacity))
                 }
             }
@@ -162,6 +181,10 @@ struct ContentView: View {
     /// Adds a new data series based on current filter configuration
     private func addNewSeries() {
         Task {
+            await MainActor.run {
+                isAddingSeries = true
+            }
+            
             do {
                 let series = try await databaseManager.queryVehicleData(
                     filters: selectedFilters
@@ -170,8 +193,12 @@ struct ContentView: View {
                     // Assign unique color based on series index
                     series.color = Color.forSeriesIndex(chartData.count)
                     chartData.append(series)
+                    isAddingSeries = false
                 }
             } catch {
+                await MainActor.run {
+                    isAddingSeries = false
+                }
                 print("Error adding series: \(error)")
             }
         }
@@ -584,5 +611,75 @@ struct SettingsView: View {
                 databaseManager.setDatabaseLocation(url)
             }
         }
+    }
+}
+
+// MARK: - Series Query Progress View
+
+/// Progress indicator for database queries when adding series
+struct SeriesQueryProgressView: View {
+    @State private var animationOffset: CGFloat = 0
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            // Progress animation
+            VStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.title)
+                    .foregroundColor(.accentColor)
+                    .symbolEffect(.pulse, isActive: true)
+                
+                Text("Querying Database")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                
+                Text("Analyzing vehicle data with your filter criteria...")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            
+            // Animated progress bar
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    // Background track
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(height: 6)
+                    
+                    // Animated shimmer effect
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    .clear,
+                                    Color.accentColor.opacity(0.8),
+                                    Color.accentColor,
+                                    Color.accentColor.opacity(0.8),
+                                    .clear
+                                ]),
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: 100, height: 6)
+                        .offset(x: animationOffset)
+                        .mask(
+                            RoundedRectangle(cornerRadius: 3)
+                                .frame(height: 6)
+                        )
+                }
+            }
+            .frame(height: 6)
+            .onAppear {
+                withAnimation(Animation.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+                    animationOffset = 350 // Should cover most typical widths
+                }
+            }
+        }
+        .padding(24)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(12)
+        .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
     }
 }
