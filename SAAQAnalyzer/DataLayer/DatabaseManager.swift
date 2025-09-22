@@ -534,6 +534,7 @@ class DatabaseManager: ObservableObject {
         } else if !filters.mrcs.isEmpty {
             components.append("MRC: \(filters.mrcs.joined(separator: ", "))")
         } else if !filters.municipalities.isEmpty {
+            // For now, use codes in series name - we'll improve this later
             components.append("Municipality: \(filters.municipalities.joined(separator: ", "))")
         }
         
@@ -751,20 +752,22 @@ class DatabaseManager: ObservableObject {
         async let years = getYearsFromDatabase()
         async let regions = getRegionsFromDatabase()  
         async let mrcs = getMRCsFromDatabase()
+        async let municipalities = getMunicipalitiesFromDatabase()
         async let classifications = getClassificationsFromDatabase()
         
         // Wait for all queries to complete
-        let (yearsList, regionsList, mrcsList, classificationsList) = await (years, regions, mrcs, classifications)
+        let (yearsList, regionsList, mrcsList, municipalitiesList, classificationsList) = await (years, regions, mrcs, municipalities, classifications)
         
         let duration = Date().timeIntervalSince(startTime)
         print("🔄 Database queries completed in \(String(format: "%.2f", duration))s")
-        print("🔄 Found: \(yearsList.count) years, \(regionsList.count) regions, \(mrcsList.count) MRCs, \(classificationsList.count) classifications")
+        print("🔄 Found: \(yearsList.count) years, \(regionsList.count) regions, \(mrcsList.count) MRCs, \(municipalitiesList.count) municipalities, \(classificationsList.count) classifications")
         
         // Update cache
         filterCache.updateCache(
             years: yearsList,
             regions: regionsList, 
             mrcs: mrcsList,
+            municipalities: municipalitiesList,
             classifications: classificationsList,
             dataVersion: "\(dataVersion)"
         )
@@ -885,6 +888,163 @@ class DatabaseManager: ObservableObject {
                 }
                 
                 continuation.resume(returning: classifications)
+            }
+        }
+    }
+    
+    /// Gets available municipalities - uses cache when possible
+    func getAvailableMunicipalities() async -> [String] {
+        // Check cache first
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+            let cached = filterCache.getCachedMunicipalities()
+            if !cached.isEmpty {
+                return cached
+            }
+        }
+        
+        // Fall back to database query
+        return await getMunicipalitiesFromDatabase()
+    }
+    
+    /// Internal method to query municipalities from database
+    /// Returns geo_codes for filtering, but maintains name->code mapping for UI
+    private func getMunicipalitiesFromDatabase() async -> [String] {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+
+                // First try getting municipalities from geographic_entities table (code and name)
+                var query = """
+                    SELECT code, name
+                    FROM geographic_entities
+                    WHERE type = 'municipality'
+                    ORDER BY name
+                    """
+                var stmt: OpaquePointer?
+
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+
+                var municipalities: [String] = []
+
+                // Try geographic_entities first - return codes for filtering
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let codePtr = sqlite3_column_text(stmt, 0) {
+                            municipalities.append(String(cString: codePtr))
+                        }
+                    }
+
+                    // If we found municipalities in geographic_entities, use those codes
+                    if !municipalities.isEmpty {
+                        continuation.resume(returning: municipalities)
+                        return
+                    }
+                }
+
+                // Fall back to raw geo_code values from vehicles table
+                sqlite3_finalize(stmt)
+                stmt = nil
+
+                query = "SELECT DISTINCT geo_code FROM vehicles ORDER BY geo_code"
+
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let codePtr = sqlite3_column_text(stmt, 0) {
+                            municipalities.append(String(cString: codePtr))
+                        }
+                    }
+                }
+
+                continuation.resume(returning: municipalities)
+            }
+        }
+    }
+
+    /// Gets municipality name-to-code mapping for UI display
+    func getMunicipalityNameToCodeMapping() async -> [String: String] {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [:])
+                    return
+                }
+
+                let query = """
+                    SELECT code, name
+                    FROM geographic_entities
+                    WHERE type = 'municipality'
+                    ORDER BY name
+                    """
+                var stmt: OpaquePointer?
+
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+
+                var mapping: [String: String] = [:]
+
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let codePtr = sqlite3_column_text(stmt, 0),
+                           let namePtr = sqlite3_column_text(stmt, 1) {
+                            let code = String(cString: codePtr)
+                            let name = String(cString: namePtr)
+                            mapping[name] = code
+                        }
+                    }
+                }
+
+                continuation.resume(returning: mapping)
+            }
+        }
+    }
+
+    /// Gets municipality code-to-name mapping for UI display
+    func getMunicipalityCodeToNameMapping() async -> [String: String] {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [:])
+                    return
+                }
+
+                let query = """
+                    SELECT code, name
+                    FROM geographic_entities
+                    WHERE type = 'municipality'
+                    ORDER BY name
+                    """
+                var stmt: OpaquePointer?
+
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+
+                var mapping: [String: String] = [:]
+
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let codePtr = sqlite3_column_text(stmt, 0),
+                           let namePtr = sqlite3_column_text(stmt, 1) {
+                            let code = String(cString: codePtr)
+                            let name = String(cString: namePtr)
+                            mapping[code] = name
+                        }
+                    }
+                }
+
+                continuation.resume(returning: mapping)
             }
         }
     }

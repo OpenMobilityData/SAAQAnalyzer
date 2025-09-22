@@ -9,7 +9,11 @@ struct FilterPanel: View {
     @State private var availableYears: [Int] = []
     @State private var availableRegions: [String] = []
     @State private var availableMRCs: [String] = []
+    @State private var availableMunicipalities: [String] = []
     @State private var availableClassifications: [String] = []
+
+    // Municipality code-to-name mapping for UI display
+    @State private var municipalityCodeToName: [String: String] = [:]
     
     // Loading state
     @State private var isLoadingData = true
@@ -78,6 +82,8 @@ struct FilterPanel: View {
                         SimpleGeographicFilterSection(
                             availableRegions: availableRegions,
                             availableMRCs: availableMRCs,
+                            availableMunicipalities: availableMunicipalities,
+                            municipalityCodeToName: municipalityCodeToName,
                             configuration: $configuration
                         )
                     } label: {
@@ -146,7 +152,11 @@ struct FilterPanel: View {
             availableYears = await databaseManager.getAvailableYears()
             availableRegions = await databaseManager.getAvailableRegions()
             availableMRCs = await databaseManager.getAvailableMRCs()
+            availableMunicipalities = await databaseManager.getAvailableMunicipalities()
             availableClassifications = await databaseManager.getAvailableClassifications()
+
+            // Load municipality mapping for UI display
+            municipalityCodeToName = await databaseManager.getMunicipalityCodeToNameMapping()
             
             isLoadingData = false
             hasInitiallyLoaded = true
@@ -173,6 +183,8 @@ struct FilterPanel: View {
         if availableRegions.isEmpty {
             availableRegions = await databaseManager.getAvailableRegions()
             availableMRCs = await databaseManager.getAvailableMRCs()
+            availableMunicipalities = await databaseManager.getAvailableMunicipalities()
+            municipalityCodeToName = await databaseManager.getMunicipalityCodeToNameMapping()
         }
     }
     
@@ -233,7 +245,9 @@ struct YearFilterSection: View {
 
 struct SimpleGeographicFilterSection: View {
     let availableRegions: [String]
-    let availableMRCs: [String] 
+    let availableMRCs: [String]
+    let availableMunicipalities: [String]
+    let municipalityCodeToName: [String: String]
     @Binding var configuration: FilterConfiguration
     
     var body: some View {
@@ -266,8 +280,23 @@ struct SimpleGeographicFilterSection: View {
                 )
             }
             
+            // Municipalities section
+            if !availableMunicipalities.isEmpty {
+                Divider()
+
+                Text("Municipalities")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                MunicipalityFilterList(
+                    availableCodes: availableMunicipalities,
+                    codeToNameMapping: municipalityCodeToName,
+                    selectedCodes: $configuration.municipalities
+                )
+            }
+            
             // Summary of selections
-            if !configuration.regions.isEmpty || !configuration.mrcs.isEmpty {
+            if !configuration.regions.isEmpty || !configuration.mrcs.isEmpty || !configuration.municipalities.isEmpty {
                 Divider()
                 
                 VStack(alignment: .leading, spacing: 4) {
@@ -289,6 +318,15 @@ struct SimpleGeographicFilterSection: View {
                             Image(systemName: "building.2.fill")
                                 .foregroundColor(.green)
                             Text("\(configuration.mrcs.count) MRC(s)")
+                                .font(.caption)
+                        }
+                    }
+                    
+                    if !configuration.municipalities.isEmpty {
+                        HStack {
+                            Image(systemName: "location.fill")
+                                .foregroundColor(.orange)
+                            Text("\(configuration.municipalities.count) municipalit(y/ies)")
                                 .font(.caption)
                         }
                     }
@@ -745,5 +783,127 @@ struct VehicleClassificationFilterList: View {
             return vehicleClass.description
         }
         return "Unknown classification: \(classification)"
+    }
+}
+
+// MARK: - Municipality Filter List
+
+/// Specialized filter list for municipalities that displays names but stores codes
+struct MunicipalityFilterList: View {
+    let availableCodes: [String]
+    let codeToNameMapping: [String: String]
+    @Binding var selectedCodes: Set<String>
+
+    @State private var searchText = ""
+    @State private var isExpanded = false
+
+    // Create display items (name -> code mapping for UI)
+    private var displayItems: [(name: String, code: String)] {
+        availableCodes.compactMap { code in
+            if let name = codeToNameMapping[code] {
+                return (name: name, code: code)
+            } else {
+                // Fallback: if no name mapping, use code as name
+                return (name: code, code: code)
+            }
+        }.sorted { $0.name < $1.name }
+    }
+
+    private var filteredItems: [(name: String, code: String)] {
+        if searchText.isEmpty {
+            return displayItems
+        }
+        return displayItems.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    private var displayedItems: [(name: String, code: String)] {
+        return isExpanded ? filteredItems : Array(filteredItems.prefix(5))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Search field
+            if displayItems.count > 8 {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+
+                    TextField("Search municipalities...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.caption)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
+            }
+
+            // Quick action buttons
+            HStack {
+                Button("All") {
+                    selectedCodes = Set(filteredItems.map { $0.code })
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Button("Clear") {
+                    selectedCodes.removeAll()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Spacer()
+
+                if displayItems.count > 5 && searchText.isEmpty {
+                    Button(isExpanded ? "Show Less" : "Show All (\(displayItems.count))") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isExpanded.toggle()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption2)
+                    .foregroundColor(.accentColor)
+                }
+            }
+
+            // Filter items (display names, store codes)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(displayedItems, id: \.code) { item in
+                    HStack(alignment: .top, spacing: 8) {
+                        Toggle(isOn: Binding(
+                            get: { selectedCodes.contains(item.code) },
+                            set: { isSelected in
+                                if isSelected {
+                                    selectedCodes.insert(item.code)
+                                } else {
+                                    selectedCodes.remove(item.code)
+                                }
+                            }
+                        )) {
+                            EmptyView()
+                        }
+                        .toggleStyle(.checkbox)
+                        .controlSize(.mini)
+
+                        Text(item.name)
+                            .font(.caption)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.vertical, 1)
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: displayedItems.count)
+
+            // Search results summary
+            if !searchText.isEmpty && filteredItems.count != displayItems.count {
+                Text("Showing \(filteredItems.count) of \(displayItems.count) municipalities")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
