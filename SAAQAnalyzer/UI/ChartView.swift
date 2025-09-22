@@ -154,11 +154,15 @@ struct ChartView: View {
             }
         }
         .chartXAxis {
-            AxisMarks { _ in
+            AxisMarks { value in
                 AxisGridLine()
                     .foregroundStyle(.quaternary)
                 AxisTick()
-                AxisValueLabel()
+                AxisValueLabel {
+                    if let year = value.as(Double.self) {
+                        Text(String(format: "%.0f", year))
+                    }
+                }
             }
         }
         .chartYAxis {
