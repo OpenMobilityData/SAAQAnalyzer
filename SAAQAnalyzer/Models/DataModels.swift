@@ -228,7 +228,7 @@ struct TimeSeriesPoint: Identifiable {
 /// Filtered data series for charting
 class FilteredDataSeries: ObservableObject, Identifiable {
     let id = UUID()
-    let name: String
+    @Published var name: String
     let filters: FilterConfiguration
     @Published var points: [TimeSeriesPoint] = []
     @Published var color: Color = .blue

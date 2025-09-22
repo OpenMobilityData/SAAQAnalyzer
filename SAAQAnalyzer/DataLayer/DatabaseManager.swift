@@ -353,23 +353,26 @@ class DatabaseManager: ObservableObject {
     
     /// Queries vehicle data based on filters
     func queryVehicleData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
+        // First, generate the proper series name with municipality name resolution
+        let seriesName = await generateSeriesNameAsync(from: filters)
+
         return try await withCheckedThrowingContinuation { continuation in
             dbQueue.async { [weak self] in
                 guard let db = self?.db else {
                     continuation.resume(throwing: DatabaseError.notConnected)
                     return
                 }
-                
+
                 // Build dynamic query based on filters
                 var query = """
                     SELECT year, COUNT(*) as count
                     FROM vehicles
                     WHERE 1=1
                     """
-                
+
                 var bindIndex = 1
                 var bindValues: [(Int32, Any)] = []
-                
+
                 // Add year filter
                 if !filters.years.isEmpty {
                     let placeholders = Array(repeating: "?", count: filters.years.count).joined(separator: ",")
@@ -379,7 +382,7 @@ class DatabaseManager: ObservableObject {
                         bindIndex += 1
                     }
                 }
-                
+
                 // Add region filter
                 if !filters.regions.isEmpty {
                     let placeholders = Array(repeating: "?", count: filters.regions.count).joined(separator: ",")
@@ -389,7 +392,7 @@ class DatabaseManager: ObservableObject {
                         bindIndex += 1
                     }
                 }
-                
+
                 // Add MRC filter
                 if !filters.mrcs.isEmpty {
                     let placeholders = Array(repeating: "?", count: filters.mrcs.count).joined(separator: ",")
@@ -399,7 +402,7 @@ class DatabaseManager: ObservableObject {
                         bindIndex += 1
                     }
                 }
-                
+
                 // Add municipality filter
                 if !filters.municipalities.isEmpty {
                     let placeholders = Array(repeating: "?", count: filters.municipalities.count).joined(separator: ",")
@@ -409,7 +412,7 @@ class DatabaseManager: ObservableObject {
                         bindIndex += 1
                     }
                 }
-                
+
                 // Add vehicle classification filter
                 if !filters.vehicleClassifications.isEmpty {
                     let placeholders = Array(repeating: "?", count: filters.vehicleClassifications.count).joined(separator: ",")
@@ -419,7 +422,7 @@ class DatabaseManager: ObservableObject {
                         bindIndex += 1
                     }
                 }
-                
+
                 // Add fuel type filter (only for years 2017+)
                 if !filters.fuelTypes.isEmpty {
                     let placeholders = Array(repeating: "?", count: filters.fuelTypes.count).joined(separator: ",")
@@ -429,7 +432,7 @@ class DatabaseManager: ObservableObject {
                         bindIndex += 1
                     }
                 }
-                
+
                 // Add age range filter
                 if !filters.ageRanges.isEmpty {
                     var ageConditions: [String] = []
@@ -448,27 +451,27 @@ class DatabaseManager: ObservableObject {
                             bindIndex += 1
                         }
                     }
-                    
+
                     if !ageConditions.isEmpty {
                         // Only include vehicles where model_year is not null
                         query += " AND model_year IS NOT NULL AND (\(ageConditions.joined(separator: " OR ")))"
                     }
                 }
-                
+
                 // Group by year and order
                 query += " GROUP BY year ORDER BY year"
-                
+
                 // Debug output
                 print("Query: \(query)")
                 print("Bind values: \(bindValues)")
-                
+
                 var stmt: OpaquePointer?
                 defer {
                     if stmt != nil {
                         sqlite3_finalize(stmt)
                     }
                 }
-                
+
                 guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
                     if let errorMessage = sqlite3_errmsg(db) {
                         continuation.resume(throwing: DatabaseError.queryFailed(String(cString: errorMessage)))
@@ -477,7 +480,7 @@ class DatabaseManager: ObservableObject {
                     }
                     return
                 }
-                
+
                 // Bind values
                 for (index, value) in bindValues {
                     switch value {
@@ -489,7 +492,7 @@ class DatabaseManager: ObservableObject {
                         break
                     }
                 }
-                
+
                 // Execute query and collect results
                 var points: [TimeSeriesPoint] = []
                 while sqlite3_step(stmt) == SQLITE_ROW {
@@ -497,20 +500,19 @@ class DatabaseManager: ObservableObject {
                     let count = Double(sqlite3_column_int(stmt, 1))
                     points.append(TimeSeriesPoint(year: year, value: count, label: nil))
                 }
-                
-                // Create series name based on filters
-                let seriesName = self?.generateSeriesName(from: filters) ?? "Vehicle Data"
+
+                // Create series with the proper name (already resolved)
                 let series = FilteredDataSeries(name: seriesName, filters: filters, points: points)
-                
+
                 continuation.resume(returning: series)
             }
         }
     }
     
-    /// Generates a descriptive name for a data series based on filters
-    private func generateSeriesName(from filters: FilterConfiguration) -> String {
+    /// Generates a descriptive name for a data series based on filters (async version with municipality name lookup)
+    private func generateSeriesNameAsync(from filters: FilterConfiguration) async -> String {
         var components: [String] = []
-        
+
         if !filters.vehicleClassifications.isEmpty {
             let classifications = filters.vehicleClassifications
                 .compactMap { VehicleClassification(rawValue: $0)?.description }
@@ -519,7 +521,7 @@ class DatabaseManager: ObservableObject {
                 components.append(classifications)
             }
         }
-        
+
         if !filters.fuelTypes.isEmpty {
             let fuels = filters.fuelTypes
                 .compactMap { FuelType(rawValue: $0)?.description }
@@ -528,16 +530,54 @@ class DatabaseManager: ObservableObject {
                 components.append(fuels)
             }
         }
-        
+
         if !filters.regions.isEmpty {
             components.append("Region: \(filters.regions.joined(separator: ", "))")
         } else if !filters.mrcs.isEmpty {
             components.append("MRC: \(filters.mrcs.joined(separator: ", "))")
         } else if !filters.municipalities.isEmpty {
-            // For now, use codes in series name - we'll improve this later
+            // Convert municipality codes to names for display
+            let codeToName = await getMunicipalityCodeToNameMapping()
+            let municipalityNames = filters.municipalities.compactMap { code in
+                codeToName[code] ?? code  // Fallback to code if name not found
+            }
+            components.append("Municipality: \(municipalityNames.joined(separator: ", "))")
+        }
+
+        return components.isEmpty ? "All Vehicles" : components.joined(separator: " - ")
+    }
+
+    /// Generates a descriptive name for a data series based on filters (legacy synchronous version)
+    private func generateSeriesName(from filters: FilterConfiguration) -> String {
+        var components: [String] = []
+
+        if !filters.vehicleClassifications.isEmpty {
+            let classifications = filters.vehicleClassifications
+                .compactMap { VehicleClassification(rawValue: $0)?.description }
+                .joined(separator: ", ")
+            if !classifications.isEmpty {
+                components.append(classifications)
+            }
+        }
+
+        if !filters.fuelTypes.isEmpty {
+            let fuels = filters.fuelTypes
+                .compactMap { FuelType(rawValue: $0)?.description }
+                .joined(separator: ", ")
+            if !fuels.isEmpty {
+                components.append(fuels)
+            }
+        }
+
+        if !filters.regions.isEmpty {
+            components.append("Region: \(filters.regions.joined(separator: ", "))")
+        } else if !filters.mrcs.isEmpty {
+            components.append("MRC: \(filters.mrcs.joined(separator: ", "))")
+        } else if !filters.municipalities.isEmpty {
+            // Use codes in series name (fallback for synchronous version)
             components.append("Municipality: \(filters.municipalities.joined(separator: ", "))")
         }
-        
+
         return components.isEmpty ? "All Vehicles" : components.joined(separator: " - ")
     }
     
