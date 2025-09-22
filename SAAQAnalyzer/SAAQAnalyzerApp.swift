@@ -364,27 +364,44 @@ struct SettingsView: View {
     @EnvironmentObject var databaseManager: DatabaseManager
     @StateObject private var settings = AppSettings.shared
     @AppStorage("defaultImportPath") var defaultImportPath = ""
-    
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            // Header
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Settings")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                
-                Text("Configure database, import preferences, and performance settings")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            
-            Divider()
-            
+        TabView {
+            // General tab
+            GeneralSettingsTab(databaseManager: databaseManager, defaultImportPath: $defaultImportPath)
+                .tabItem {
+                    Label("General", systemImage: "gear")
+                }
+
+            // Performance tab
+            PerformanceSettingsTab(settings: settings)
+                .tabItem {
+                    Label("Performance", systemImage: "speedometer")
+                }
+
+            // Export tab
+            ExportSettingsTab(settings: settings)
+                .tabItem {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+        }
+        .frame(width: 500, height: 550)
+    }
+}
+
+// MARK: - General Settings Tab
+
+struct GeneralSettingsTab: View {
+    let databaseManager: DatabaseManager
+    @Binding var defaultImportPath: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
             // Database Section
             VStack(alignment: .leading, spacing: 12) {
                 Text("Database")
                     .font(.headline)
-                
+
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("Database Location:")
@@ -394,12 +411,12 @@ struct SettingsView: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
-                    
+
                     Button("Change Database Location...") {
                         changeDatabaseLocation()
                     }
                     .buttonStyle(.bordered)
-                    
+
                     HStack {
                         Text("Default Import Path:")
                         TextField("Path", text: $defaultImportPath)
@@ -409,148 +426,22 @@ struct SettingsView: View {
                 .background(Color.gray.opacity(0.1))
                 .cornerRadius(8)
             }
-            
+
             Divider()
-            
-            // Import Performance Section
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Import Performance")
-                    .font(.headline)
-                
-                // System Information
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("System Information")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    
-                    HStack {
-                        Text("Total CPU Cores:")
-                        Spacer()
-                        Text("\(settings.systemProcessorCount)")
-                            .fontWeight(.medium)
-                    }
-                    
-                    HStack {
-                        Text("Estimated Performance Cores:")
-                        Spacer()
-                        Text("\(settings.estimatedPerformanceCores)")
-                            .fontWeight(.medium)
-                    }
-                }
-                .padding(12)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(8)
-                
-                // Thread Configuration
-                VStack(alignment: .leading, spacing: 12) {
-                    // Adaptive vs Manual toggle
-                    Toggle(isOn: $settings.useAdaptiveThreadCount) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Adaptive Thread Count")
-                                .font(.subheadline)
-                            Text("Automatically optimize based on file size and system")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    
-                    if settings.useAdaptiveThreadCount {
-                        // Adaptive settings
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text("Maximum Threads:")
-                                Spacer()
-                                Text("\(settings.maxThreadCount)")
-                                    .fontWeight(.medium)
-                            }
-                            
-                            Slider(
-                                value: Binding(
-                                    get: { Double(settings.maxThreadCount) },
-                                    set: { settings.maxThreadCount = Int($0) }
-                                ),
-                                in: 1...Double(settings.systemProcessorCount),
-                                step: 1
-                            )
-                            
-                            Text("Adaptive calculation preview:")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            
-                            adaptivePreviewGrid
-                        }
-                        .padding(.leading, 20)
-                    } else {
-                        // Manual settings
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text("Thread Count:")
-                                Spacer()
-                                Text("\(settings.manualThreadCount)")
-                                    .fontWeight(.medium)
-                            }
-                            
-                            Slider(
-                                value: Binding(
-                                    get: { Double(settings.manualThreadCount) },
-                                    set: { settings.manualThreadCount = Int($0) }
-                                ),
-                                in: 1...Double(settings.systemProcessorCount),
-                                step: 1
-                            )
-                            
-                            Text("Fixed thread count for all imports")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.leading, 20)
-                    }
-                }
-            }
-            
-            Divider()
-            
-            // Performance Tips
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Performance Tips")
-                    .font(.headline)
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    performanceTip(
-                        icon: "cpu",
-                        title: "CPU Usage",
-                        description: "More threads = faster imports, but may slow other apps"
-                    )
-                    
-                    performanceTip(
-                        icon: "memorychip",
-                        title: "Memory Usage", 
-                        description: "Each thread uses ~200MB during import"
-                    )
-                    
-                    performanceTip(
-                        icon: "chart.line.uptrend.xyaxis",
-                        title: "Adaptive Mode",
-                        description: "Recommended for varying file sizes and system loads"
-                    )
-                }
-            }
-            
-            Divider()
-            
+
             // Filter Cache Section
             VStack(alignment: .leading, spacing: 12) {
                 Text("Filter Cache")
                     .font(.headline)
-                
+
                 Text("Filter options (regions, vehicle types, etc.) are cached to improve app startup time. The cache is automatically refreshed when new data is imported.")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                
+
                 // Cache Status
                 VStack(alignment: .leading, spacing: 8) {
                     let cacheInfo = databaseManager.filterCacheInfo
-                    
+
                     HStack {
                         Text("Cache Status:")
                         Spacer()
@@ -558,7 +449,7 @@ struct SettingsView: View {
                             .fontWeight(.medium)
                             .foregroundColor(cacheInfo.hasCache ? .green : .orange)
                     }
-                    
+
                     if let lastUpdated = cacheInfo.lastUpdated {
                         HStack {
                             Text("Last Updated:")
@@ -567,20 +458,20 @@ struct SettingsView: View {
                                 .fontWeight(.medium)
                         }
                     }
-                    
+
                     if cacheInfo.hasCache {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Cached Items:")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-                            
+
                             HStack {
                                 Text("• \(cacheInfo.itemCounts.years) years")
                                 Spacer()
                                 Text("• \(cacheInfo.itemCounts.regions) regions")
                             }
                             .font(.caption2)
-                            
+
                             HStack {
                                 Text("• \(cacheInfo.itemCounts.mrcs) MRCs")
                                 Spacer()
@@ -593,7 +484,7 @@ struct SettingsView: View {
                 .padding(12)
                 .background(Color.gray.opacity(0.1))
                 .cornerRadius(8)
-                
+
                 // Cache Actions
                 HStack {
                     Button("Refresh Cache") {
@@ -603,33 +494,171 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.bordered)
                     .help("Force refresh filter cache from database")
-                    
+
                     Button("Clear Cache") {
                         databaseManager.clearFilterCache()
                     }
                     .buttonStyle(.bordered)
                     .help("Clear cached filter options (will reload from database next time)")
-                    
+
                     Spacer()
                 }
             }
-            
+
             Spacer()
-            
-            // Reset button
-            HStack {
-                Button("Reset to Defaults") {
-                    settings.resetToDefaults()
-                }
-                .buttonStyle(.bordered)
-                
-                Spacer()
-            }
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
-    
+
+    private func changeDatabaseLocation() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "saaq_data.sqlite"
+        panel.begin { response in
+            if response == .OK, let url = panel.url {
+                databaseManager.setDatabaseLocation(url)
+            }
+        }
+    }
+}
+
+// MARK: - Performance Settings Tab
+
+struct PerformanceSettingsTab: View {
+    @ObservedObject var settings: AppSettings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // System Information
+            VStack(alignment: .leading, spacing: 12) {
+                Text("System Information")
+                    .font(.headline)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Total CPU Cores:")
+                        Spacer()
+                        Text("\(settings.systemProcessorCount)")
+                            .fontWeight(.medium)
+                    }
+
+                    HStack {
+                        Text("Estimated Performance Cores:")
+                        Spacer()
+                        Text("\(settings.estimatedPerformanceCores)")
+                            .fontWeight(.medium)
+                    }
+                }
+                .padding(12)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(8)
+            }
+
+            Divider()
+
+            // Thread Configuration
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Thread Configuration")
+                    .font(.headline)
+
+                // Adaptive vs Manual toggle
+                Toggle(isOn: $settings.useAdaptiveThreadCount) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Adaptive Thread Count")
+                            .font(.subheadline)
+                        Text("Automatically optimize based on file size and system")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                if settings.useAdaptiveThreadCount {
+                    // Adaptive settings
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Maximum Threads:")
+                            Spacer()
+                            Text("\(settings.maxThreadCount)")
+                                .fontWeight(.medium)
+                        }
+
+                        Slider(
+                            value: Binding(
+                                get: { Double(settings.maxThreadCount) },
+                                set: { settings.maxThreadCount = Int($0) }
+                            ),
+                            in: 1...Double(settings.systemProcessorCount),
+                            step: 1
+                        )
+
+                        Text("Adaptive calculation preview:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        adaptivePreviewGrid
+                    }
+                    .padding(.leading, 20)
+                } else {
+                    // Manual settings
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Thread Count:")
+                            Spacer()
+                            Text("\(settings.manualThreadCount)")
+                                .fontWeight(.medium)
+                        }
+
+                        Slider(
+                            value: Binding(
+                                get: { Double(settings.manualThreadCount) },
+                                set: { settings.manualThreadCount = Int($0) }
+                            ),
+                            in: 1...Double(settings.systemProcessorCount),
+                            step: 1
+                        )
+
+                        Text("Fixed thread count for all imports")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.leading, 20)
+                }
+            }
+
+            Divider()
+
+            // Performance Tips
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Performance Tips")
+                    .font(.headline)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    performanceTip(
+                        icon: "cpu",
+                        title: "CPU Usage",
+                        description: "More threads = faster imports, but may slow other apps"
+                    )
+
+                    performanceTip(
+                        icon: "memorychip",
+                        title: "Memory Usage",
+                        description: "Each thread uses ~200MB during import"
+                    )
+
+                    performanceTip(
+                        icon: "chart.line.uptrend.xyaxis",
+                        title: "Adaptive Mode",
+                        description: "Recommended for varying file sizes and system loads"
+                    )
+                }
+            }
+
+            Spacer()
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
     /// Preview grid showing adaptive thread counts for different file sizes
     private var adaptivePreviewGrid: some View {
         Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
@@ -642,7 +671,7 @@ struct SettingsView: View {
                     .fontWeight(.medium)
             }
             .foregroundColor(.secondary)
-            
+
             ForEach([
                 (name: "Small (100K)", count: 100_000),
                 (name: "Medium (1M)", count: 1_000_000),
@@ -662,14 +691,14 @@ struct SettingsView: View {
         .background(Color.gray.opacity(0.05))
         .cornerRadius(6)
     }
-    
+
     /// Individual performance tip row
     private func performanceTip(icon: String, title: String, description: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: icon)
                 .foregroundColor(.blue)
                 .frame(width: 16)
-            
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.caption)
@@ -680,15 +709,142 @@ struct SettingsView: View {
             }
         }
     }
-    
-    private func changeDatabaseLocation() {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "saaq_data.sqlite"
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
-                databaseManager.setDatabaseLocation(url)
+}
+
+// MARK: - Export Settings Tab
+
+struct ExportSettingsTab: View {
+    @ObservedObject var settings: AppSettings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Export Appearance
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Export Appearance")
+                    .font(.headline)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    // Background Luminosity
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Background Luminosity:")
+                            Spacer()
+                            Text(String(format: "%.0f%%", settings.exportBackgroundLuminosity * 100))
+                                .fontWeight(.medium)
+                        }
+
+                        Slider(
+                            value: $settings.exportBackgroundLuminosity,
+                            in: 0.0...1.0,
+                            step: 0.05
+                        )
+
+                        Text("0% = black, 100% = white")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Divider()
+
+                    // Line Thickness
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Line Thickness:")
+                            Spacer()
+                            Text(String(format: "%.1f pt", settings.exportLineThickness))
+                                .fontWeight(.medium)
+                        }
+
+                        Slider(
+                            value: $settings.exportLineThickness,
+                            in: 1.0...12.0,
+                            step: 0.5
+                        )
+
+                        Text("Thickness of chart lines and borders")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Divider()
+
+                    // Bold Axis Labels
+                    Toggle(isOn: $settings.exportBoldAxisLabels) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Bold Axis Labels")
+                                .font(.subheadline)
+                            Text("Use bold font weight for axis labels")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Divider()
+
+                    // Include Legend
+                    Toggle(isOn: $settings.exportIncludeLegend) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Include Legend")
+                                .font(.subheadline)
+                            Text("Show legend when multiple series are present")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .padding(12)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(8)
             }
+
+            Divider()
+
+            // Export Quality
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Export Quality")
+                    .font(.headline)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Scale Factor:")
+                        Spacer()
+                        Text("\(settings.exportScaleFactor, specifier: "%.1f")x")
+                            .fontWeight(.medium)
+                    }
+
+                    Slider(
+                        value: $settings.exportScaleFactor,
+                        in: 1.0...4.0,
+                        step: 0.5
+                    )
+
+                    Text("Higher values produce sharper images at larger file sizes")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    // Quality examples
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Examples:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text("• 1.0x = Standard definition")
+                            .font(.caption2)
+                        Text("• 2.0x = High definition (recommended)")
+                            .font(.caption2)
+                        Text("• 3.0x = Ultra high definition")
+                            .font(.caption2)
+                    }
+                }
+                .padding(12)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(8)
+            }
+
+            Spacer()
         }
+        .padding()
+        .padding(.top, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
