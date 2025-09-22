@@ -427,6 +427,31 @@ class DatabaseManager: ObservableObject {
                     }
                 }
                 
+                // Add age range filter
+                if !filters.ageRanges.isEmpty {
+                    var ageConditions: [String] = []
+                    for ageRange in filters.ageRanges {
+                        if let maxAge = ageRange.maxAge {
+                            // Age range with both min and max
+                            ageConditions.append("(year - model_year >= ? AND year - model_year <= ?)")
+                            bindValues.append((Int32(bindIndex), ageRange.minAge))
+                            bindIndex += 1
+                            bindValues.append((Int32(bindIndex), maxAge))
+                            bindIndex += 1
+                        } else {
+                            // Age range with only minimum (no upper limit)
+                            ageConditions.append("(year - model_year >= ?)")
+                            bindValues.append((Int32(bindIndex), ageRange.minAge))
+                            bindIndex += 1
+                        }
+                    }
+                    
+                    if !ageConditions.isEmpty {
+                        // Only include vehicles where model_year is not null
+                        query += " AND model_year IS NOT NULL AND (\(ageConditions.joined(separator: " OR ")))"
+                    }
+                }
+                
                 // Group by year and order
                 query += " GROUP BY year ORDER BY year"
                 

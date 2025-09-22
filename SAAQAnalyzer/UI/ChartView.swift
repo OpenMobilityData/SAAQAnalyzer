@@ -108,15 +108,16 @@ struct ChartView: View {
     @ViewBuilder
     private var chartContent: some View {
         Chart(dataSeries, id: \.id) { series in
-            ForEach(series.points) { point in
+            ForEach(series.points.sorted { $0.year < $1.year }) { point in
                 switch chartType {
                 case .line:
                     LineMark(
                         x: .value("Year", point.year),
                         y: .value("Count", point.value),
-                        series: .value("Series", series.name)
+                        series: .value("Series", series.id.uuidString)
                     )
                     .foregroundStyle(series.color)
+                    .interpolationMethod(.linear)
                     
                     PointMark(
                         x: .value("Year", point.year),
@@ -138,16 +139,17 @@ struct ChartView: View {
                     AreaMark(
                         x: .value("Year", point.year),
                         y: .value("Count", point.value),
-                        series: .value("Series", series.name)
+                        series: .value("Series", series.id.uuidString)
                     )
                     .foregroundStyle(series.color.opacity(0.3))
                     
                     LineMark(
                         x: .value("Year", point.year),
                         y: .value("Count", point.value),
-                        series: .value("Series", series.name)
+                        series: .value("Series", series.id.uuidString)
                     )
                     .foregroundStyle(series.color)
+                    .interpolationMethod(.linear)
                 }
             }
         }
