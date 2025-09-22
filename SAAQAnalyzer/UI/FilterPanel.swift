@@ -240,22 +240,11 @@ struct SimpleGeographicFilterSection: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
-                LazyVGrid(columns: [GridItem(.flexible())], spacing: 4) {
-                    ForEach(availableRegions, id: \.self) { region in
-                        Toggle(region, isOn: Binding(
-                            get: { configuration.regions.contains(region) },
-                            set: { isSelected in
-                                if isSelected {
-                                    configuration.regions.insert(region)
-                                } else {
-                                    configuration.regions.remove(region)
-                                }
-                            }
-                        ))
-                        .toggleStyle(.checkbox)
-                        .font(.caption)
-                    }
-                }
+                SearchableFilterList(
+                    items: availableRegions,
+                    selectedItems: $configuration.regions,
+                    searchPrompt: "Search regions..."
+                )
             }
             
             // MRCs section  
@@ -266,22 +255,11 @@ struct SimpleGeographicFilterSection: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
-                LazyVGrid(columns: [GridItem(.flexible())], spacing: 4) {
-                    ForEach(availableMRCs, id: \.self) { mrc in
-                        Toggle(mrc, isOn: Binding(
-                            get: { configuration.mrcs.contains(mrc) },
-                            set: { isSelected in
-                                if isSelected {
-                                    configuration.mrcs.insert(mrc)
-                                } else {
-                                    configuration.mrcs.remove(mrc)
-                                }
-                            }
-                        ))
-                        .toggleStyle(.checkbox)
-                        .font(.caption)
-                    }
-                }
+                SearchableFilterList(
+                    items: availableMRCs,
+                    selectedItems: $configuration.mrcs,
+                    searchPrompt: "Search MRCs..."
+                )
             }
             
             // Summary of selections
@@ -342,22 +320,10 @@ struct VehicleFilterSection: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                    ForEach(availableClassifications, id: \.self) { classification in
-                        Toggle(getDisplayName(for: classification), isOn: Binding(
-                            get: { selectedClassifications.contains(classification) },
-                            set: { isSelected in
-                                if isSelected {
-                                    selectedClassifications.insert(classification)
-                                } else {
-                                    selectedClassifications.remove(classification)
-                                }
-                            }
-                        ))
-                        .toggleStyle(.checkbox)
-                        .help(getDescription(for: classification))  // Tooltip with description
-                    }
-                }
+                VehicleClassificationFilterList(
+                    availableClassifications: availableClassifications,
+                    selectedClassifications: $selectedClassifications
+                )
             }
             
             // Fuel types (only if 2017+ data is available)
@@ -368,38 +334,24 @@ struct VehicleFilterSection: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                    ForEach(FuelType.allCases, id: \.rawValue) { fuelType in
-                        Toggle(fuelType.description, isOn: Binding(
-                            get: { selectedFuelTypes.contains(fuelType.rawValue) },
-                            set: { isSelected in
-                                if isSelected {
-                                    selectedFuelTypes.insert(fuelType.rawValue)
-                                } else {
-                                    selectedFuelTypes.remove(fuelType.rawValue)
-                                }
-                            }
-                        ))
-                        .toggleStyle(.checkbox)
-                    }
-                }
+                SearchableFilterList(
+                    items: FuelType.allCases.map { $0.description },
+                    selectedItems: Binding(
+                        get: {
+                            Set(FuelType.allCases.compactMap { fuelType in
+                                selectedFuelTypes.contains(fuelType.rawValue) ? fuelType.description : nil
+                            })
+                        },
+                        set: { descriptions in
+                            selectedFuelTypes = Set(FuelType.allCases.compactMap { fuelType in
+                                descriptions.contains(fuelType.description) ? fuelType.rawValue : nil
+                            })
+                        }
+                    ),
+                    searchPrompt: "Search fuel types..."
+                )
             }
         }
-    }
-    
-    // Helper methods for vehicle classification display
-    private func getDisplayName(for classification: String) -> String {
-        if let vehicleClass = VehicleClassification(rawValue: classification) {
-            return "\(classification) - \(vehicleClass.description)"
-        }
-        return classification
-    }
-    
-    private func getDescription(for classification: String) -> String {
-        if let vehicleClass = VehicleClassification(rawValue: classification) {
-            return vehicleClass.description
-        }
-        return "Unknown classification: \(classification)"
     }
 }
 
@@ -548,5 +500,246 @@ struct CustomAgeRangeView: View {
         }
         
         dismiss()
+    }
+}
+
+// MARK: - Searchable Filter List
+
+struct SearchableFilterList: View {
+    let items: [String]
+    @Binding var selectedItems: Set<String>
+    let searchPrompt: String
+    
+    @State private var searchText = ""
+    @State private var isExpanded = false
+    
+    private var filteredItems: [String] {
+        if searchText.isEmpty {
+            return items
+        }
+        return items.filter { $0.localizedCaseInsensitiveContains(searchText) }
+    }
+    
+    private var displayedItems: [String] {
+        let sorted = filteredItems.sorted()
+        return isExpanded ? sorted : Array(sorted.prefix(5))
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Search field
+            if items.count > 8 {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                    
+                    TextField(searchPrompt, text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.caption)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
+            }
+            
+            // Quick action buttons
+            HStack {
+                Button("All") {
+                    selectedItems = Set(filteredItems)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                
+                Button("Clear") {
+                    selectedItems.removeAll()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                
+                Spacer()
+                
+                if items.count > 5 && searchText.isEmpty {
+                    Button(isExpanded ? "Show Less" : "Show All (\(items.count))") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isExpanded.toggle()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption2)
+                    .foregroundColor(.accentColor)
+                }
+            }
+            
+            // Filter items
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(displayedItems, id: \.self) { item in
+                    HStack(alignment: .top, spacing: 8) {
+                        Toggle(isOn: Binding(
+                            get: { selectedItems.contains(item) },
+                            set: { isSelected in
+                                if isSelected {
+                                    selectedItems.insert(item)
+                                } else {
+                                    selectedItems.remove(item)
+                                }
+                            }
+                        )) {
+                            EmptyView()
+                        }
+                        .toggleStyle(.checkbox)
+                        .controlSize(.mini)
+                        
+                        Text(item)
+                            .font(.caption)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.vertical, 1)
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: displayedItems.count)
+            
+            // Search results summary
+            if !searchText.isEmpty && filteredItems.count != items.count {
+                Text("Showing \(filteredItems.count) of \(items.count) items")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Vehicle Classification Filter List
+
+struct VehicleClassificationFilterList: View {
+    let availableClassifications: [String]
+    @Binding var selectedClassifications: Set<String>
+    
+    @State private var searchText = ""
+    @State private var isExpanded = false
+    
+    private var filteredItems: [String] {
+        if searchText.isEmpty {
+            return availableClassifications
+        }
+        return availableClassifications.filter { classification in
+            let displayName = getDisplayName(for: classification)
+            return displayName.localizedCaseInsensitiveContains(searchText) || 
+                   classification.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+    
+    private var displayedItems: [String] {
+        let sorted = filteredItems.sorted()
+        return isExpanded ? sorted : Array(sorted.prefix(6))
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Search field
+            if availableClassifications.count > 10 {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                        .font(.caption)
+                    
+                    TextField("Search vehicle types...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.caption)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
+            }
+            
+            // Quick action buttons
+            HStack {
+                Button("All") {
+                    selectedClassifications = Set(filteredItems)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                
+                Button("Clear") {
+                    selectedClassifications.removeAll()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                
+                Spacer()
+                
+                if availableClassifications.count > 6 && searchText.isEmpty {
+                    Button(isExpanded ? "Show Less" : "Show All (\(availableClassifications.count))") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isExpanded.toggle()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.caption2)
+                    .foregroundColor(.accentColor)
+                }
+            }
+            
+            // Filter items
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(displayedItems, id: \.self) { classification in
+                    HStack(alignment: .top, spacing: 8) {
+                        Toggle(isOn: Binding(
+                            get: { selectedClassifications.contains(classification) },
+                            set: { isSelected in
+                                if isSelected {
+                                    selectedClassifications.insert(classification)
+                                } else {
+                                    selectedClassifications.remove(classification)
+                                }
+                            }
+                        )) {
+                            EmptyView()
+                        }
+                        .toggleStyle(.checkbox)
+                        .controlSize(.mini)
+                        
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(getDisplayName(for: classification))
+                                .font(.caption)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.vertical, 1)
+                    .help(getDescription(for: classification))  // Tooltip with description
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: displayedItems.count)
+            
+            // Search results summary
+            if !searchText.isEmpty && filteredItems.count != availableClassifications.count {
+                Text("Showing \(filteredItems.count) of \(availableClassifications.count) vehicle types")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+    
+    // Helper methods for vehicle classification display
+    private func getDisplayName(for classification: String) -> String {
+        if let vehicleClass = VehicleClassification(rawValue: classification) {
+            return "\(classification) - \(vehicleClass.description)"
+        }
+        return classification
+    }
+    
+    private func getDescription(for classification: String) -> String {
+        if let vehicleClass = VehicleClassification(rawValue: classification) {
+            return vehicleClass.description
+        }
+        return "Unknown classification: \(classification)"
     }
 }
