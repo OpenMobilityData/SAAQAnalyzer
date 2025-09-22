@@ -21,11 +21,6 @@ struct FilterPanel: View {
     @State private var vehicleSectionExpanded = true
     @State private var ageSectionExpanded = false
     
-    // Selected geographic hierarchy
-    @State private var selectedRegions: Set<String> = []
-    @State private var selectedMRCs: Set<String> = []
-    @State private var selectedMunicipalities: Set<String> = []
-    
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
@@ -64,7 +59,12 @@ struct FilterPanel: View {
                     DisclosureGroup(isExpanded: $yearSectionExpanded) {
                         YearFilterSection(
                             availableYears: availableYears,
-                            selectedYears: $configuration.years
+                            selectedYears: Binding(
+                                get: { configuration.years },
+                                set: { newYears in
+                                    configuration.years = newYears
+                                }
+                            )
                         )
                     } label: {
                         Label("Years", systemImage: "calendar")
@@ -172,9 +172,6 @@ struct FilterPanel: View {
     /// Clears all filter selections
     private func clearAllFilters() {
         configuration = FilterConfiguration()
-        selectedRegions.removeAll()
-        selectedMRCs.removeAll()
-        selectedMunicipalities.removeAll()
     }
 }
 
