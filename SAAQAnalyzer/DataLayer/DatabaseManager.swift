@@ -13,6 +13,9 @@ class DatabaseManager: ObservableObject {
     /// Triggers UI refresh when data changes
     @Published var dataVersion = 0
     
+    /// Filter cache manager
+    private let filterCache = FilterCache()
+    
     /// SQLite database handle
     internal var db: OpaquePointer?
     
@@ -537,8 +540,26 @@ class DatabaseManager: ObservableObject {
         return components.isEmpty ? "All Vehicles" : components.joined(separator: " - ")
     }
     
-    /// Gets available years in the database
+    /// Gets available years - uses cache when possible
     func getAvailableYears() async -> [Int] {
+        print("🔍 getAvailableYears() - Cache status: \(filterCache.hasCachedData)")
+        
+        // Check cache first
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+            let cached = filterCache.getCachedYears()
+            if !cached.isEmpty {
+                print("✅ Using cached years: \(cached.count) items")
+                return cached
+            }
+        }
+        
+        // Fall back to database query
+        print("📊 Querying years from database...")
+        return await getYearsFromDatabase()
+    }
+    
+    /// Internal method to query years directly from database
+    private func getYearsFromDatabase() async -> [Int] {
         await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
                 guard let db = self?.db else {
@@ -567,70 +588,36 @@ class DatabaseManager: ObservableObject {
         }
     }
     
-    /// Gets available regions from the database
+    /// Gets available regions - uses cache when possible
     func getAvailableRegions() async -> [String] {
-        await withCheckedContinuation { continuation in
-            dbQueue.async { [weak self] in
-                guard let db = self?.db else {
-                    continuation.resume(returning: [])
-                    return
-                }
-                
-                let query = "SELECT DISTINCT admin_region FROM vehicles ORDER BY admin_region"
-                var stmt: OpaquePointer?
-                
-                defer {
-                    if stmt != nil {
-                        sqlite3_finalize(stmt)
-                    }
-                }
-                
-                var regions: [String] = []
-                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
-                    while sqlite3_step(stmt) == SQLITE_ROW {
-                        if let regionPtr = sqlite3_column_text(stmt, 0) {
-                            let region = String(cString: regionPtr)
-                            regions.append(region)
-                        }
-                    }
-                }
-                
-                continuation.resume(returning: regions)
+        print("🔍 getAvailableRegions() - Cache status: \(filterCache.hasCachedData)")
+        
+        // Check cache first
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+            let cached = filterCache.getCachedRegions()
+            if !cached.isEmpty {
+                print("✅ Using cached regions: \(cached.count) items")
+                return cached
             }
         }
+        
+        // Fall back to database query
+        print("📊 Querying regions from database...")
+        return await getRegionsFromDatabase()
     }
     
-    /// Gets available MRCs from the database
+    /// Gets available MRCs - uses cache when possible
     func getAvailableMRCs() async -> [String] {
-        await withCheckedContinuation { continuation in
-            dbQueue.async { [weak self] in
-                guard let db = self?.db else {
-                    continuation.resume(returning: [])
-                    return
-                }
-                
-                let query = "SELECT DISTINCT mrc FROM vehicles ORDER BY mrc"
-                var stmt: OpaquePointer?
-                
-                defer {
-                    if stmt != nil {
-                        sqlite3_finalize(stmt)
-                    }
-                }
-                
-                var mrcs: [String] = []
-                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
-                    while sqlite3_step(stmt) == SQLITE_ROW {
-                        if let mrcPtr = sqlite3_column_text(stmt, 0) {
-                            let mrc = String(cString: mrcPtr)
-                            mrcs.append(mrc)
-                        }
-                    }
-                }
-                
-                continuation.resume(returning: mrcs)
+        // Check cache first
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+            let cached = filterCache.getCachedMRCs()
+            if !cached.isEmpty {
+                return cached
             }
         }
+        
+        // Fall back to database query
+        return await getMRCsFromDatabase()
     }
     
     /// Prepares database for bulk import session
@@ -705,9 +692,14 @@ class DatabaseManager: ObservableObject {
                 let indexTime = Date().timeIntervalSince(indexStartTime)
                 print("✅ Database optimization complete (\(String(format: "%.1f", indexTime))s)")
                 
-                // Trigger UI refresh for filter options
+                // Trigger UI refresh for filter options and refresh cache
                 DispatchQueue.main.async { [weak self] in
                     self?.dataVersion += 1
+                }
+                
+                // Refresh filter cache after data import
+                Task { [weak self] in
+                    await self?.refreshFilterCache()
                 }
                 
                 continuation.resume()
@@ -734,8 +726,139 @@ class DatabaseManager: ObservableObject {
         return 0
     }
     
-    /// Gets available vehicle classifications from the database
+    /// Gets available classifications - uses cache when possible
     func getAvailableClassifications() async -> [String] {
+        // Check cache first
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+            let cached = filterCache.getCachedClassifications()
+            if !cached.isEmpty {
+                return cached
+            }
+        }
+        
+        // Fall back to database query
+        return await getClassificationsFromDatabase()
+    }
+    
+    // MARK: - Filter Cache Management
+    
+    /// Refreshes the filter cache with current database values
+    func refreshFilterCache() async {
+        print("🔄 Refreshing filter cache...")
+        let startTime = Date()
+        
+        // Query all filter values from database in parallel
+        async let years = getYearsFromDatabase()
+        async let regions = getRegionsFromDatabase()  
+        async let mrcs = getMRCsFromDatabase()
+        async let classifications = getClassificationsFromDatabase()
+        
+        // Wait for all queries to complete
+        let (yearsList, regionsList, mrcsList, classificationsList) = await (years, regions, mrcs, classifications)
+        
+        let duration = Date().timeIntervalSince(startTime)
+        print("🔄 Database queries completed in \(String(format: "%.2f", duration))s")
+        print("🔄 Found: \(yearsList.count) years, \(regionsList.count) regions, \(mrcsList.count) MRCs, \(classificationsList.count) classifications")
+        
+        // Update cache
+        filterCache.updateCache(
+            years: yearsList,
+            regions: regionsList, 
+            mrcs: mrcsList,
+            classifications: classificationsList,
+            dataVersion: "\(dataVersion)"
+        )
+        
+        print("✅ Filter cache refresh completed")
+    }
+    
+    /// Clears the filter cache (useful for troubleshooting)
+    func clearFilterCache() {
+        filterCache.clearCache()
+    }
+    
+    /// Gets cache status information
+    var filterCacheInfo: (hasCache: Bool, lastUpdated: Date?, itemCounts: (years: Int, regions: Int, mrcs: Int, classifications: Int)) {
+        return (
+            hasCache: filterCache.hasCachedData,
+            lastUpdated: filterCache.lastUpdated,
+            itemCounts: (
+                years: filterCache.getCachedYears().count,
+                regions: filterCache.getCachedRegions().count,
+                mrcs: filterCache.getCachedMRCs().count,
+                classifications: filterCache.getCachedClassifications().count
+            )
+        )
+    }
+    
+    // MARK: - Database Query Methods (Private)
+    
+    /// Internal method to query regions directly from database
+    private func getRegionsFromDatabase() async -> [String] {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+                
+                let query = "SELECT DISTINCT admin_region FROM vehicles ORDER BY admin_region"
+                var stmt: OpaquePointer?
+                
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+                
+                var regions: [String] = []
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let regionPtr = sqlite3_column_text(stmt, 0) {
+                            regions.append(String(cString: regionPtr))
+                        }
+                    }
+                }
+                
+                continuation.resume(returning: regions)
+            }
+        }
+    }
+    
+    /// Internal method to query MRCs directly from database
+    private func getMRCsFromDatabase() async -> [String] {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+                
+                let query = "SELECT DISTINCT mrc FROM vehicles ORDER BY mrc"
+                var stmt: OpaquePointer?
+                
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+                
+                var mrcs: [String] = []
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let mrcPtr = sqlite3_column_text(stmt, 0) {
+                            mrcs.append(String(cString: mrcPtr))
+                        }
+                    }
+                }
+                
+                continuation.resume(returning: mrcs)
+            }
+        }
+    }
+    
+    /// Internal method to query classifications directly from database
+    private func getClassificationsFromDatabase() async -> [String] {
         await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
                 guard let db = self?.db else {
@@ -756,8 +879,7 @@ class DatabaseManager: ObservableObject {
                 if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
                     while sqlite3_step(stmt) == SQLITE_ROW {
                         if let classPtr = sqlite3_column_text(stmt, 0) {
-                            let classification = String(cString: classPtr)
-                            classifications.append(classification)
+                            classifications.append(String(cString: classPtr))
                         }
                     }
                 }

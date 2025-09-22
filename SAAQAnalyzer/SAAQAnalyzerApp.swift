@@ -536,6 +536,84 @@ struct SettingsView: View {
                 }
             }
             
+            Divider()
+            
+            // Filter Cache Section
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Filter Cache")
+                    .font(.headline)
+                
+                Text("Filter options (regions, vehicle types, etc.) are cached to improve app startup time. The cache is automatically refreshed when new data is imported.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                // Cache Status
+                VStack(alignment: .leading, spacing: 8) {
+                    let cacheInfo = databaseManager.filterCacheInfo
+                    
+                    HStack {
+                        Text("Cache Status:")
+                        Spacer()
+                        Text(cacheInfo.hasCache ? "Active" : "Empty")
+                            .fontWeight(.medium)
+                            .foregroundColor(cacheInfo.hasCache ? .green : .orange)
+                    }
+                    
+                    if let lastUpdated = cacheInfo.lastUpdated {
+                        HStack {
+                            Text("Last Updated:")
+                            Spacer()
+                            Text(lastUpdated, style: .relative)
+                                .fontWeight(.medium)
+                        }
+                    }
+                    
+                    if cacheInfo.hasCache {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Cached Items:")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            HStack {
+                                Text("• \(cacheInfo.itemCounts.years) years")
+                                Spacer()
+                                Text("• \(cacheInfo.itemCounts.regions) regions")
+                            }
+                            .font(.caption2)
+                            
+                            HStack {
+                                Text("• \(cacheInfo.itemCounts.mrcs) MRCs")
+                                Spacer()
+                                Text("• \(cacheInfo.itemCounts.classifications) vehicle types")
+                            }
+                            .font(.caption2)
+                        }
+                    }
+                }
+                .padding(12)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(8)
+                
+                // Cache Actions
+                HStack {
+                    Button("Refresh Cache") {
+                        Task {
+                            await databaseManager.refreshFilterCache()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Force refresh filter cache from database")
+                    
+                    Button("Clear Cache") {
+                        databaseManager.clearFilterCache()
+                    }
+                    .buttonStyle(.bordered)
+                    .help("Clear cached filter options (will reload from database next time)")
+                    
+                    Spacer()
+                }
+            }
+            
             Spacer()
             
             // Reset button

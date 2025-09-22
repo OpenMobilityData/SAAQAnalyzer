@@ -135,7 +135,14 @@ struct FilterPanel: View {
         Task {
             isLoadingData = true
             
-            // Load all available options from database
+            // Check if we need to populate cache first
+            let cacheInfo = databaseManager.filterCacheInfo
+            if !cacheInfo.hasCache {
+                print("💾 No filter cache found, populating cache before loading options...")
+                await databaseManager.refreshFilterCache()
+            }
+            
+            // Load all available options from database/cache
             availableYears = await databaseManager.getAvailableYears()
             availableRegions = await databaseManager.getAvailableRegions()
             availableMRCs = await databaseManager.getAvailableMRCs()
