@@ -7,8 +7,45 @@ class AppSettings: ObservableObject {
     /// Singleton instance
     static let shared = AppSettings()
     
+    // MARK: - Export Settings
+
+    /// Background color luminosity for PNG exports (0.0 = black, 1.0 = white)
+    @Published var exportBackgroundLuminosity: Double {
+        didSet {
+            UserDefaults.standard.set(exportBackgroundLuminosity, forKey: "exportBackgroundLuminosity")
+        }
+    }
+
+    /// Line thickness for chart lines in PNG exports
+    @Published var exportLineThickness: Double {
+        didSet {
+            UserDefaults.standard.set(exportLineThickness, forKey: "exportLineThickness")
+        }
+    }
+
+    /// Whether to use bold font for axis labels in PNG exports
+    @Published var exportBoldAxisLabels: Bool {
+        didSet {
+            UserDefaults.standard.set(exportBoldAxisLabels, forKey: "exportBoldAxisLabels")
+        }
+    }
+
+    /// Export image scale factor (1.0 = standard, 2.0 = high DPI)
+    @Published var exportScaleFactor: Double {
+        didSet {
+            UserDefaults.standard.set(exportScaleFactor, forKey: "exportScaleFactor")
+        }
+    }
+
+    /// Whether to include legend in PNG exports when multiple series are present
+    @Published var exportIncludeLegend: Bool {
+        didSet {
+            UserDefaults.standard.set(exportIncludeLegend, forKey: "exportIncludeLegend")
+        }
+    }
+
     // MARK: - Import Performance Settings
-    
+
     /// Whether to use adaptive thread count based on system and file size
     @Published var useAdaptiveThreadCount: Bool {
         didSet {
@@ -57,7 +94,14 @@ class AppSettings: ObservableObject {
     // MARK: - Private Methods
     
     private init() {
-        // Load settings from UserDefaults with sensible defaults
+        // Load export settings from UserDefaults with sensible defaults
+        self.exportBackgroundLuminosity = UserDefaults.standard.object(forKey: "exportBackgroundLuminosity") as? Double ?? 0.9
+        self.exportLineThickness = UserDefaults.standard.object(forKey: "exportLineThickness") as? Double ?? 6.0
+        self.exportBoldAxisLabels = UserDefaults.standard.object(forKey: "exportBoldAxisLabels") as? Bool ?? true
+        self.exportScaleFactor = UserDefaults.standard.object(forKey: "exportScaleFactor") as? Double ?? 2.0
+        self.exportIncludeLegend = UserDefaults.standard.object(forKey: "exportIncludeLegend") as? Bool ?? true
+
+        // Load performance settings from UserDefaults with sensible defaults
         self.useAdaptiveThreadCount = UserDefaults.standard.object(forKey: "useAdaptiveThreadCount") as? Bool ?? true
         self.manualThreadCount = UserDefaults.standard.object(forKey: "manualThreadCount") as? Int ?? 8
         self.maxThreadCount = UserDefaults.standard.object(forKey: "maxThreadCount") as? Int ?? min(16, ProcessInfo.processInfo.activeProcessorCount)
@@ -92,6 +136,14 @@ class AppSettings: ObservableObject {
     
     /// Resets all settings to defaults
     func resetToDefaults() {
+        // Reset export settings
+        exportBackgroundLuminosity = 0.9
+        exportLineThickness = 6.0
+        exportBoldAxisLabels = true
+        exportScaleFactor = 2.0
+        exportIncludeLegend = true
+
+        // Reset performance settings
         useAdaptiveThreadCount = true
         manualThreadCount = 8
         maxThreadCount = min(16, systemProcessorCount)

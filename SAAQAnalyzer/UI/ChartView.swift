@@ -99,7 +99,7 @@ struct ChartView: View {
                 .frame(height: 20)
             
             // Export button
-            ExportButton(dataSeries: dataSeries)
+            ExportButton(dataSeries: dataSeries, includeZero: includeZero)
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
@@ -347,6 +347,7 @@ struct ChartLegend: View {
 
 struct ExportButton: View {
     let dataSeries: [FilteredDataSeries]
+    let includeZero: Bool
     @State private var showExportOptions = false
     
     var body: some View {
@@ -426,7 +427,7 @@ struct ExportButton: View {
                         .background(Color(red: 0.9, green: 0.9, blue: 0.9))
                 }
                 .chartXScale(domain: .automatic(includesZero: false))
-                .chartYScale(domain: .automatic(includesZero: true))
+                .chartYScale(domain: .automatic(includesZero: includeZero))
                 .frame(width: 900, height: 500)
 
                 chartContent = AnyView(chartView)
