@@ -201,6 +201,7 @@ struct FilterConfiguration: Equatable {
     var vehicleClassifications: Set<String> = []
     var vehicleMakes: Set<String> = []
     var vehicleModels: Set<String> = []
+    var modelYears: Set<Int> = []
     var fuelTypes: Set<String> = []
     var ageRanges: [AgeRange] = []
     

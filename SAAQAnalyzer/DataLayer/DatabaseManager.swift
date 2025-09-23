@@ -445,6 +445,16 @@ class DatabaseManager: ObservableObject {
                     }
                 }
 
+                // Add model year filter
+                if !filters.modelYears.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filters.modelYears.count).joined(separator: ",")
+                    query += " AND model_year IN (\(placeholders))"
+                    for modelYear in filters.modelYears.sorted() {
+                        bindValues.append((Int32(bindIndex), modelYear))
+                        bindIndex += 1
+                    }
+                }
+
                 // Add fuel type filter (only for years 2017+)
                 if !filters.fuelTypes.isEmpty {
                     let placeholders = Array(repeating: "?", count: filters.fuelTypes.count).joined(separator: ",")
@@ -556,6 +566,12 @@ class DatabaseManager: ObservableObject {
             components.append("Model: \(models)\(suffix)")
         }
 
+        if !filters.modelYears.isEmpty {
+            let years = Array(filters.modelYears).sorted(by: >).prefix(3).map { String($0) }.joined(separator: ", ")
+            let suffix = filters.modelYears.count > 3 ? " (+\(filters.modelYears.count - 3))" : ""
+            components.append("Model Year: \(years)\(suffix)")
+        }
+
         if !filters.fuelTypes.isEmpty {
             let fuels = filters.fuelTypes
                 .compactMap { FuelType(rawValue: $0)?.description }
@@ -604,6 +620,12 @@ class DatabaseManager: ObservableObject {
             let models = Array(filters.vehicleModels).sorted().prefix(3).joined(separator: ", ")
             let suffix = filters.vehicleModels.count > 3 ? " (+\(filters.vehicleModels.count - 3))" : ""
             components.append("Model: \(models)\(suffix)")
+        }
+
+        if !filters.modelYears.isEmpty {
+            let years = Array(filters.modelYears).sorted(by: >).prefix(3).map { String($0) }.joined(separator: ", ")
+            let suffix = filters.modelYears.count > 3 ? " (+\(filters.modelYears.count - 3))" : ""
+            components.append("Model Year: \(years)\(suffix)")
         }
 
         if !filters.fuelTypes.isEmpty {
@@ -855,6 +877,20 @@ class DatabaseManager: ObservableObject {
         return await getVehicleModelsFromDatabase()
     }
 
+    /// Gets available model years - uses cache when possible
+    func getAvailableModelYears() async -> [Int] {
+        // Check cache first
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+            let cached = filterCache.getCachedModelYears()
+            if !cached.isEmpty {
+                return cached
+            }
+        }
+
+        // Fall back to database query
+        return await getModelYearsFromDatabase()
+    }
+
     // MARK: - Filter Cache Management
     
     /// Refreshes the filter cache with current database values
@@ -870,14 +906,15 @@ class DatabaseManager: ObservableObject {
         async let classifications = getClassificationsFromDatabase()
         async let vehicleMakes = getVehicleMakesFromDatabase()
         async let vehicleModels = getVehicleModelsFromDatabase()
+        async let modelYears = getModelYearsFromDatabase()
 
         // Wait for all queries to complete
-        let (yearsList, regionsList, mrcsList, municipalitiesList, classificationsList, makesList, modelsList) =
-            await (years, regions, mrcs, municipalities, classifications, vehicleMakes, vehicleModels)
+        let (yearsList, regionsList, mrcsList, municipalitiesList, classificationsList, makesList, modelsList, modelYearsList) =
+            await (years, regions, mrcs, municipalities, classifications, vehicleMakes, vehicleModels, modelYears)
 
         let duration = Date().timeIntervalSince(startTime)
         print("🔄 Database queries completed in \(String(format: "%.2f", duration))s")
-        print("🔄 Found: \(yearsList.count) years, \(regionsList.count) regions, \(mrcsList.count) MRCs, \(municipalitiesList.count) municipalities, \(classificationsList.count) classifications, \(makesList.count) makes, \(modelsList.count) models")
+        print("🔄 Found: \(yearsList.count) years, \(regionsList.count) regions, \(mrcsList.count) MRCs, \(municipalitiesList.count) municipalities, \(classificationsList.count) classifications, \(makesList.count) makes, \(modelsList.count) models, \(modelYearsList.count) model years")
 
         // Update cache
         filterCache.updateCache(
@@ -888,6 +925,7 @@ class DatabaseManager: ObservableObject {
             classifications: classificationsList,
             vehicleMakes: makesList,
             vehicleModels: modelsList,
+            modelYears: modelYearsList,
             dataVersion: "\(dataVersion)"
         )
         
@@ -1077,6 +1115,39 @@ class DatabaseManager: ObservableObject {
                 }
 
                 continuation.resume(returning: vehicleModels)
+            }
+        }
+    }
+
+    /// Query distinct model years from database
+    private func getModelYearsFromDatabase() async -> [Int] {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+
+                let query = "SELECT DISTINCT model_year FROM vehicles WHERE model_year IS NOT NULL ORDER BY model_year DESC"
+                var stmt: OpaquePointer?
+
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+
+                var modelYears: [Int] = []
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        let year = Int(sqlite3_column_int(stmt, 0))
+                        if year > 0 {  // Only include valid years
+                            modelYears.append(year)
+                        }
+                    }
+                }
+
+                continuation.resume(returning: modelYears)
             }
         }
     }

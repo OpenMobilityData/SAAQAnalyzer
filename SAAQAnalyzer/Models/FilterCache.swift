@@ -13,6 +13,7 @@ class FilterCache {
         static let classifications = "FilterCache.classifications"
         static let vehicleMakes = "FilterCache.vehicleMakes"
         static let vehicleModels = "FilterCache.vehicleModels"
+        static let modelYears = "FilterCache.modelYears"
         static let lastUpdated = "FilterCache.lastUpdated"
         static let dataVersion = "FilterCache.dataVersion"
     }
@@ -35,7 +36,8 @@ class FilterCache {
             CacheKeys.municipalities,
             CacheKeys.classifications,
             CacheKeys.vehicleMakes,
-            CacheKeys.vehicleModels
+            CacheKeys.vehicleModels,
+            CacheKeys.modelYears
         ]
 
         return requiredKeys.allSatisfy { key in
@@ -83,11 +85,15 @@ class FilterCache {
         return userDefaults.stringArray(forKey: CacheKeys.vehicleModels) ?? []
     }
 
+    func getCachedModelYears() -> [Int] {
+        return userDefaults.array(forKey: CacheKeys.modelYears) as? [Int] ?? []
+    }
+
     // MARK: - Cache Writing
     
     /// Update the entire cache with fresh data
     func updateCache(years: [Int], regions: [String], mrcs: [String], municipalities: [String],
-                    classifications: [String], vehicleMakes: [String], vehicleModels: [String], dataVersion: String) {
+                    classifications: [String], vehicleMakes: [String], vehicleModels: [String], modelYears: [Int], dataVersion: String) {
         userDefaults.set(years, forKey: CacheKeys.years)
         userDefaults.set(regions, forKey: CacheKeys.regions)
         userDefaults.set(mrcs, forKey: CacheKeys.mrcs)
@@ -95,10 +101,11 @@ class FilterCache {
         userDefaults.set(classifications, forKey: CacheKeys.classifications)
         userDefaults.set(vehicleMakes, forKey: CacheKeys.vehicleMakes)
         userDefaults.set(vehicleModels, forKey: CacheKeys.vehicleModels)
+        userDefaults.set(modelYears, forKey: CacheKeys.modelYears)
         userDefaults.set(Date(), forKey: CacheKeys.lastUpdated)
         userDefaults.set(dataVersion, forKey: CacheKeys.dataVersion)
 
-        print("💾 Filter cache updated with \(years.count) years, \(regions.count) regions, \(mrcs.count) MRCs, \(municipalities.count) municipalities, \(classifications.count) classifications, \(vehicleMakes.count) makes, \(vehicleModels.count) models")
+        print("💾 Filter cache updated with \(years.count) years, \(regions.count) regions, \(mrcs.count) MRCs, \(municipalities.count) municipalities, \(classifications.count) classifications, \(vehicleMakes.count) makes, \(vehicleModels.count) models, \(modelYears.count) model years")
     }
     
     /// Clear the entire cache
@@ -110,6 +117,7 @@ class FilterCache {
         userDefaults.removeObject(forKey: CacheKeys.classifications)
         userDefaults.removeObject(forKey: CacheKeys.vehicleMakes)
         userDefaults.removeObject(forKey: CacheKeys.vehicleModels)
+        userDefaults.removeObject(forKey: CacheKeys.modelYears)
         userDefaults.removeObject(forKey: CacheKeys.lastUpdated)
         userDefaults.removeObject(forKey: CacheKeys.dataVersion)
         

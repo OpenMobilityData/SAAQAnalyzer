@@ -13,6 +13,7 @@ struct FilterPanel: View {
     @State private var availableClassifications: [String] = []
     @State private var availableVehicleMakes: [String] = []
     @State private var availableVehicleModels: [String] = []
+    @State private var availableModelYears: [Int] = []
 
     // Municipality code-to-name mapping for UI display
     @State private var municipalityCodeToName: [String: String] = [:]
@@ -101,11 +102,13 @@ struct FilterPanel: View {
                             selectedClassifications: $configuration.vehicleClassifications,
                             selectedVehicleMakes: $configuration.vehicleMakes,
                             selectedVehicleModels: $configuration.vehicleModels,
+                            selectedModelYears: $configuration.modelYears,
                             selectedFuelTypes: $configuration.fuelTypes,
                             availableYears: availableYears,
                             availableClassifications: availableClassifications,
                             availableVehicleMakes: availableVehicleMakes,
-                            availableVehicleModels: availableVehicleModels
+                            availableVehicleModels: availableVehicleModels,
+                            availableModelYears: availableModelYears
                         )
                     } label: {
                         Label("Vehicle Characteristics", systemImage: "car")
@@ -165,8 +168,9 @@ struct FilterPanel: View {
             availableClassifications = await databaseManager.getAvailableClassifications()
             availableVehicleMakes = await databaseManager.getAvailableVehicleMakes()
             availableVehicleModels = await databaseManager.getAvailableVehicleModels()
+            availableModelYears = await databaseManager.getAvailableModelYears()
 
-            print("📊 Loaded filter options: \(availableYears.count) years, \(availableVehicleMakes.count) makes, \(availableVehicleModels.count) models")
+            print("📊 Loaded filter options: \(availableYears.count) years, \(availableVehicleMakes.count) makes, \(availableVehicleModels.count) models, \(availableModelYears.count) model years")
 
             // Load municipality mapping for UI display
             municipalityCodeToName = await databaseManager.getMunicipalityCodeToNameMapping()
@@ -360,11 +364,13 @@ struct VehicleFilterSection: View {
     @Binding var selectedClassifications: Set<String>
     @Binding var selectedVehicleMakes: Set<String>
     @Binding var selectedVehicleModels: Set<String>
+    @Binding var selectedModelYears: Set<Int>
     @Binding var selectedFuelTypes: Set<String>
     let availableYears: [Int]
     let availableClassifications: [String]
     let availableVehicleMakes: [String]
     let availableVehicleModels: [String]
+    let availableModelYears: [Int]
     
     // Check if any year from 2017+ is selected (for fuel type filter)
     private var hasFuelTypeYears: Bool {
@@ -412,6 +418,28 @@ struct VehicleFilterSection: View {
                     items: availableVehicleModels,
                     selectedItems: $selectedVehicleModels,
                     searchPrompt: "Search vehicle models..."
+                )
+            }
+
+            // Model Years
+            if !availableModelYears.isEmpty {
+                Divider()
+
+                Text("Model Year")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                SearchableFilterList(
+                    items: availableModelYears.map { String($0) },
+                    selectedItems: Binding(
+                        get: {
+                            Set(selectedModelYears.map { String($0) })
+                        },
+                        set: { stringSet in
+                            selectedModelYears = Set(stringSet.compactMap { Int($0) })
+                        }
+                    ),
+                    searchPrompt: "Search model years..."
                 )
             }
 
