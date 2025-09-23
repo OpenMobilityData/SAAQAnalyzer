@@ -473,6 +473,16 @@ class DatabaseManager: ObservableObject {
                     }
                 }
 
+                // Add vehicle color filter
+                if !filters.vehicleColors.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filters.vehicleColors.count).joined(separator: ",")
+                    query += " AND original_color IN (\(placeholders))"
+                    for color in filters.vehicleColors.sorted() {
+                        bindValues.append((Int32(bindIndex), color))
+                        bindIndex += 1
+                    }
+                }
+
                 // Add model year filter
                 if !filters.modelYears.isEmpty {
                     let placeholders = Array(repeating: "?", count: filters.modelYears.count).joined(separator: ",")
@@ -685,6 +695,12 @@ class DatabaseManager: ObservableObject {
             components.append("[Model: \(models)\(suffix)]")
         }
 
+        if !filters.vehicleColors.isEmpty {
+            let colors = Array(filters.vehicleColors).sorted().prefix(3).joined(separator: ", ")
+            let suffix = filters.vehicleColors.count > 3 ? " (+\(filters.vehicleColors.count - 3))" : ""
+            components.append("[Color: \(colors)\(suffix)]")
+        }
+
         if !filters.modelYears.isEmpty {
             let years = Array(filters.modelYears).sorted(by: >).prefix(3).map { String($0) }.joined(separator: ", ")
             let suffix = filters.modelYears.count > 3 ? " (+\(filters.modelYears.count - 3))" : ""
@@ -751,6 +767,18 @@ class DatabaseManager: ObservableObject {
             baseComponents.append("[Make: \(makes)\(suffix)]")
         }
 
+        if !baseFilters.vehicleModels.isEmpty {
+            let models = Array(baseFilters.vehicleModels).sorted().prefix(3).joined(separator: ", ")
+            let suffix = baseFilters.vehicleModels.count > 3 ? " (+\(baseFilters.vehicleModels.count - 3))" : ""
+            baseComponents.append("[Model: \(models)\(suffix)]")
+        }
+
+        if !baseFilters.vehicleColors.isEmpty {
+            let colors = Array(baseFilters.vehicleColors).sorted().prefix(3).joined(separator: ", ")
+            let suffix = baseFilters.vehicleColors.count > 3 ? " (+\(baseFilters.vehicleColors.count - 3))" : ""
+            baseComponents.append("[Color: \(colors)\(suffix)]")
+        }
+
         let baseDescription = baseComponents.isEmpty ? "All Vehicles" : baseComponents.joined(separator: " AND ")
         return baseDescription
     }
@@ -771,6 +799,9 @@ class DatabaseManager: ObservableObject {
         }
         if !original.vehicleModels.isEmpty && baseline.vehicleModels.isEmpty {
             return "models"
+        }
+        if !original.vehicleColors.isEmpty && baseline.vehicleColors.isEmpty {
+            return "colors"
         }
         if !original.modelYears.isEmpty && baseline.modelYears.isEmpty {
             return "model years"
@@ -828,6 +859,14 @@ class DatabaseManager: ObservableObject {
                 let suffix = filters.vehicleModels.count > 2 ? " & Others" : ""
                 return "\(models)\(suffix)"
             }
+        case "colors":
+            if filters.vehicleColors.count == 1 {
+                return filters.vehicleColors.first!
+            } else if !filters.vehicleColors.isEmpty {
+                let colors = Array(filters.vehicleColors).sorted().prefix(2).joined(separator: " & ")
+                let suffix = filters.vehicleColors.count > 2 ? " & Others" : ""
+                return "\(colors)\(suffix)"
+            }
         case "model years":
             if filters.modelYears.count == 1 {
                 return "\(filters.modelYears.first!) Model Year"
@@ -878,6 +917,12 @@ class DatabaseManager: ObservableObject {
             let models = Array(filters.vehicleModels).sorted().prefix(3).joined(separator: ", ")
             let suffix = filters.vehicleModels.count > 3 ? " (+\(filters.vehicleModels.count - 3))" : ""
             components.append("[Model: \(models)\(suffix)]")
+        }
+
+        if !filters.vehicleColors.isEmpty {
+            let colors = Array(filters.vehicleColors).sorted().prefix(3).joined(separator: ", ")
+            let suffix = filters.vehicleColors.count > 3 ? " (+\(filters.vehicleColors.count - 3))" : ""
+            components.append("[Color: \(colors)\(suffix)]")
         }
 
         if !filters.modelYears.isEmpty {
@@ -1149,6 +1194,20 @@ class DatabaseManager: ObservableObject {
         return await getModelYearsFromDatabase()
     }
 
+    /// Gets available vehicle colors - uses cache when possible
+    func getAvailableVehicleColors() async -> [String] {
+        // Check cache first
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+            let cached = filterCache.getCachedVehicleColors()
+            if !cached.isEmpty {
+                return cached
+            }
+        }
+
+        // Fall back to database query
+        return await getVehicleColorsFromDatabase()
+    }
+
     // MARK: - Filter Cache Management
     
     /// Refreshes the filter cache with current database values
@@ -1164,16 +1223,17 @@ class DatabaseManager: ObservableObject {
         async let classifications = getClassificationsFromDatabase()
         async let vehicleMakes = getVehicleMakesFromDatabase()
         async let vehicleModels = getVehicleModelsFromDatabase()
+        async let vehicleColors = getVehicleColorsFromDatabase()
         async let modelYears = getModelYearsFromDatabase()
         async let databaseStats = getDatabaseStats()
 
         // Wait for all queries to complete
-        let (yearsList, regionsList, mrcsList, municipalitiesList, classificationsList, makesList, modelsList, modelYearsList, dbStats) =
-            await (years, regions, mrcs, municipalities, classifications, vehicleMakes, vehicleModels, modelYears, databaseStats)
+        let (yearsList, regionsList, mrcsList, municipalitiesList, classificationsList, makesList, modelsList, colorsList, modelYearsList, dbStats) =
+            await (years, regions, mrcs, municipalities, classifications, vehicleMakes, vehicleModels, vehicleColors, modelYears, databaseStats)
 
         let duration = Date().timeIntervalSince(startTime)
         print("🔄 Database queries completed in \(String(format: "%.2f", duration))s")
-        print("🔄 Found: \(yearsList.count) years, \(regionsList.count) regions, \(mrcsList.count) MRCs, \(municipalitiesList.count) municipalities, \(classificationsList.count) classifications, \(makesList.count) makes, \(modelsList.count) models, \(modelYearsList.count) model years")
+        print("🔄 Found: \(yearsList.count) years, \(regionsList.count) regions, \(mrcsList.count) MRCs, \(municipalitiesList.count) municipalities, \(classificationsList.count) classifications, \(makesList.count) makes, \(modelsList.count) models, \(colorsList.count) colors, \(modelYearsList.count) model years")
 
         // Update cache with database stats
         filterCache.updateCache(
@@ -1184,6 +1244,7 @@ class DatabaseManager: ObservableObject {
             classifications: classificationsList,
             vehicleMakes: makesList,
             vehicleModels: modelsList,
+            vehicleColors: colorsList,
             modelYears: modelYearsList,
             databaseStats: dbStats,
             dataVersion: "\(dataVersion)"
@@ -1198,7 +1259,7 @@ class DatabaseManager: ObservableObject {
     }
     
     /// Gets cache status information
-    var filterCacheInfo: (hasCache: Bool, lastUpdated: Date?, itemCounts: (years: Int, regions: Int, mrcs: Int, classifications: Int, vehicleMakes: Int, vehicleModels: Int, modelYears: Int)) {
+    var filterCacheInfo: (hasCache: Bool, lastUpdated: Date?, itemCounts: (years: Int, regions: Int, mrcs: Int, classifications: Int, vehicleMakes: Int, vehicleModels: Int, vehicleColors: Int, modelYears: Int)) {
         return (
             hasCache: filterCache.hasCachedData,
             lastUpdated: filterCache.lastUpdated,
@@ -1209,6 +1270,7 @@ class DatabaseManager: ObservableObject {
                 classifications: filterCache.getCachedClassifications().count,
                 vehicleMakes: filterCache.getCachedVehicleMakes().count,
                 vehicleModels: filterCache.getCachedVehicleModels().count,
+                vehicleColors: filterCache.getCachedVehicleColors().count,
                 modelYears: filterCache.getCachedModelYears().count
             )
         )
@@ -1474,6 +1536,41 @@ class DatabaseManager: ObservableObject {
                 }
 
                 continuation.resume(returning: modelYears)
+            }
+        }
+    }
+
+    /// Query distinct vehicle colors from database
+    private func getVehicleColorsFromDatabase() async -> [String] {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+
+                let query = "SELECT DISTINCT original_color FROM vehicles WHERE original_color IS NOT NULL AND original_color != '' ORDER BY original_color"
+                var stmt: OpaquePointer?
+
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+
+                var vehicleColors: [String] = []
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let colorPtr = sqlite3_column_text(stmt, 0) {
+                            let color = String(cString: colorPtr)
+                            if !color.isEmpty {
+                                vehicleColors.append(color)
+                            }
+                        }
+                    }
+                }
+
+                continuation.resume(returning: vehicleColors)
             }
         }
     }

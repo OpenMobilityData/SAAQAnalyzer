@@ -201,6 +201,7 @@ struct FilterConfiguration: Equatable {
     var vehicleClassifications: Set<String> = []
     var vehicleMakes: Set<String> = []
     var vehicleModels: Set<String> = []
+    var vehicleColors: Set<String> = []
     var modelYears: Set<Int> = []
     var fuelTypes: Set<String> = []
     var ageRanges: [AgeRange] = []
@@ -235,6 +236,7 @@ struct PercentageBaseFilters: Equatable {
     var vehicleClassifications: Set<String> = []
     var vehicleMakes: Set<String> = []
     var vehicleModels: Set<String> = []
+    var vehicleColors: Set<String> = []
     var modelYears: Set<Int> = []
     var fuelTypes: Set<String> = []
     var ageRanges: [FilterConfiguration.AgeRange] = []
@@ -249,6 +251,7 @@ struct PercentageBaseFilters: Equatable {
         config.vehicleClassifications = vehicleClassifications
         config.vehicleMakes = vehicleMakes
         config.vehicleModels = vehicleModels
+        config.vehicleColors = vehicleColors
         config.modelYears = modelYears
         config.fuelTypes = fuelTypes
         config.ageRanges = ageRanges
@@ -266,6 +269,7 @@ struct PercentageBaseFilters: Equatable {
         base.vehicleClassifications = config.vehicleClassifications
         base.vehicleMakes = config.vehicleMakes
         base.vehicleModels = config.vehicleModels
+        base.vehicleColors = config.vehicleColors
         base.modelYears = config.modelYears
         base.fuelTypes = config.fuelTypes
         base.ageRanges = config.ageRanges
