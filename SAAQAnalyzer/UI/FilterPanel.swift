@@ -622,10 +622,22 @@ struct SearchableFilterList: View {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(.secondary)
                         .font(.caption)
-                    
+
                     TextField(searchPrompt, text: $searchText)
                         .textFieldStyle(.plain)
                         .font(.caption)
+
+                    if !searchText.isEmpty {
+                        Button(action: {
+                            searchText = ""
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .contentShape(Rectangle())
+                    }
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
