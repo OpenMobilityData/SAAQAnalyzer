@@ -278,7 +278,7 @@ enum ChartMetricField: String, CaseIterable {
         case .netMass: return "kg"
         case .displacement: return "cm³"
         case .cylinderCount: return nil
-        case .vehicleAge: return "years"
+        case .vehicleAge: return "Y"
         case .modelYear: return nil
         }
     }

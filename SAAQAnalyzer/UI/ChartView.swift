@@ -293,8 +293,12 @@ struct ChartView: View {
             }
 
         case .average:
-            // Show one decimal place for averages
-            return String(format: "%.1f", value)
+            // Show one decimal place for averages with units
+            if let unit = firstSeries.metricField.unit {
+                return String(format: "%.1f%@", value, unit)
+            } else {
+                return String(format: "%.1f", value)
+            }
 
         case .percentage:
             // Format as percentage
