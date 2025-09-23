@@ -204,16 +204,90 @@ struct FilterConfiguration: Equatable {
     var modelYears: Set<Int> = []
     var fuelTypes: Set<String> = []
     var ageRanges: [AgeRange] = []
-    
+
+    // Metric configuration
+    var metricType: ChartMetricType = .count
+    var metricField: ChartMetricField = .none
+    // TODO: Implement percentage calculations with a different approach to avoid recursion
+    // var percentageBaseFilters: FilterConfiguration? = nil
+
     struct AgeRange: Equatable {
         let minAge: Int
         let maxAge: Int?  // nil means no upper limit
-        
+
         func contains(age: Int) -> Bool {
             if let max = maxAge {
                 return age >= minAge && age <= max
             }
             return age >= minAge
+        }
+    }
+}
+
+// MARK: - Chart Metrics
+
+/// Types of metrics that can be displayed on the Y-axis
+enum ChartMetricType: String, CaseIterable {
+    case count = "Count"
+    case sum = "Sum"
+    case average = "Average"
+    case percentage = "Percentage"
+
+    var description: String {
+        switch self {
+        case .count: return "Record Count"
+        case .sum: return "Sum of Values"
+        case .average: return "Average Value"
+        case .percentage: return "Percentage of Category"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .count: return "Count"
+        case .sum: return "Sum"
+        case .average: return "Avg"
+        case .percentage: return "%"
+        }
+    }
+}
+
+/// Fields that can be used for sum/average calculations
+enum ChartMetricField: String, CaseIterable {
+    case none = "None"
+    case netMass = "Vehicle Mass"
+    case displacement = "Engine Displacement"
+    case cylinderCount = "Cylinders"
+    case vehicleAge = "Vehicle Age"
+    case modelYear = "Model Year"
+
+    var databaseColumn: String? {
+        switch self {
+        case .none: return nil
+        case .netMass: return "net_mass"
+        case .displacement: return "displacement"
+        case .cylinderCount: return "cylinder_count"
+        case .vehicleAge: return nil // Computed: year - model_year
+        case .modelYear: return "model_year"
+        }
+    }
+
+    var unit: String? {
+        switch self {
+        case .none: return nil
+        case .netMass: return "kg"
+        case .displacement: return "cm³"
+        case .cylinderCount: return nil
+        case .vehicleAge: return "years"
+        case .modelYear: return nil
+        }
+    }
+
+    var requiresNotNull: String? {
+        switch self {
+        case .vehicleAge: return "model_year"
+        case .none: return nil
+        default: return databaseColumn
         }
     }
 }
@@ -237,10 +311,67 @@ class FilteredDataSeries: ObservableObject, Identifiable {
     @Published var color: Color = .blue
     @Published var isVisible: Bool = true
 
+    // Metric configuration
+    var metricType: ChartMetricType {
+        filters.metricType
+    }
+    var metricField: ChartMetricField {
+        filters.metricField
+    }
+
     init(name: String, filters: FilterConfiguration, points: [TimeSeriesPoint] = []) {
         self.name = name
         self.filters = filters
         self.points = points
+    }
+
+    /// Get formatted Y-axis label for this series
+    var yAxisLabel: String {
+        switch metricType {
+        case .count:
+            return "Number of Vehicles"
+        case .sum:
+            if let unit = metricField.unit {
+                return "Total \(metricField.rawValue) (\(unit))"
+            } else {
+                return "Total \(metricField.rawValue)"
+            }
+        case .average:
+            if let unit = metricField.unit {
+                return "Average \(metricField.rawValue) (\(unit))"
+            } else {
+                return "Average \(metricField.rawValue)"
+            }
+        case .percentage:
+            return "Percentage (%)"
+        }
+    }
+
+    /// Format a value for display (tooltips, labels, etc.)
+    func formatValue(_ value: Double) -> String {
+        switch metricType {
+        case .count:
+            return "\(Int(value)) vehicles"
+        case .sum:
+            if metricField == .netMass {
+                // Convert kg to tonnes for large values
+                if value > 10000 {
+                    return String(format: "%.1f tonnes", value / 1000)
+                } else {
+                    return String(format: "%.0f kg", value)
+                }
+            } else {
+                return String(format: "%.0f", value)
+            }
+        case .average:
+            if metricField == .vehicleAge || metricField == .displacement {
+                return String(format: "%.1f", value)
+            } else {
+                return String(format: "%.0f", value)
+            }
+        case .percentage:
+            return String(format: "%.1f%%", value)
+        }
     }
 }
 

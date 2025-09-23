@@ -27,6 +27,7 @@ struct FilterPanel: View {
     @State private var geographySectionExpanded = true
     @State private var vehicleSectionExpanded = true
     @State private var ageSectionExpanded = false
+    @State private var metricSectionExpanded = true
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -122,6 +123,19 @@ struct FilterPanel: View {
                         AgeRangeFilterSection(ageRanges: $configuration.ageRanges)
                     } label: {
                         Label("Vehicle Age", systemImage: "clock")
+                            .font(.subheadline)
+                    }
+
+                    Divider()
+
+                    // Metric configuration section
+                    DisclosureGroup(isExpanded: $metricSectionExpanded) {
+                        MetricConfigurationSection(
+                            metricType: $configuration.metricType,
+                            metricField: $configuration.metricField
+                        )
+                    } label: {
+                        Label("Y-Axis Metric", systemImage: "chart.line.uptrend.xyaxis")
                             .font(.subheadline)
                     }
                 }
@@ -992,5 +1006,122 @@ struct MunicipalityFilterList: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+
+// MARK: - Metric Configuration Section
+
+struct MetricConfigurationSection: View {
+    @Binding var metricType: ChartMetricType
+    @Binding var metricField: ChartMetricField
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Metric type selector
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Metric Type")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Picker("", selection: $metricType) {
+                    ForEach(ChartMetricType.allCases, id: \.self) { type in
+                        Text(type.description).tag(type)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+            }
+
+            // Field selector (shown for sum and average)
+            if metricType == .sum || metricType == .average {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Field to \(metricType == .sum ? "Sum" : "Average")")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Picker("", selection: $metricField) {
+                        ForEach(ChartMetricField.allCases.filter { $0 != .none }, id: \.self) { field in
+                            HStack {
+                                Text(field.rawValue)
+                                if let unit = field.unit {
+                                    Text("(\(unit))")
+                                        .foregroundColor(.secondary)
+                                }
+                            }.tag(field)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+                }
+            }
+
+            // Help text for percentage
+            if metricType == .percentage {
+                HStack(spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("Percentage calculations coming soon")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+
+            // Description of what will be displayed
+            if metricType != .count {
+                HStack(spacing: 4) {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .font(.caption)
+                    Text(descriptionText)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var descriptionText: String {
+        switch metricType {
+        case .count:
+            return "Number of vehicles matching filters"
+        case .sum:
+            switch metricField {
+            case .netMass:
+                return "Total weight of all vehicles"
+            case .displacement:
+                return "Total engine displacement"
+            case .cylinderCount:
+                return "Total number of cylinders"
+            case .vehicleAge:
+                return "Sum of all vehicle ages"
+            default:
+                return "Sum of \(metricField.rawValue)"
+            }
+        case .average:
+            switch metricField {
+            case .netMass:
+                return "Average vehicle weight"
+            case .displacement:
+                return "Average engine displacement"
+            case .cylinderCount:
+                return "Average cylinders per vehicle"
+            case .vehicleAge:
+                return "Average age of vehicles"
+            case .modelYear:
+                return "Average model year"
+            default:
+                return "Average \(metricField.rawValue)"
+            }
+        case .percentage:
+            return "Percentage of baseline category"
+        }
     }
 }

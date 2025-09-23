@@ -45,7 +45,9 @@ struct ChartView: View {
                         // Main chart
                         chartContentView
                             .frame(minHeight: 400)
-                            .padding()
+                            .padding(.leading, 16)
+                            .padding(.trailing, 40)  // Extra padding for Y-axis labels
+                            .padding(.vertical, 16)
                             .id(chartRefreshTrigger)
                         
                         // Legend (if enabled)
@@ -129,7 +131,7 @@ struct ChartView: View {
                     case .line:
                         LineMark(
                             x: .value("Year", point.year),
-                            y: .value("Count", point.value),
+                            y: .value(series.yAxisLabel, point.value),
                             series: .value("Series", series.name)
                         )
                         .foregroundStyle(series.color)
@@ -137,7 +139,7 @@ struct ChartView: View {
 
                         PointMark(
                             x: .value("Year", point.year),
-                            y: .value("Count", point.value)
+                            y: .value(series.yAxisLabel, point.value)
                         )
                         .foregroundStyle(series.color)
                         .symbolSize(selectedSeries?.id == series.id ? 100 : 60)
@@ -145,7 +147,7 @@ struct ChartView: View {
                     case .bar:
                         BarMark(
                             x: .value("Year", point.year),
-                            y: .value("Count", point.value)
+                            y: .value(series.yAxisLabel, point.value)
                         )
                         .foregroundStyle(series.color.opacity(
                             selectedSeries?.id == series.id ? 1.0 : 0.7
@@ -155,13 +157,13 @@ struct ChartView: View {
                     case .area:
                         AreaMark(
                             x: .value("Year", point.year),
-                            y: .value("Count", point.value)
+                            y: .value(series.yAxisLabel, point.value)
                         )
                         .foregroundStyle(series.color.opacity(0.3))
 
                         LineMark(
                             x: .value("Year", point.year),
-                            y: .value("Count", point.value)
+                            y: .value(series.yAxisLabel, point.value)
                         )
                         .foregroundStyle(series.color)
                         .interpolationMethod(.linear)
@@ -182,11 +184,15 @@ struct ChartView: View {
             }
         }
         .chartYAxis {
-            AxisMarks { _ in
+            AxisMarks { value in
                 AxisGridLine()
                     .foregroundStyle(.quaternary)
                 AxisTick()
-                AxisValueLabel()
+                AxisValueLabel {
+                    if let val = value.as(Double.self) {
+                        Text(formatYAxisValue(val))
+                    }
+                }
             }
         }
         .chartXScale(domain: xAxisDomain())
@@ -194,7 +200,6 @@ struct ChartView: View {
         .chartPlotStyle { plotArea in
             plotArea
                 .border(Color.secondary.opacity(0.2), width: 1)
-                .clipped()
         }
     }
     
@@ -246,6 +251,55 @@ struct ChartView: View {
             .circle, .square, .diamond, .triangle, .pentagon, .plus, .cross
         ]
         return symbols[index % symbols.count]
+    }
+
+    /// Format Y-axis value based on the metric type of visible series
+    private func formatYAxisValue(_ value: Double) -> String {
+        // Get the metric type from the first visible series (they should all be similar)
+        guard let firstSeries = dataSeries.filter({ $0.isVisible }).first else {
+            return String(format: "%.0f", value)
+        }
+
+        switch firstSeries.metricType {
+        case .count:
+            // Format as integer for counts
+            if value >= 1_000_000 {
+                return String(format: "%.1fM", value / 1_000_000)
+            } else if value >= 1_000 {
+                return String(format: "%.0fK", value / 1_000)
+            } else {
+                return String(format: "%.0f", value)
+            }
+
+        case .sum:
+            if firstSeries.metricField == .netMass {
+                // Convert to tonnes for large mass values
+                if value >= 1_000_000 {
+                    return String(format: "%.0fKt", value / 1_000_000)
+                } else if value >= 1_000 {
+                    return String(format: "%.0ft", value / 1_000)
+                } else {
+                    return String(format: "%.0fkg", value)
+                }
+            } else {
+                // Generic sum formatting
+                if value >= 1_000_000 {
+                    return String(format: "%.1fM", value / 1_000_000)
+                } else if value >= 1_000 {
+                    return String(format: "%.0fK", value / 1_000)
+                } else {
+                    return String(format: "%.0f", value)
+                }
+            }
+
+        case .average:
+            // Show one decimal place for averages
+            return String(format: "%.1f", value)
+
+        case .percentage:
+            // Format as percentage
+            return String(format: "%.0f%%", value)
+        }
     }
     
     /// Handle hover interaction

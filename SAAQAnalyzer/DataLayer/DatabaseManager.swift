@@ -365,12 +365,40 @@ class DatabaseManager: ObservableObject {
                     return
                 }
 
-                // Build dynamic query based on filters
-                var query = """
-                    SELECT year, COUNT(*) as count
-                    FROM vehicles
-                    WHERE 1=1
-                    """
+                // Build dynamic query based on filters and metric type
+                var query: String
+
+                // Build SELECT clause based on metric type
+                switch filters.metricType {
+                case .count:
+                    query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+
+                case .sum:
+                    if filters.metricField == .vehicleAge {
+                        // Special case: sum of computed age
+                        query = "SELECT year, SUM(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
+                    } else if let column = filters.metricField.databaseColumn {
+                        query = "SELECT year, SUM(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
+                    } else {
+                        // Fallback to count if no valid field
+                        query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                    }
+
+                case .average:
+                    if filters.metricField == .vehicleAge {
+                        // Special case: average of computed age
+                        query = "SELECT year, AVG(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
+                    } else if let column = filters.metricField.databaseColumn {
+                        query = "SELECT year, AVG(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
+                    } else {
+                        // Fallback to count if no valid field
+                        query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                    }
+
+                case .percentage:
+                    // For percentage, we'll initially get counts and calculate percentage in a separate step
+                    query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                }
 
                 var bindIndex = 1
                 var bindValues: [(Int32, Any)] = []
@@ -529,8 +557,8 @@ class DatabaseManager: ObservableObject {
                 var points: [TimeSeriesPoint] = []
                 while sqlite3_step(stmt) == SQLITE_ROW {
                     let year = Int(sqlite3_column_int(stmt, 0))
-                    let count = Double(sqlite3_column_int(stmt, 1))
-                    points.append(TimeSeriesPoint(year: year, value: count, label: nil))
+                    let value = sqlite3_column_double(stmt, 1)  // Use double for averages
+                    points.append(TimeSeriesPoint(year: year, value: value, label: nil))
                 }
 
                 // Create series with the proper name (already resolved)
@@ -544,6 +572,18 @@ class DatabaseManager: ObservableObject {
     /// Generates a descriptive name for a data series based on filters (async version with municipality name lookup)
     private func generateSeriesNameAsync(from filters: FilterConfiguration) async -> String {
         var components: [String] = []
+
+        // Add metric information if not count
+        if filters.metricType != .count {
+            var metricLabel = filters.metricType.shortLabel
+            if filters.metricType == .sum || filters.metricType == .average {
+                metricLabel += " \(filters.metricField.rawValue)"
+                if let unit = filters.metricField.unit {
+                    metricLabel += " (\(unit))"
+                }
+            }
+            components.append(metricLabel)
+        }
 
         if !filters.vehicleClassifications.isEmpty {
             let classifications = filters.vehicleClassifications
@@ -600,6 +640,18 @@ class DatabaseManager: ObservableObject {
     /// Generates a descriptive name for a data series based on filters (legacy synchronous version)
     private func generateSeriesName(from filters: FilterConfiguration) -> String {
         var components: [String] = []
+
+        // Add metric information if not count
+        if filters.metricType != .count {
+            var metricLabel = filters.metricType.shortLabel
+            if filters.metricType == .sum || filters.metricType == .average {
+                metricLabel += " \(filters.metricField.rawValue)"
+                if let unit = filters.metricField.unit {
+                    metricLabel += " (\(unit))"
+                }
+            }
+            components.append(metricLabel)
+        }
 
         if !filters.vehicleClassifications.isEmpty {
             let classifications = filters.vehicleClassifications
