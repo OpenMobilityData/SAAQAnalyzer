@@ -43,7 +43,7 @@ struct ChartView: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         // Main chart
-                        chartContent
+                        chartContentView
                             .frame(minHeight: 400)
                             .padding()
                             .id(chartRefreshTrigger)
@@ -102,15 +102,26 @@ struct ChartView: View {
                 .frame(height: 20)
             
             // Export button
-            ExportButton(dataSeries: dataSeries, includeZero: includeZero)
+            ExportButton(
+                dataSeries: dataSeries,
+                includeZero: includeZero,
+                chartType: chartType,
+                showLegend: showLegend,
+                chartContent: chartContent
+            )
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
     }
     
     /// Main chart content
+    private var chartContent: AnyView {
+        AnyView(chartContentView)
+    }
+
+    /// Main chart content view
     @ViewBuilder
-    private var chartContent: some View {
+    private var chartContentView: some View {
         Chart(dataSeries.filter { $0.isVisible }, id: \.id) { series in
             ForEach(series.points.sorted { $0.year < $1.year }) { point in
                 switch chartType {
@@ -181,7 +192,6 @@ struct ChartView: View {
         .chartYScale(domain: yAxisDomain())
         .chartPlotStyle { plotArea in
             plotArea
-                .background(Color(NSColor.controlBackgroundColor))
                 .border(Color.secondary.opacity(0.2), width: 1)
         }
     }
@@ -369,16 +379,25 @@ struct ChartLegend: View {
 struct ExportButton: View {
     let dataSeries: [FilteredDataSeries]
     let includeZero: Bool
+    let chartType: ChartView.ChartType
+    let showLegend: Bool
+    let chartContent: AnyView
     @State private var showExportOptions = false
     
     var body: some View {
         Menu {
             Button {
-                exportAsPNG()
+                exportCurrentViewAsPNG()
             } label: {
-                Label("Export as PNG", systemImage: "photo")
+                Label("Export Current View as PNG", systemImage: "photo")
             }
-            
+
+            Button {
+                exportForPublicationAsPNG()
+            } label: {
+                Label("Export for Publication as PNG", systemImage: "doc.richtext")
+            }
+
             Button {
                 exportAsCSV()
             } label: {
@@ -400,8 +419,94 @@ struct ExportButton: View {
         .menuStyle(.button)
     }
     
-    /// Export chart as PNG image
-    private func exportAsPNG() {
+    /// Export current view exactly as displayed in UI
+    private func exportCurrentViewAsPNG() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue = "saaq_chart_view_\(Date().timeIntervalSince1970).png"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+
+            // Force a specific dark background that matches the UI
+            let darkBackground = Color(red: 0.1, green: 0.1, blue: 0.1) // Dark gray like in the UI
+
+            // Create the export view with a solid background
+            let contentView = VStack(spacing: 16) {
+                // Use the exact same chart content from the UI
+                if dataSeries.isEmpty {
+                    EmptyChartView()
+                        .frame(height: 400)
+                } else {
+                    // Direct reference to the actual chartContent used in the UI
+                    chartContent
+                        .frame(height: 400)
+                        .padding()
+
+                    // Include the exact same legend used in the UI
+                    if showLegend && !dataSeries.isEmpty {
+                        ChartLegend(
+                            series: .constant(dataSeries),
+                            selectedSeries: .constant(nil),
+                            chartRefreshTrigger: .constant(false)
+                        )
+                        .padding(.horizontal)
+                    }
+                }
+            }
+            .frame(width: 900, height: 700)
+            .background(darkBackground)
+
+            // Try alternative rendering approach with explicit background
+            let finalView = contentView
+                .environment(\.colorScheme, .dark) // Force dark color scheme
+                .preferredColorScheme(.dark)
+
+            let renderer = ImageRenderer(content: finalView)
+            renderer.scale = AppSettings.shared.exportScaleFactor
+
+            // Set renderer properties for better background handling
+            if #available(macOS 14.0, *) {
+                renderer.isOpaque = true
+                renderer.colorMode = .nonLinear
+            }
+
+            // Try to render with background color by creating a custom image
+
+            if let nsImage = renderer.nsImage {
+                // Create a new image with explicit background
+                let finalImage = NSImage(size: CGSize(width: 900, height: 700))
+                finalImage.lockFocus()
+
+                // Fill with dark background
+                NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0).setFill()
+                NSRect(x: 0, y: 0, width: 900, height: 700).fill()
+
+                // Draw the chart on top
+                nsImage.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1.0)
+
+                finalImage.unlockFocus()
+
+                // Convert to PNG
+                if let tiffData = finalImage.tiffRepresentation,
+                   let bitmapRep = NSBitmapImageRep(data: tiffData),
+                   let pngData = bitmapRep.representation(using: .png, properties: [:]) {
+                    do {
+                        try pngData.write(to: url)
+                        print("✅ Current view exported to: \(url.path)")
+                    } catch {
+                        print("❌ Error writing PNG file: \(error)")
+                    }
+                } else {
+                    print("❌ Error converting to PNG")
+                }
+            } else {
+                print("❌ Error rendering current view to image")
+            }
+        }
+    }
+
+    /// Export chart formatted for publication
+    private func exportForPublicationAsPNG() {
         // Create a save panel
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
