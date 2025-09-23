@@ -897,7 +897,7 @@ class DatabaseManager: ObservableObject {
     func refreshFilterCache() async {
         print("🔄 Refreshing filter cache...")
         let startTime = Date()
-        
+
         // Query all filter values from database in parallel
         async let years = getYearsFromDatabase()
         async let regions = getRegionsFromDatabase()
@@ -907,16 +907,17 @@ class DatabaseManager: ObservableObject {
         async let vehicleMakes = getVehicleMakesFromDatabase()
         async let vehicleModels = getVehicleModelsFromDatabase()
         async let modelYears = getModelYearsFromDatabase()
+        async let databaseStats = getDatabaseStats()
 
         // Wait for all queries to complete
-        let (yearsList, regionsList, mrcsList, municipalitiesList, classificationsList, makesList, modelsList, modelYearsList) =
-            await (years, regions, mrcs, municipalities, classifications, vehicleMakes, vehicleModels, modelYears)
+        let (yearsList, regionsList, mrcsList, municipalitiesList, classificationsList, makesList, modelsList, modelYearsList, dbStats) =
+            await (years, regions, mrcs, municipalities, classifications, vehicleMakes, vehicleModels, modelYears, databaseStats)
 
         let duration = Date().timeIntervalSince(startTime)
         print("🔄 Database queries completed in \(String(format: "%.2f", duration))s")
         print("🔄 Found: \(yearsList.count) years, \(regionsList.count) regions, \(mrcsList.count) MRCs, \(municipalitiesList.count) municipalities, \(classificationsList.count) classifications, \(makesList.count) makes, \(modelsList.count) models, \(modelYearsList.count) model years")
 
-        // Update cache
+        // Update cache with database stats
         filterCache.updateCache(
             years: yearsList,
             regions: regionsList,
@@ -926,9 +927,10 @@ class DatabaseManager: ObservableObject {
             vehicleMakes: makesList,
             vehicleModels: modelsList,
             modelYears: modelYearsList,
+            databaseStats: dbStats,
             dataVersion: "\(dataVersion)"
         )
-        
+
         print("✅ Filter cache refresh completed")
     }
     
@@ -938,7 +940,7 @@ class DatabaseManager: ObservableObject {
     }
     
     /// Gets cache status information
-    var filterCacheInfo: (hasCache: Bool, lastUpdated: Date?, itemCounts: (years: Int, regions: Int, mrcs: Int, classifications: Int)) {
+    var filterCacheInfo: (hasCache: Bool, lastUpdated: Date?, itemCounts: (years: Int, regions: Int, mrcs: Int, classifications: Int, vehicleMakes: Int, vehicleModels: Int, modelYears: Int)) {
         return (
             hasCache: filterCache.hasCachedData,
             lastUpdated: filterCache.lastUpdated,
@@ -946,11 +948,77 @@ class DatabaseManager: ObservableObject {
                 years: filterCache.getCachedYears().count,
                 regions: filterCache.getCachedRegions().count,
                 mrcs: filterCache.getCachedMRCs().count,
-                classifications: filterCache.getCachedClassifications().count
+                classifications: filterCache.getCachedClassifications().count,
+                vehicleMakes: filterCache.getCachedVehicleMakes().count,
+                vehicleModels: filterCache.getCachedVehicleModels().count,
+                modelYears: filterCache.getCachedModelYears().count
             )
         )
     }
-    
+
+    /// Gets total vehicle count from database
+    func getTotalVehicleCount() async -> Int {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: 0)
+                    return
+                }
+
+                let query = "SELECT COUNT(*) FROM vehicles"
+                var stmt: OpaquePointer?
+
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+
+                var count = 0
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    if sqlite3_step(stmt) == SQLITE_ROW {
+                        count = Int(sqlite3_column_int(stmt, 0))
+                    }
+                }
+
+                continuation.resume(returning: count)
+            }
+        }
+    }
+
+    /// Gets database file size in bytes
+    func getDatabaseFileSize() async -> Int64 {
+        guard let dbURL = databaseURL else { return 0 }
+
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: dbURL.path)
+            return attributes[.size] as? Int64 ?? 0
+        } catch {
+            print("Error getting database file size: \(error)")
+            return 0
+        }
+    }
+
+    /// Gets database summary statistics
+    func getDatabaseStats() async -> CachedDatabaseStats {
+        let totalRecords = await getTotalVehicleCount()
+        let years = await getYearsFromDatabase()
+        let yearRange = years.isEmpty ? "No data" : "\(years.min()!) - \(years.max()!)"
+        let municipalities = await getMunicipalitiesFromDatabase()
+        let regions = await getRegionsFromDatabase()
+        let fileSize = await getDatabaseFileSize()
+
+        return CachedDatabaseStats(
+            totalRecords: totalRecords,
+            yearRange: yearRange,
+            availableYearsCount: years.count,
+            municipalities: municipalities.count,
+            regions: regions.count,
+            fileSizeBytes: fileSize,
+            lastUpdated: Date()
+        )
+    }
+
     // MARK: - Database Query Methods (Private)
     
     /// Internal method to query regions directly from database

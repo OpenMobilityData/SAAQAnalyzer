@@ -1,5 +1,16 @@
 import Foundation
 
+/// Database statistics for caching
+struct CachedDatabaseStats: Codable {
+    let totalRecords: Int
+    let yearRange: String
+    let availableYearsCount: Int
+    let municipalities: Int
+    let regions: Int
+    let fileSizeBytes: Int64
+    let lastUpdated: Date
+}
+
 /// Manages caching of filter options to avoid expensive database queries on every app launch
 class FilterCache {
     private let userDefaults = UserDefaults.standard
@@ -14,6 +25,7 @@ class FilterCache {
         static let vehicleMakes = "FilterCache.vehicleMakes"
         static let vehicleModels = "FilterCache.vehicleModels"
         static let modelYears = "FilterCache.modelYears"
+        static let databaseStats = "FilterCache.databaseStats"
         static let lastUpdated = "FilterCache.lastUpdated"
         static let dataVersion = "FilterCache.dataVersion"
     }
@@ -37,7 +49,8 @@ class FilterCache {
             CacheKeys.classifications,
             CacheKeys.vehicleMakes,
             CacheKeys.vehicleModels,
-            CacheKeys.modelYears
+            CacheKeys.modelYears,
+            CacheKeys.databaseStats
         ]
 
         return requiredKeys.allSatisfy { key in
@@ -89,11 +102,17 @@ class FilterCache {
         return userDefaults.array(forKey: CacheKeys.modelYears) as? [Int] ?? []
     }
 
+    func getCachedDatabaseStats() -> CachedDatabaseStats? {
+        guard let data = userDefaults.data(forKey: CacheKeys.databaseStats) else { return nil }
+        return try? JSONDecoder().decode(CachedDatabaseStats.self, from: data)
+    }
+
     // MARK: - Cache Writing
     
     /// Update the entire cache with fresh data
     func updateCache(years: [Int], regions: [String], mrcs: [String], municipalities: [String],
-                    classifications: [String], vehicleMakes: [String], vehicleModels: [String], modelYears: [Int], dataVersion: String) {
+                    classifications: [String], vehicleMakes: [String], vehicleModels: [String], modelYears: [Int],
+                    databaseStats: CachedDatabaseStats, dataVersion: String) {
         userDefaults.set(years, forKey: CacheKeys.years)
         userDefaults.set(regions, forKey: CacheKeys.regions)
         userDefaults.set(mrcs, forKey: CacheKeys.mrcs)
@@ -102,10 +121,16 @@ class FilterCache {
         userDefaults.set(vehicleMakes, forKey: CacheKeys.vehicleMakes)
         userDefaults.set(vehicleModels, forKey: CacheKeys.vehicleModels)
         userDefaults.set(modelYears, forKey: CacheKeys.modelYears)
+
+        // Cache database stats as JSON data
+        if let statsData = try? JSONEncoder().encode(databaseStats) {
+            userDefaults.set(statsData, forKey: CacheKeys.databaseStats)
+        }
+
         userDefaults.set(Date(), forKey: CacheKeys.lastUpdated)
         userDefaults.set(dataVersion, forKey: CacheKeys.dataVersion)
 
-        print("💾 Filter cache updated with \(years.count) years, \(regions.count) regions, \(mrcs.count) MRCs, \(municipalities.count) municipalities, \(classifications.count) classifications, \(vehicleMakes.count) makes, \(vehicleModels.count) models, \(modelYears.count) model years")
+        print("💾 Filter cache updated with \(years.count) years, \(regions.count) regions, \(mrcs.count) MRCs, \(municipalities.count) municipalities, \(classifications.count) classifications, \(vehicleMakes.count) makes, \(vehicleModels.count) models, \(modelYears.count) model years, database stats")
     }
     
     /// Clear the entire cache
@@ -118,6 +143,7 @@ class FilterCache {
         userDefaults.removeObject(forKey: CacheKeys.vehicleMakes)
         userDefaults.removeObject(forKey: CacheKeys.vehicleModels)
         userDefaults.removeObject(forKey: CacheKeys.modelYears)
+        userDefaults.removeObject(forKey: CacheKeys.databaseStats)
         userDefaults.removeObject(forKey: CacheKeys.lastUpdated)
         userDefaults.removeObject(forKey: CacheKeys.dataVersion)
         

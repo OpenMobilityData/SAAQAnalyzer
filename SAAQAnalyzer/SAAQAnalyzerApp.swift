@@ -385,7 +385,7 @@ struct SettingsView: View {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
         }
-        .frame(width: 500, height: 550)
+        .frame(width: 500, height: 600)
     }
 }
 
@@ -429,6 +429,19 @@ struct GeneralSettingsTab: View {
 
             Divider()
 
+            // Database Summary Section
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Database Summary")
+                    .font(.headline)
+
+                DatabaseSummaryView(databaseManager: databaseManager)
+                    .padding(12)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(8)
+            }
+
+            Divider()
+
             // Filter Cache Section
             VStack(alignment: .leading, spacing: 12) {
                 Text("Filter Cache")
@@ -465,17 +478,18 @@ struct GeneralSettingsTab: View {
                                 .font(.caption)
                                 .foregroundColor(.secondary)
 
-                            HStack {
+                            LazyVGrid(columns: [
+                                GridItem(.flexible(), alignment: .leading),
+                                GridItem(.flexible(), alignment: .leading)
+                            ], alignment: .leading, spacing: 2) {
                                 Text("• \(cacheInfo.itemCounts.years) years")
-                                Spacer()
                                 Text("• \(cacheInfo.itemCounts.regions) regions")
-                            }
-                            .font(.caption2)
-
-                            HStack {
                                 Text("• \(cacheInfo.itemCounts.mrcs) MRCs")
-                                Spacer()
                                 Text("• \(cacheInfo.itemCounts.classifications) vehicle types")
+                                Text("• \(cacheInfo.itemCounts.vehicleMakes) vehicle makes")
+                                Text("• \(cacheInfo.itemCounts.vehicleModels) vehicle models")
+                                Text("• \(cacheInfo.itemCounts.modelYears) model years")
+                                Text("") // Empty cell to balance the grid
                             }
                             .font(.caption2)
                         }
@@ -915,5 +929,110 @@ struct SeriesQueryProgressView: View {
         .background(Color(NSColor.controlBackgroundColor))
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
+    }
+}
+
+// MARK: - Database Summary View
+
+struct DatabaseSummaryView: View {
+    let databaseManager: DatabaseManager
+    @State private var cachedStats: CachedDatabaseStats?
+    @State private var isLoading = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if isLoading {
+                HStack {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                    Text("Loading database statistics...")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            } else if let stats = cachedStats {
+                HStack {
+                    Text("Total Records:")
+                    Spacer()
+                    Text("\(stats.totalRecords.formatted())")
+                        .fontWeight(.medium)
+                }
+
+                HStack {
+                    Text("Year Range:")
+                    Spacer()
+                    Text(stats.yearRange)
+                        .fontWeight(.medium)
+                }
+
+                HStack {
+                    Text("Available Years:")
+                    Spacer()
+                    Text("\(stats.availableYearsCount)")
+                        .fontWeight(.medium)
+                }
+
+                HStack {
+                    Text("Geographic Coverage:")
+                    Spacer()
+                    Text("\(stats.regions) regions, \(stats.municipalities) municipalities")
+                        .fontWeight(.medium)
+                }
+
+                HStack {
+                    Text("Database Size:")
+                    Spacer()
+                    Text(formatFileSize(stats.fileSizeBytes))
+                        .fontWeight(.medium)
+                }
+
+                HStack {
+                    Text("Last Updated:")
+                    Spacer()
+                    Text(stats.lastUpdated, style: .date)
+                        .fontWeight(.medium)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Database statistics not available")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("Import data and refresh cache to see statistics")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .font(.caption)
+        .onAppear {
+            loadCachedStats()
+        }
+    }
+
+    private func loadCachedStats() {
+        // Try to get stats from cache first
+        if let cached = FilterCache().getCachedDatabaseStats() {
+            cachedStats = cached
+        } else {
+            // If no cached stats available, load them asynchronously
+            Task {
+                await MainActor.run {
+                    isLoading = true
+                }
+
+                let stats = await databaseManager.getDatabaseStats()
+
+                await MainActor.run {
+                    cachedStats = stats
+                    isLoading = false
+                }
+            }
+        }
+    }
+
+    private func formatFileSize(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useBytes, .useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 }
