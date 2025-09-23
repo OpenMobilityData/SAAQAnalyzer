@@ -208,8 +208,7 @@ struct FilterConfiguration: Equatable {
     // Metric configuration
     var metricType: ChartMetricType = .count
     var metricField: ChartMetricField = .none
-    // TODO: Implement percentage calculations with a different approach to avoid recursion
-    // var percentageBaseFilters: FilterConfiguration? = nil
+    var percentageBaseFilters: PercentageBaseFilters? = nil
 
     struct AgeRange: Equatable {
         let minAge: Int
@@ -221,6 +220,56 @@ struct FilterConfiguration: Equatable {
             }
             return age >= minAge
         }
+    }
+}
+
+// MARK: - Percentage Base Configuration
+
+/// Simplified filter configuration for percentage baseline calculations
+/// Avoids recursion by not including metric configuration
+struct PercentageBaseFilters: Equatable {
+    var years: Set<Int> = []
+    var regions: Set<String> = []
+    var mrcs: Set<String> = []
+    var municipalities: Set<String> = []
+    var vehicleClassifications: Set<String> = []
+    var vehicleMakes: Set<String> = []
+    var vehicleModels: Set<String> = []
+    var modelYears: Set<Int> = []
+    var fuelTypes: Set<String> = []
+    var ageRanges: [FilterConfiguration.AgeRange] = []
+
+    /// Convert to full FilterConfiguration for database queries
+    func toFilterConfiguration() -> FilterConfiguration {
+        var config = FilterConfiguration()
+        config.years = years
+        config.regions = regions
+        config.mrcs = mrcs
+        config.municipalities = municipalities
+        config.vehicleClassifications = vehicleClassifications
+        config.vehicleMakes = vehicleMakes
+        config.vehicleModels = vehicleModels
+        config.modelYears = modelYears
+        config.fuelTypes = fuelTypes
+        config.ageRanges = ageRanges
+        config.metricType = .count  // Always count for baseline
+        return config
+    }
+
+    /// Create from existing FilterConfiguration
+    static func from(_ config: FilterConfiguration) -> PercentageBaseFilters {
+        var base = PercentageBaseFilters()
+        base.years = config.years
+        base.regions = config.regions
+        base.mrcs = config.mrcs
+        base.municipalities = config.municipalities
+        base.vehicleClassifications = config.vehicleClassifications
+        base.vehicleMakes = config.vehicleMakes
+        base.vehicleModels = config.vehicleModels
+        base.modelYears = config.modelYears
+        base.fuelTypes = config.fuelTypes
+        base.ageRanges = config.ageRanges
+        return base
     }
 }
 

@@ -132,7 +132,9 @@ struct FilterPanel: View {
                     DisclosureGroup(isExpanded: $metricSectionExpanded) {
                         MetricConfigurationSection(
                             metricType: $configuration.metricType,
-                            metricField: $configuration.metricField
+                            metricField: $configuration.metricField,
+                            percentageBaseFilters: $configuration.percentageBaseFilters,
+                            currentFilters: configuration
                         )
                     } label: {
                         Label("Y-Axis Metric", systemImage: "chart.line.uptrend.xyaxis")
@@ -1015,6 +1017,36 @@ struct MunicipalityFilterList: View {
 struct MetricConfigurationSection: View {
     @Binding var metricType: ChartMetricType
     @Binding var metricField: ChartMetricField
+    @Binding var percentageBaseFilters: PercentageBaseFilters?
+    let currentFilters: FilterConfiguration
+
+    @State private var selectedCategoryToRemove: FilterCategory?
+
+    enum FilterCategory: String, CaseIterable {
+        case regions = "Admin Region"
+        case vehicleClassifications = "Vehicle Type"
+        case fuelTypes = "Fuel Type"
+        case vehicleMakes = "Vehicle Make"
+        case vehicleModels = "Vehicle Model"
+        case modelYears = "Model Year"
+        case mrcs = "MRC"
+        case municipalities = "Municipality"
+        case ageRanges = "Vehicle Age"
+    }
+
+    private var availableCategories: [FilterCategory] {
+        var categories: [FilterCategory] = []
+        if !currentFilters.regions.isEmpty { categories.append(.regions) }
+        if !currentFilters.vehicleClassifications.isEmpty { categories.append(.vehicleClassifications) }
+        if !currentFilters.fuelTypes.isEmpty { categories.append(.fuelTypes) }
+        if !currentFilters.vehicleMakes.isEmpty { categories.append(.vehicleMakes) }
+        if !currentFilters.vehicleModels.isEmpty { categories.append(.vehicleModels) }
+        if !currentFilters.modelYears.isEmpty { categories.append(.modelYears) }
+        if !currentFilters.mrcs.isEmpty { categories.append(.mrcs) }
+        if !currentFilters.municipalities.isEmpty { categories.append(.municipalities) }
+        if !currentFilters.ageRanges.isEmpty { categories.append(.ageRanges) }
+        return categories
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1057,17 +1089,42 @@ struct MetricConfigurationSection: View {
                 }
             }
 
-            // Help text for percentage
+            // Percentage configuration
             if metricType == .percentage {
-                HStack(spacing: 4) {
-                    Image(systemName: "info.circle")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Numerator Category")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text("Percentage calculations coming soon")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    Picker("", selection: Binding(
+                        get: { selectedCategoryToRemove },
+                        set: { newCategory in
+                            selectedCategoryToRemove = newCategory
+                            if let category = newCategory {
+                                percentageBaseFilters = createBaselineFilters(droppingCategory: category)
+                            } else {
+                                percentageBaseFilters = nil
+                            }
+                        }
+                    )) {
+                        Text("Select category...").tag(FilterCategory?.none)
+                        ForEach(availableCategories, id: \.self) { category in
+                            Text(category.rawValue).tag(FilterCategory?.some(category))
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+
+                    if selectedCategoryToRemove != nil {
+                        Text("Percentage of vehicles within other selected filters")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(4)
+                    }
                 }
-                .padding(.vertical, 4)
             }
 
             // Description of what will be displayed
@@ -1086,6 +1143,33 @@ struct MetricConfigurationSection: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private func createBaselineFilters(droppingCategory: FilterCategory) -> PercentageBaseFilters {
+        var baseFilters = PercentageBaseFilters.from(currentFilters)
+
+        switch droppingCategory {
+        case .regions:
+            baseFilters.regions.removeAll()
+        case .vehicleClassifications:
+            baseFilters.vehicleClassifications.removeAll()
+        case .fuelTypes:
+            baseFilters.fuelTypes.removeAll()
+        case .vehicleMakes:
+            baseFilters.vehicleMakes.removeAll()
+        case .vehicleModels:
+            baseFilters.vehicleModels.removeAll()
+        case .modelYears:
+            baseFilters.modelYears.removeAll()
+        case .mrcs:
+            baseFilters.mrcs.removeAll()
+        case .municipalities:
+            baseFilters.municipalities.removeAll()
+        case .ageRanges:
+            baseFilters.ageRanges.removeAll()
+        }
+
+        return baseFilters
     }
 
     private var descriptionText: String {
@@ -1124,4 +1208,6 @@ struct MetricConfigurationSection: View {
             return "Percentage of baseline category"
         }
     }
+
 }
+

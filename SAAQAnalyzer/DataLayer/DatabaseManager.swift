@@ -396,7 +396,7 @@ class DatabaseManager: ObservableObject {
                     }
 
                 case .percentage:
-                    // For percentage, we'll initially get counts and calculate percentage in a separate step
+                    // For percentage, we need to do dual queries - this is handled separately
                     query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
                 }
 
@@ -561,14 +561,77 @@ class DatabaseManager: ObservableObject {
                     points.append(TimeSeriesPoint(year: year, value: value, label: nil))
                 }
 
-                // Create series with the proper name (already resolved)
-                let series = FilteredDataSeries(name: seriesName, filters: filters, points: points)
+                // Handle percentage calculations with dual queries
+                if filters.metricType == .percentage {
+                    // Points now contain the numerator counts, we need to get baseline counts
+                    Task {
+                        do {
+                            let percentagePoints = try await self?.calculatePercentagePoints(
+                                numeratorPoints: points,
+                                baselineFilters: filters.percentageBaseFilters,
+                                db: db
+                            ) ?? []
 
-                continuation.resume(returning: series)
+                            let series = FilteredDataSeries(name: seriesName, filters: filters, points: percentagePoints)
+                            continuation.resume(returning: series)
+                        } catch {
+                            continuation.resume(throwing: error)
+                        }
+                    }
+                } else {
+                    // Create series with the proper name (already resolved)
+                    let series = FilteredDataSeries(name: seriesName, filters: filters, points: points)
+                    continuation.resume(returning: series)
+                }
             }
         }
     }
-    
+
+    /// Calculate percentage points by comparing numerator and baseline counts
+    private func calculatePercentagePoints(
+        numeratorPoints: [TimeSeriesPoint],
+        baselineFilters: PercentageBaseFilters?,
+        db: OpaquePointer
+    ) async throws -> [TimeSeriesPoint] {
+        guard let baselineFilters = baselineFilters else {
+            // If no baseline specified, return 100% for all points
+            return numeratorPoints.map { point in
+                TimeSeriesPoint(year: point.year, value: 100.0, label: point.label)
+            }
+        }
+
+        // Query baseline counts for the same years
+        let baselineConfig = baselineFilters.toFilterConfiguration()
+        let baselineSeries = try await queryVehicleData(filters: baselineConfig)
+        let baselinePoints = baselineSeries.points
+
+        // Create a dictionary for quick lookup of baseline values by year
+        let baselineLookup = Dictionary(
+            uniqueKeysWithValues: baselinePoints.map { ($0.year, $0.value) }
+        )
+
+        // Calculate percentages
+        var percentagePoints: [TimeSeriesPoint] = []
+        for numeratorPoint in numeratorPoints {
+            let year = numeratorPoint.year
+            let numerator = numeratorPoint.value
+
+            if let baseline = baselineLookup[year], baseline > 0 {
+                let percentage = (numerator / baseline) * 100.0
+                percentagePoints.append(
+                    TimeSeriesPoint(year: year, value: percentage, label: numeratorPoint.label)
+                )
+            } else {
+                // No baseline data for this year, or baseline is zero
+                percentagePoints.append(
+                    TimeSeriesPoint(year: year, value: 0.0, label: numeratorPoint.label)
+                )
+            }
+        }
+
+        return percentagePoints
+    }
+
     /// Generates a descriptive name for a data series based on filters (async version with municipality name lookup)
     private func generateSeriesNameAsync(from filters: FilterConfiguration) async -> String {
         var components: [String] = []
@@ -581,6 +644,22 @@ class DatabaseManager: ObservableObject {
                 if let unit = filters.metricField.unit {
                     metricLabel += " (\(unit))"
                 }
+            } else if filters.metricType == .percentage {
+                // For percentage, put the specific category first, then "in" baseline
+                if let baseFilters = filters.percentageBaseFilters {
+                    let droppedCategory = determineDifference(original: filters, baseline: baseFilters)
+                    let specificValue = getSpecificCategoryValue(filters: filters, droppedCategory: droppedCategory)
+                    let baselineDesc = await generateBaselineDescription(baseFilters: baseFilters, originalFilters: filters)
+
+                    if let specific = specificValue {
+                        // Return complete percentage description - no need to add other components
+                        return "% [\(specific)] in [\(baselineDesc)]"
+                    } else {
+                        return "% of [\(baselineDesc)]"
+                    }
+                } else {
+                    return "% of All Vehicles"
+                }
             }
             components.append(metricLabel)
         }
@@ -590,26 +669,26 @@ class DatabaseManager: ObservableObject {
                 .compactMap { VehicleClassification(rawValue: $0)?.description }
                 .joined(separator: ", ")
             if !classifications.isEmpty {
-                components.append(classifications)
+                components.append("[\(classifications)]")
             }
         }
 
         if !filters.vehicleMakes.isEmpty {
             let makes = Array(filters.vehicleMakes).sorted().prefix(3).joined(separator: ", ")
             let suffix = filters.vehicleMakes.count > 3 ? " (+\(filters.vehicleMakes.count - 3))" : ""
-            components.append("Make: \(makes)\(suffix)")
+            components.append("[Make: \(makes)\(suffix)]")
         }
 
         if !filters.vehicleModels.isEmpty {
             let models = Array(filters.vehicleModels).sorted().prefix(3).joined(separator: ", ")
             let suffix = filters.vehicleModels.count > 3 ? " (+\(filters.vehicleModels.count - 3))" : ""
-            components.append("Model: \(models)\(suffix)")
+            components.append("[Model: \(models)\(suffix)]")
         }
 
         if !filters.modelYears.isEmpty {
             let years = Array(filters.modelYears).sorted(by: >).prefix(3).map { String($0) }.joined(separator: ", ")
             let suffix = filters.modelYears.count > 3 ? " (+\(filters.modelYears.count - 3))" : ""
-            components.append("Model Year: \(years)\(suffix)")
+            components.append("[Model Year: \(years)\(suffix)]")
         }
 
         if !filters.fuelTypes.isEmpty {
@@ -617,24 +696,151 @@ class DatabaseManager: ObservableObject {
                 .compactMap { FuelType(rawValue: $0)?.description }
                 .joined(separator: ", ")
             if !fuels.isEmpty {
-                components.append(fuels)
+                components.append("[\(fuels)]")
             }
         }
 
         if !filters.regions.isEmpty {
-            components.append("Region: \(filters.regions.joined(separator: ", "))")
+            components.append("[Region: \(filters.regions.joined(separator: ", "))]")
         } else if !filters.mrcs.isEmpty {
-            components.append("MRC: \(filters.mrcs.joined(separator: ", "))")
+            components.append("[MRC: \(filters.mrcs.joined(separator: ", "))]")
         } else if !filters.municipalities.isEmpty {
             // Convert municipality codes to names for display
             let codeToName = await getMunicipalityCodeToNameMapping()
             let municipalityNames = filters.municipalities.compactMap { code in
                 codeToName[code] ?? code  // Fallback to code if name not found
             }
-            components.append("Municipality: \(municipalityNames.joined(separator: ", "))")
+            components.append("[Municipality: \(municipalityNames.joined(separator: ", "))]")
         }
 
-        return components.isEmpty ? "All Vehicles" : components.joined(separator: " - ")
+        return components.isEmpty ? "All Vehicles" : components.joined(separator: " AND ")
+    }
+
+    /// Generate a description of what the percentage baseline represents
+    private func generateBaselineDescription(baseFilters: PercentageBaseFilters, originalFilters: FilterConfiguration) async -> String {
+        var baseComponents: [String] = []
+
+        // Determine which category was dropped by comparing baseline with original
+        let droppedCategory = determineDifference(original: originalFilters, baseline: baseFilters)
+
+        if !baseFilters.vehicleClassifications.isEmpty {
+            let classifications = baseFilters.vehicleClassifications
+                .compactMap { VehicleClassification(rawValue: $0)?.description }
+                .joined(separator: ", ")
+            if !classifications.isEmpty {
+                baseComponents.append("[\(classifications)]")
+            }
+        }
+
+        if !baseFilters.fuelTypes.isEmpty {
+            let fuels = baseFilters.fuelTypes
+                .compactMap { FuelType(rawValue: $0)?.description }
+                .joined(separator: ", ")
+            if !fuels.isEmpty {
+                baseComponents.append("[\(fuels)]")
+            }
+        }
+
+        if !baseFilters.regions.isEmpty {
+            baseComponents.append("[Region: \(baseFilters.regions.joined(separator: ", "))]")
+        }
+
+        if !baseFilters.vehicleMakes.isEmpty {
+            let makes = Array(baseFilters.vehicleMakes).sorted().prefix(3).joined(separator: ", ")
+            let suffix = baseFilters.vehicleMakes.count > 3 ? " (+\(baseFilters.vehicleMakes.count - 3))" : ""
+            baseComponents.append("[Make: \(makes)\(suffix)]")
+        }
+
+        let baseDescription = baseComponents.isEmpty ? "All Vehicles" : baseComponents.joined(separator: " AND ")
+        return baseDescription
+    }
+
+    /// Determine which filter category was dropped when creating percentage baseline
+    private func determineDifference(original: FilterConfiguration, baseline: PercentageBaseFilters) -> String? {
+        if !original.fuelTypes.isEmpty && baseline.fuelTypes.isEmpty {
+            return "fuel types"
+        }
+        if !original.vehicleClassifications.isEmpty && baseline.vehicleClassifications.isEmpty {
+            return "vehicle types"
+        }
+        if !original.regions.isEmpty && baseline.regions.isEmpty {
+            return "regions"
+        }
+        if !original.vehicleMakes.isEmpty && baseline.vehicleMakes.isEmpty {
+            return "makes"
+        }
+        if !original.vehicleModels.isEmpty && baseline.vehicleModels.isEmpty {
+            return "models"
+        }
+        if !original.modelYears.isEmpty && baseline.modelYears.isEmpty {
+            return "model years"
+        }
+        if !original.mrcs.isEmpty && baseline.mrcs.isEmpty {
+            return "MRCs"
+        }
+        if !original.municipalities.isEmpty && baseline.municipalities.isEmpty {
+            return "municipalities"
+        }
+        if !original.ageRanges.isEmpty && baseline.ageRanges.isEmpty {
+            return "age ranges"
+        }
+        return nil
+    }
+
+    /// Get the specific value for the category that was dropped for percentage calculation
+    private func getSpecificCategoryValue(filters: FilterConfiguration, droppedCategory: String?) -> String? {
+        guard let dropped = droppedCategory else { return nil }
+
+        switch dropped {
+        case "fuel types":
+            if filters.fuelTypes.count == 1, let fuelType = filters.fuelTypes.first {
+                return FuelType(rawValue: fuelType)?.description ?? fuelType
+            } else if !filters.fuelTypes.isEmpty {
+                let fuels = filters.fuelTypes.compactMap { FuelType(rawValue: $0)?.description }.joined(separator: " & ")
+                return fuels.isEmpty ? nil : fuels
+            }
+        case "vehicle types":
+            if filters.vehicleClassifications.count == 1, let classification = filters.vehicleClassifications.first {
+                return VehicleClassification(rawValue: classification)?.description ?? classification
+            } else if !filters.vehicleClassifications.isEmpty {
+                let classifications = filters.vehicleClassifications.compactMap { VehicleClassification(rawValue: $0)?.description }.joined(separator: " & ")
+                return classifications.isEmpty ? nil : classifications
+            }
+        case "regions":
+            if filters.regions.count == 1 {
+                return "Region \(filters.regions.first!)"
+            } else if !filters.regions.isEmpty {
+                return "Regions \(filters.regions.joined(separator: " & "))"
+            }
+        case "makes":
+            if filters.vehicleMakes.count == 1 {
+                return filters.vehicleMakes.first!
+            } else if !filters.vehicleMakes.isEmpty {
+                let makes = Array(filters.vehicleMakes).sorted().prefix(2).joined(separator: " & ")
+                let suffix = filters.vehicleMakes.count > 2 ? " & Others" : ""
+                return "\(makes)\(suffix)"
+            }
+        case "models":
+            if filters.vehicleModels.count == 1 {
+                return filters.vehicleModels.first!
+            } else if !filters.vehicleModels.isEmpty {
+                let models = Array(filters.vehicleModels).sorted().prefix(2).joined(separator: " & ")
+                let suffix = filters.vehicleModels.count > 2 ? " & Others" : ""
+                return "\(models)\(suffix)"
+            }
+        case "model years":
+            if filters.modelYears.count == 1 {
+                return "\(filters.modelYears.first!) Model Year"
+            } else if !filters.modelYears.isEmpty {
+                let years = Array(filters.modelYears).sorted().prefix(3).map(String.init).joined(separator: " & ")
+                let suffix = filters.modelYears.count > 3 ? " & Others" : ""
+                return "\(years)\(suffix) Model Years"
+            }
+        default:
+            break
+        }
+
+        return nil
     }
 
     /// Generates a descriptive name for a data series based on filters (legacy synchronous version)
@@ -658,26 +864,26 @@ class DatabaseManager: ObservableObject {
                 .compactMap { VehicleClassification(rawValue: $0)?.description }
                 .joined(separator: ", ")
             if !classifications.isEmpty {
-                components.append(classifications)
+                components.append("[\(classifications)]")
             }
         }
 
         if !filters.vehicleMakes.isEmpty {
             let makes = Array(filters.vehicleMakes).sorted().prefix(3).joined(separator: ", ")
             let suffix = filters.vehicleMakes.count > 3 ? " (+\(filters.vehicleMakes.count - 3))" : ""
-            components.append("Make: \(makes)\(suffix)")
+            components.append("[Make: \(makes)\(suffix)]")
         }
 
         if !filters.vehicleModels.isEmpty {
             let models = Array(filters.vehicleModels).sorted().prefix(3).joined(separator: ", ")
             let suffix = filters.vehicleModels.count > 3 ? " (+\(filters.vehicleModels.count - 3))" : ""
-            components.append("Model: \(models)\(suffix)")
+            components.append("[Model: \(models)\(suffix)]")
         }
 
         if !filters.modelYears.isEmpty {
             let years = Array(filters.modelYears).sorted(by: >).prefix(3).map { String($0) }.joined(separator: ", ")
             let suffix = filters.modelYears.count > 3 ? " (+\(filters.modelYears.count - 3))" : ""
-            components.append("Model Year: \(years)\(suffix)")
+            components.append("[Model Year: \(years)\(suffix)]")
         }
 
         if !filters.fuelTypes.isEmpty {
@@ -685,20 +891,20 @@ class DatabaseManager: ObservableObject {
                 .compactMap { FuelType(rawValue: $0)?.description }
                 .joined(separator: ", ")
             if !fuels.isEmpty {
-                components.append(fuels)
+                components.append("[\(fuels)]")
             }
         }
 
         if !filters.regions.isEmpty {
-            components.append("Region: \(filters.regions.joined(separator: ", "))")
+            components.append("[Region: \(filters.regions.joined(separator: ", "))]")
         } else if !filters.mrcs.isEmpty {
-            components.append("MRC: \(filters.mrcs.joined(separator: ", "))")
+            components.append("[MRC: \(filters.mrcs.joined(separator: ", "))]")
         } else if !filters.municipalities.isEmpty {
             // Use codes in series name (fallback for synchronous version)
-            components.append("Municipality: \(filters.municipalities.joined(separator: ", "))")
+            components.append("[Municipality: \(filters.municipalities.joined(separator: ", "))]")
         }
 
-        return components.isEmpty ? "All Vehicles" : components.joined(separator: " - ")
+        return components.isEmpty ? "All Vehicles" : components.joined(separator: " AND ")
     }
     
     /// Gets available years - uses cache when possible
