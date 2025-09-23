@@ -7,12 +7,13 @@ import AppKit
 struct ChartView: View {
     @Binding var dataSeries: [FilteredDataSeries]
     @Binding var selectedSeries: FilteredDataSeries?
-    
+
     // Chart display options
     @State private var showLegend = true
     @State private var showGridLines = true
     @State private var includeZero = true
     @State private var chartType: ChartType = .line
+    @State private var chartRefreshTrigger = false
     
     enum ChartType: String, CaseIterable {
         case line = "Line"
@@ -45,12 +46,14 @@ struct ChartView: View {
                         chartContent
                             .frame(minHeight: 400)
                             .padding()
+                            .id(chartRefreshTrigger)
                         
                         // Legend (if enabled)
                         if showLegend && !dataSeries.isEmpty {
                             ChartLegend(
                                 series: $dataSeries,
-                                selectedSeries: $selectedSeries
+                                selectedSeries: $selectedSeries,
+                                chartRefreshTrigger: $chartRefreshTrigger
                             )
                             .padding(.horizontal)
                         }
@@ -108,7 +111,7 @@ struct ChartView: View {
     /// Main chart content
     @ViewBuilder
     private var chartContent: some View {
-        Chart(dataSeries, id: \.id) { series in
+        Chart(dataSeries.filter { $0.isVisible }, id: \.id) { series in
             ForEach(series.points.sorted { $0.year < $1.year }) { point in
                 switch chartType {
                 case .line:
@@ -185,9 +188,10 @@ struct ChartView: View {
     
     /// Calculate X-axis domain based on data range
     private func xAxisDomain() -> ClosedRange<Double> {
-        guard !dataSeries.isEmpty else { return 2020...2024 }
-        
-        let allYears = dataSeries.flatMap { $0.points.map { Double($0.year) } }
+        let visibleSeries = dataSeries.filter { $0.isVisible }
+        guard !visibleSeries.isEmpty else { return 2020...2024 }
+
+        let allYears = visibleSeries.flatMap { $0.points.map { Double($0.year) } }
         let minYear = allYears.min() ?? 2020
         let maxYear = allYears.max() ?? 2024
         
@@ -197,9 +201,10 @@ struct ChartView: View {
     
     /// Calculate Y-axis domain based on data and settings
     private func yAxisDomain() -> ClosedRange<Double> {
-        guard !dataSeries.isEmpty else { return 0...100 }
-        
-        let allValues = dataSeries.flatMap { $0.points.map { $0.value } }
+        let visibleSeries = dataSeries.filter { $0.isVisible }
+        guard !visibleSeries.isEmpty else { return 0...100 }
+
+        let allValues = visibleSeries.flatMap { $0.points.map { $0.value } }
         let minValue = allValues.min() ?? 0
         let maxValue = allValues.max() ?? 100
         
@@ -262,6 +267,8 @@ struct EmptyChartView: View {
 struct ChartLegend: View {
     @Binding var series: [FilteredDataSeries]
     @Binding var selectedSeries: FilteredDataSeries?
+    @Binding var chartRefreshTrigger: Bool
+    @State private var refreshTrigger = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -307,6 +314,19 @@ struct ChartLegend: View {
                             .foregroundColor(.secondary)
                     }
                     
+                    // Hide/Show button
+                    Button {
+                        seriesItem.isVisible.toggle()
+                        refreshTrigger.toggle()
+                        chartRefreshTrigger.toggle()
+                    } label: {
+                        Image(systemName: seriesItem.isVisible ? "eye" : "eye.slash")
+                            .foregroundColor(.secondary)
+                            .imageScale(.small)
+                    }
+                    .buttonStyle(.plain)
+                    .help(seriesItem.isVisible ? "Hide this series" : "Show this series")
+
                     // Delete button
                     Button {
                         if selectedSeries?.id == seriesItem.id {
@@ -338,6 +358,7 @@ struct ChartLegend: View {
             }
         }
         .padding()
+        .id(refreshTrigger)
         .background(Color.gray.opacity(0.05))
         .cornerRadius(8)
     }
@@ -401,7 +422,7 @@ struct ExportButton: View {
             } else {
                 // Simple line chart for export with axis fixes
                 let chartView = Chart {
-                    ForEach(dataSeries, id: \.id) { series in
+                    ForEach(dataSeries.filter { $0.isVisible }, id: \.id) { series in
                         ForEach(series.points, id: \.year) { point in
                             LineMark(
                                 x: .value("Year", point.year),
@@ -435,13 +456,13 @@ struct ExportButton: View {
 
             // Build simplified legend for export
             let legendView = Group {
-                if dataSeries.count > 1 {
+                if dataSeries.filter({ $0.isVisible }).count > 1 {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Series")
                             .font(.headline)
                             .foregroundColor(.black)
 
-                        ForEach(Array(dataSeries.enumerated()), id: \.element.id) { index, series in
+                        ForEach(Array(dataSeries.filter { $0.isVisible }.enumerated()), id: \.element.id) { index, series in
                             HStack {
                                 Rectangle()
                                     .fill(series.color)

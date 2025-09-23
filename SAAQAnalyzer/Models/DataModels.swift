@@ -232,7 +232,8 @@ class FilteredDataSeries: ObservableObject, Identifiable {
     let filters: FilterConfiguration
     @Published var points: [TimeSeriesPoint] = []
     @Published var color: Color = .blue
-    
+    @Published var isVisible: Bool = true
+
     init(name: String, filters: FilterConfiguration, points: [TimeSeriesPoint] = []) {
         self.name = name
         self.filters = filters
