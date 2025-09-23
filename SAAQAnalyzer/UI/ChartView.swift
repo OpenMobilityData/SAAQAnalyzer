@@ -426,10 +426,11 @@ struct ExportButton: View {
                         ForEach(series.points, id: \.year) { point in
                             LineMark(
                                 x: .value("Year", point.year),
-                                y: .value("Count", point.value)
+                                y: .value("Count", point.value),
+                                series: .value("Series", series.name)
                             )
                             .foregroundStyle(series.color)
-                            .lineStyle(StrokeStyle(lineWidth: 6))
+                            .lineStyle(StrokeStyle(lineWidth: AppSettings.shared.exportLineThickness))
                         }
                     }
                 }
