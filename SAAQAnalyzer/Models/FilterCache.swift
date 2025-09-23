@@ -7,20 +7,40 @@ class FilterCache {
     // Cache keys
     private enum CacheKeys {
         static let years = "FilterCache.years"
-        static let regions = "FilterCache.regions" 
+        static let regions = "FilterCache.regions"
         static let mrcs = "FilterCache.mrcs"
         static let municipalities = "FilterCache.municipalities"
         static let classifications = "FilterCache.classifications"
+        static let vehicleMakes = "FilterCache.vehicleMakes"
+        static let vehicleModels = "FilterCache.vehicleModels"
         static let lastUpdated = "FilterCache.lastUpdated"
         static let dataVersion = "FilterCache.dataVersion"
     }
     
     // MARK: - Cache Status
     
-    /// Check if cache exists and is valid
+    /// Check if cache exists and is valid (all required fields present)
     var hasCachedData: Bool {
-        return userDefaults.object(forKey: CacheKeys.lastUpdated) != nil &&
-               !getCachedYears().isEmpty
+        // Check if we have a last updated timestamp and basic data
+        guard userDefaults.object(forKey: CacheKeys.lastUpdated) != nil,
+              !getCachedYears().isEmpty else {
+            return false
+        }
+
+        // Check that all required cache keys exist (even if empty arrays)
+        // This ensures new fields trigger a cache refresh when first added
+        let requiredKeys = [
+            CacheKeys.regions,
+            CacheKeys.mrcs,
+            CacheKeys.municipalities,
+            CacheKeys.classifications,
+            CacheKeys.vehicleMakes,
+            CacheKeys.vehicleModels
+        ]
+
+        return requiredKeys.allSatisfy { key in
+            userDefaults.object(forKey: key) != nil
+        }
     }
     
     /// Get the last cache update timestamp
@@ -54,20 +74,31 @@ class FilterCache {
     func getCachedClassifications() -> [String] {
         return userDefaults.stringArray(forKey: CacheKeys.classifications) ?? []
     }
-    
+
+    func getCachedVehicleMakes() -> [String] {
+        return userDefaults.stringArray(forKey: CacheKeys.vehicleMakes) ?? []
+    }
+
+    func getCachedVehicleModels() -> [String] {
+        return userDefaults.stringArray(forKey: CacheKeys.vehicleModels) ?? []
+    }
+
     // MARK: - Cache Writing
     
     /// Update the entire cache with fresh data
-    func updateCache(years: [Int], regions: [String], mrcs: [String], municipalities: [String], classifications: [String], dataVersion: String) {
+    func updateCache(years: [Int], regions: [String], mrcs: [String], municipalities: [String],
+                    classifications: [String], vehicleMakes: [String], vehicleModels: [String], dataVersion: String) {
         userDefaults.set(years, forKey: CacheKeys.years)
         userDefaults.set(regions, forKey: CacheKeys.regions)
         userDefaults.set(mrcs, forKey: CacheKeys.mrcs)
         userDefaults.set(municipalities, forKey: CacheKeys.municipalities)
         userDefaults.set(classifications, forKey: CacheKeys.classifications)
+        userDefaults.set(vehicleMakes, forKey: CacheKeys.vehicleMakes)
+        userDefaults.set(vehicleModels, forKey: CacheKeys.vehicleModels)
         userDefaults.set(Date(), forKey: CacheKeys.lastUpdated)
         userDefaults.set(dataVersion, forKey: CacheKeys.dataVersion)
-        
-        print("💾 Filter cache updated with \(years.count) years, \(regions.count) regions, \(mrcs.count) MRCs, \(municipalities.count) municipalities, \(classifications.count) classifications")
+
+        print("💾 Filter cache updated with \(years.count) years, \(regions.count) regions, \(mrcs.count) MRCs, \(municipalities.count) municipalities, \(classifications.count) classifications, \(vehicleMakes.count) makes, \(vehicleModels.count) models")
     }
     
     /// Clear the entire cache
@@ -77,6 +108,8 @@ class FilterCache {
         userDefaults.removeObject(forKey: CacheKeys.mrcs)
         userDefaults.removeObject(forKey: CacheKeys.municipalities)
         userDefaults.removeObject(forKey: CacheKeys.classifications)
+        userDefaults.removeObject(forKey: CacheKeys.vehicleMakes)
+        userDefaults.removeObject(forKey: CacheKeys.vehicleModels)
         userDefaults.removeObject(forKey: CacheKeys.lastUpdated)
         userDefaults.removeObject(forKey: CacheKeys.dataVersion)
         

@@ -292,6 +292,8 @@ class DatabaseManager: ObservableObject {
             "CREATE INDEX IF NOT EXISTS idx_vehicles_geo ON vehicles(admin_region, mrc, geo_code);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_fuel ON vehicles(fuel_type);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_model_year ON vehicles(model_year);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_make ON vehicles(make);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_model ON vehicles(model);",
             "CREATE INDEX IF NOT EXISTS idx_geographic_type ON geographic_entities(type);",
             "CREATE INDEX IF NOT EXISTS idx_geographic_parent ON geographic_entities(parent_code);"
         ]
@@ -423,6 +425,26 @@ class DatabaseManager: ObservableObject {
                     }
                 }
 
+                // Add vehicle make filter
+                if !filters.vehicleMakes.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filters.vehicleMakes.count).joined(separator: ",")
+                    query += " AND make IN (\(placeholders))"
+                    for make in filters.vehicleMakes.sorted() {
+                        bindValues.append((Int32(bindIndex), make))
+                        bindIndex += 1
+                    }
+                }
+
+                // Add vehicle model filter
+                if !filters.vehicleModels.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filters.vehicleModels.count).joined(separator: ",")
+                    query += " AND model IN (\(placeholders))"
+                    for model in filters.vehicleModels.sorted() {
+                        bindValues.append((Int32(bindIndex), model))
+                        bindIndex += 1
+                    }
+                }
+
                 // Add fuel type filter (only for years 2017+)
                 if !filters.fuelTypes.isEmpty {
                     let placeholders = Array(repeating: "?", count: filters.fuelTypes.count).joined(separator: ",")
@@ -522,6 +544,18 @@ class DatabaseManager: ObservableObject {
             }
         }
 
+        if !filters.vehicleMakes.isEmpty {
+            let makes = Array(filters.vehicleMakes).sorted().prefix(3).joined(separator: ", ")
+            let suffix = filters.vehicleMakes.count > 3 ? " (+\(filters.vehicleMakes.count - 3))" : ""
+            components.append("Make: \(makes)\(suffix)")
+        }
+
+        if !filters.vehicleModels.isEmpty {
+            let models = Array(filters.vehicleModels).sorted().prefix(3).joined(separator: ", ")
+            let suffix = filters.vehicleModels.count > 3 ? " (+\(filters.vehicleModels.count - 3))" : ""
+            components.append("Model: \(models)\(suffix)")
+        }
+
         if !filters.fuelTypes.isEmpty {
             let fuels = filters.fuelTypes
                 .compactMap { FuelType(rawValue: $0)?.description }
@@ -558,6 +592,18 @@ class DatabaseManager: ObservableObject {
             if !classifications.isEmpty {
                 components.append(classifications)
             }
+        }
+
+        if !filters.vehicleMakes.isEmpty {
+            let makes = Array(filters.vehicleMakes).sorted().prefix(3).joined(separator: ", ")
+            let suffix = filters.vehicleMakes.count > 3 ? " (+\(filters.vehicleMakes.count - 3))" : ""
+            components.append("Make: \(makes)\(suffix)")
+        }
+
+        if !filters.vehicleModels.isEmpty {
+            let models = Array(filters.vehicleModels).sorted().prefix(3).joined(separator: ", ")
+            let suffix = filters.vehicleModels.count > 3 ? " (+\(filters.vehicleModels.count - 3))" : ""
+            components.append("Model: \(models)\(suffix)")
         }
 
         if !filters.fuelTypes.isEmpty {
@@ -776,11 +822,39 @@ class DatabaseManager: ObservableObject {
                 return cached
             }
         }
-        
+
         // Fall back to database query
         return await getClassificationsFromDatabase()
     }
-    
+
+    /// Gets available vehicle makes - uses cache when possible
+    func getAvailableVehicleMakes() async -> [String] {
+        // Check cache first
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+            let cached = filterCache.getCachedVehicleMakes()
+            if !cached.isEmpty {
+                return cached
+            }
+        }
+
+        // Fall back to database query
+        return await getVehicleMakesFromDatabase()
+    }
+
+    /// Gets available vehicle models - uses cache when possible
+    func getAvailableVehicleModels() async -> [String] {
+        // Check cache first
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+            let cached = filterCache.getCachedVehicleModels()
+            if !cached.isEmpty {
+                return cached
+            }
+        }
+
+        // Fall back to database query
+        return await getVehicleModelsFromDatabase()
+    }
+
     // MARK: - Filter Cache Management
     
     /// Refreshes the filter cache with current database values
@@ -790,25 +864,30 @@ class DatabaseManager: ObservableObject {
         
         // Query all filter values from database in parallel
         async let years = getYearsFromDatabase()
-        async let regions = getRegionsFromDatabase()  
+        async let regions = getRegionsFromDatabase()
         async let mrcs = getMRCsFromDatabase()
         async let municipalities = getMunicipalitiesFromDatabase()
         async let classifications = getClassificationsFromDatabase()
-        
+        async let vehicleMakes = getVehicleMakesFromDatabase()
+        async let vehicleModels = getVehicleModelsFromDatabase()
+
         // Wait for all queries to complete
-        let (yearsList, regionsList, mrcsList, municipalitiesList, classificationsList) = await (years, regions, mrcs, municipalities, classifications)
-        
+        let (yearsList, regionsList, mrcsList, municipalitiesList, classificationsList, makesList, modelsList) =
+            await (years, regions, mrcs, municipalities, classifications, vehicleMakes, vehicleModels)
+
         let duration = Date().timeIntervalSince(startTime)
         print("🔄 Database queries completed in \(String(format: "%.2f", duration))s")
-        print("🔄 Found: \(yearsList.count) years, \(regionsList.count) regions, \(mrcsList.count) MRCs, \(municipalitiesList.count) municipalities, \(classificationsList.count) classifications")
-        
+        print("🔄 Found: \(yearsList.count) years, \(regionsList.count) regions, \(mrcsList.count) MRCs, \(municipalitiesList.count) municipalities, \(classificationsList.count) classifications, \(makesList.count) makes, \(modelsList.count) models")
+
         // Update cache
         filterCache.updateCache(
             years: yearsList,
-            regions: regionsList, 
+            regions: regionsList,
             mrcs: mrcsList,
             municipalities: municipalitiesList,
             classifications: classificationsList,
+            vehicleMakes: makesList,
+            vehicleModels: modelsList,
             dataVersion: "\(dataVersion)"
         )
         
@@ -931,7 +1010,77 @@ class DatabaseManager: ObservableObject {
             }
         }
     }
-    
+
+    /// Query distinct vehicle makes from database
+    private func getVehicleMakesFromDatabase() async -> [String] {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+
+                let query = "SELECT DISTINCT make FROM vehicles WHERE make IS NOT NULL AND make != '' ORDER BY make"
+                var stmt: OpaquePointer?
+
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+
+                var vehicleMakes: [String] = []
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let makePtr = sqlite3_column_text(stmt, 0) {
+                            let make = String(cString: makePtr)
+                            if !make.isEmpty {
+                                vehicleMakes.append(make)
+                            }
+                        }
+                    }
+                }
+
+                continuation.resume(returning: vehicleMakes)
+            }
+        }
+    }
+
+    /// Query distinct vehicle models from database
+    private func getVehicleModelsFromDatabase() async -> [String] {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+
+                let query = "SELECT DISTINCT model FROM vehicles WHERE model IS NOT NULL AND model != '' ORDER BY model"
+                var stmt: OpaquePointer?
+
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+
+                var vehicleModels: [String] = []
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let modelPtr = sqlite3_column_text(stmt, 0) {
+                            let model = String(cString: modelPtr)
+                            if !model.isEmpty {
+                                vehicleModels.append(model)
+                            }
+                        }
+                    }
+                }
+
+                continuation.resume(returning: vehicleModels)
+            }
+        }
+    }
+
     /// Gets available municipalities - uses cache when possible
     func getAvailableMunicipalities() async -> [String] {
         // Check cache first

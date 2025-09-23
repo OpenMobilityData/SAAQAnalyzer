@@ -11,6 +11,8 @@ struct FilterPanel: View {
     @State private var availableMRCs: [String] = []
     @State private var availableMunicipalities: [String] = []
     @State private var availableClassifications: [String] = []
+    @State private var availableVehicleMakes: [String] = []
+    @State private var availableVehicleModels: [String] = []
 
     // Municipality code-to-name mapping for UI display
     @State private var municipalityCodeToName: [String: String] = [:]
@@ -97,9 +99,13 @@ struct FilterPanel: View {
                     DisclosureGroup(isExpanded: $vehicleSectionExpanded) {
                         VehicleFilterSection(
                             selectedClassifications: $configuration.vehicleClassifications,
+                            selectedVehicleMakes: $configuration.vehicleMakes,
+                            selectedVehicleModels: $configuration.vehicleModels,
                             selectedFuelTypes: $configuration.fuelTypes,
                             availableYears: availableYears,
-                            availableClassifications: availableClassifications
+                            availableClassifications: availableClassifications,
+                            availableVehicleMakes: availableVehicleMakes,
+                            availableVehicleModels: availableVehicleModels
                         )
                     } label: {
                         Label("Vehicle Characteristics", systemImage: "car")
@@ -143,9 +149,12 @@ struct FilterPanel: View {
             
             // Check if we need to populate cache first
             let cacheInfo = databaseManager.filterCacheInfo
+            print("🔍 Filter cache status: hasCache=\(cacheInfo.hasCache), years=\(cacheInfo.itemCounts.years)")
             if !cacheInfo.hasCache {
                 print("💾 No filter cache found, populating cache before loading options...")
                 await databaseManager.refreshFilterCache()
+            } else {
+                print("✅ Using existing filter cache")
             }
             
             // Load all available options from database/cache
@@ -154,6 +163,10 @@ struct FilterPanel: View {
             availableMRCs = await databaseManager.getAvailableMRCs()
             availableMunicipalities = await databaseManager.getAvailableMunicipalities()
             availableClassifications = await databaseManager.getAvailableClassifications()
+            availableVehicleMakes = await databaseManager.getAvailableVehicleMakes()
+            availableVehicleModels = await databaseManager.getAvailableVehicleModels()
+
+            print("📊 Loaded filter options: \(availableYears.count) years, \(availableVehicleMakes.count) makes, \(availableVehicleModels.count) models")
 
             // Load municipality mapping for UI display
             municipalityCodeToName = await databaseManager.getMunicipalityCodeToNameMapping()
@@ -345,9 +358,13 @@ struct SimpleGeographicFilterSection: View {
 
 struct VehicleFilterSection: View {
     @Binding var selectedClassifications: Set<String>
+    @Binding var selectedVehicleMakes: Set<String>
+    @Binding var selectedVehicleModels: Set<String>
     @Binding var selectedFuelTypes: Set<String>
     let availableYears: [Int]
     let availableClassifications: [String]
+    let availableVehicleMakes: [String]
+    let availableVehicleModels: [String]
     
     // Check if any year from 2017+ is selected (for fuel type filter)
     private var hasFuelTypeYears: Bool {
@@ -368,14 +385,44 @@ struct VehicleFilterSection: View {
                 )
             }
             
+            // Vehicle Makes
+            if !availableVehicleMakes.isEmpty {
+                Divider()
+
+                Text("Vehicle Make")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                SearchableFilterList(
+                    items: availableVehicleMakes,
+                    selectedItems: $selectedVehicleMakes,
+                    searchPrompt: "Search vehicle makes..."
+                )
+            }
+
+            // Vehicle Models
+            if !availableVehicleModels.isEmpty {
+                Divider()
+
+                Text("Vehicle Model")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                SearchableFilterList(
+                    items: availableVehicleModels,
+                    selectedItems: $selectedVehicleModels,
+                    searchPrompt: "Search vehicle models..."
+                )
+            }
+
             // Fuel types (only if 2017+ data is available)
             if hasFuelTypeYears {
                 Divider()
-                
+
                 Text("Fuel Type (2017+)")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                
+
                 SearchableFilterList(
                     items: FuelType.allCases.map { $0.description },
                     selectedItems: Binding(
