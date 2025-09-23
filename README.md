@@ -162,6 +162,15 @@ SAAQAnalyzer works with public data from SAAQ (Société de l'assurance automobi
 
 *Note: Data files are not included in this repository. Obtain them from official SAAQ sources.*
 
+## Data Schema Documentation
+
+Detailed documentation for SAAQ data formats is available in the `Documentation/` folder:
+
+- **[Vehicle Registration Schema](Documentation/Vehicle-Registration-Schema.md)**: Complete field definitions, classification codes, color codes, fuel types, and geographic variables for vehicle data
+- **[Driver's License Schema](Documentation/Driver-License-Schema.md)**: Comprehensive documentation for license holder demographics, license types, classes, and experience variables
+
+These documents provide essential reference information for understanding the data structure, valid values, and relationships between fields.
+
 ## Contributing
 
 ### Development Setup
