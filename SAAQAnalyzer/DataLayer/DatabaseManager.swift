@@ -10,7 +10,7 @@ class DatabaseManager: ObservableObject {
     /// Database file URL
     @Published var databaseURL: URL?
     
-    /// Triggers UI refresh when data changes
+    /// Triggers UI refresh when data changes - using database file timestamp for persistence
     @Published var dataVersion = 0
     
     /// Filter cache manager
@@ -35,6 +35,17 @@ class DatabaseManager: ObservableObject {
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         let dbPath = documentsPath.appendingPathComponent("saaq_data.sqlite")
         setDatabaseLocation(dbPath)
+    }
+
+    /// Gets a persistent data version based on database file modification time
+    private func getPersistentDataVersion() -> String {
+        guard let dbURL = databaseURL,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: dbURL.path),
+              let modificationDate = attributes[.modificationDate] as? Date else {
+            return "0"
+        }
+        // Use timestamp as version identifier
+        return String(Int(modificationDate.timeIntervalSince1970))
     }
     
     /// Changes database location
@@ -156,7 +167,7 @@ class DatabaseManager: ObservableObject {
                     return
                 }
                 
-                let tables = ["vehicles", "geographic_entities", "import_log"]
+                let tables = ["vehicles", "licenses", "geographic_entities", "import_log"]
                 
                 do {
                     for table in tables {
@@ -190,10 +201,10 @@ class DatabaseManager: ObservableObject {
                     // Delete vehicle records for the specific year
                     let deleteVehiclesSQL = "DELETE FROM vehicles WHERE year = ?"
                     var deleteStmt: OpaquePointer?
-                    
+
                     if sqlite3_prepare_v2(db, deleteVehiclesSQL, -1, &deleteStmt, nil) == SQLITE_OK {
                         sqlite3_bind_int(deleteStmt, 1, Int32(year))
-                        
+
                         if sqlite3_step(deleteStmt) != SQLITE_DONE {
                             sqlite3_finalize(deleteStmt)
                             throw DatabaseError.queryFailed("Failed to delete vehicle records for year \(year)")
@@ -201,6 +212,22 @@ class DatabaseManager: ObservableObject {
                         sqlite3_finalize(deleteStmt)
                     } else {
                         throw DatabaseError.queryFailed("Failed to prepare delete statement for year \(year)")
+                    }
+
+                    // Delete license records for the specific year
+                    let deleteLicensesSQL = "DELETE FROM licenses WHERE year = ?"
+                    var deleteLicenseStmt: OpaquePointer?
+
+                    if sqlite3_prepare_v2(db, deleteLicensesSQL, -1, &deleteLicenseStmt, nil) == SQLITE_OK {
+                        sqlite3_bind_int(deleteLicenseStmt, 1, Int32(year))
+
+                        if sqlite3_step(deleteLicenseStmt) != SQLITE_DONE {
+                            sqlite3_finalize(deleteLicenseStmt)
+                            throw DatabaseError.queryFailed("Failed to delete license records for year \(year)")
+                        }
+                        sqlite3_finalize(deleteLicenseStmt)
+                    } else {
+                        throw DatabaseError.queryFailed("Failed to prepare delete license statement for year \(year)")
                     }
                     
                     // Delete import log entries for the specific year
@@ -261,6 +288,33 @@ class DatabaseManager: ObservableObject {
             );
             """
         
+        let createLicensesTable = """
+            CREATE TABLE IF NOT EXISTS licenses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                year INTEGER NOT NULL,
+                license_sequence TEXT NOT NULL,
+                age_group TEXT NOT NULL,
+                gender TEXT NOT NULL,
+                mrc TEXT NOT NULL,
+                admin_region TEXT NOT NULL,
+                license_type TEXT NOT NULL,
+                has_learner_permit_123 INTEGER NOT NULL DEFAULT 0,
+                has_learner_permit_5 INTEGER NOT NULL DEFAULT 0,
+                has_learner_permit_6a6r INTEGER NOT NULL DEFAULT 0,
+                has_driver_license_1234 INTEGER NOT NULL DEFAULT 0,
+                has_driver_license_5 INTEGER NOT NULL DEFAULT 0,
+                has_driver_license_6abce INTEGER NOT NULL DEFAULT 0,
+                has_driver_license_6d INTEGER NOT NULL DEFAULT 0,
+                has_driver_license_8 INTEGER NOT NULL DEFAULT 0,
+                is_probationary INTEGER NOT NULL DEFAULT 0,
+                experience_1234 TEXT,
+                experience_5 TEXT,
+                experience_6abce TEXT,
+                experience_global TEXT,
+                UNIQUE(year, license_sequence)
+            );
+            """
+
         let createGeographicTable = """
             CREATE TABLE IF NOT EXISTS geographic_entities (
                 code TEXT PRIMARY KEY,
@@ -287,6 +341,7 @@ class DatabaseManager: ObservableObject {
         
         // Create indexes for better query performance
         let createIndexes = [
+            // Vehicle indexes
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year ON vehicles(year);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_classification ON vehicles(classification);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_geo ON vehicles(admin_region, mrc, geo_code);",
@@ -294,6 +349,14 @@ class DatabaseManager: ObservableObject {
             "CREATE INDEX IF NOT EXISTS idx_vehicles_model_year ON vehicles(model_year);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_make ON vehicles(make);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_model ON vehicles(model);",
+            // License indexes
+            "CREATE INDEX IF NOT EXISTS idx_licenses_year ON licenses(year);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_geo ON licenses(admin_region, mrc);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_type ON licenses(license_type);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_age_group ON licenses(age_group);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_gender ON licenses(gender);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_probationary ON licenses(is_probationary);",
+            // Geographic indexes
             "CREATE INDEX IF NOT EXISTS idx_geographic_type ON geographic_entities(type);",
             "CREATE INDEX IF NOT EXISTS idx_geographic_parent ON geographic_entities(parent_code);"
         ]
@@ -302,7 +365,7 @@ class DatabaseManager: ObservableObject {
             guard let db = self?.db else { return }
             
             // Create tables
-            for query in [createVehiclesTable, createGeographicTable, createImportLogTable] {
+            for query in [createVehiclesTable, createLicensesTable, createGeographicTable, createImportLogTable] {
                 if sqlite3_exec(db, query, nil, nil, nil) != SQLITE_OK {
                     if let errorMessage = sqlite3_errmsg(db) {
                         print("Error creating table: \(String(cString: errorMessage))")
@@ -352,7 +415,52 @@ class DatabaseManager: ObservableObject {
             }
         }
     }
-    
+
+    /// Check if license year is already imported
+    func isLicenseYearImported(_ year: Int) async -> Bool {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: false)
+                    return
+                }
+
+                // Check if actual license records exist for this year
+                let query = "SELECT COUNT(*) FROM licenses WHERE year = ? LIMIT 1"
+                var stmt: OpaquePointer?
+
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    sqlite3_bind_int(stmt, 1, Int32(year))
+
+                    if sqlite3_step(stmt) == SQLITE_ROW {
+                        let count = sqlite3_column_int(stmt, 0)
+                        continuation.resume(returning: count > 0)
+                    } else {
+                        continuation.resume(returning: false)
+                    }
+                } else {
+                    continuation.resume(returning: false)
+                }
+            }
+        }
+    }
+
+    /// Generic query method that routes to appropriate data type handler
+    func queryData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
+        switch filters.dataEntityType {
+        case .vehicle:
+            return try await queryVehicleData(filters: filters)
+        case .license:
+            return try await queryLicenseData(filters: filters)
+        }
+    }
+
     /// Queries vehicle data based on filters
     func queryVehicleData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
         // First, generate the proper series name with municipality name resolution
@@ -597,6 +705,242 @@ class DatabaseManager: ObservableObject {
         }
     }
 
+    /// Queries license data based on filters
+    func queryLicenseData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
+        // First, generate the proper series name
+        let seriesName = await generateSeriesNameAsync(from: filters)
+
+        return try await withCheckedThrowingContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(throwing: DatabaseError.notConnected)
+                    return
+                }
+
+                // Build dynamic query based on filters and metric type
+                var query: String
+
+                // Build SELECT clause based on metric type
+                switch filters.metricType {
+                case .count:
+                    query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
+
+                case .sum:
+                    // For licenses, sum operations are typically counts of license classes
+                    if filters.metricField == .licenseClassCount {
+                        // Count total license classes held by each person
+                        query = """
+                            SELECT year, SUM(
+                                has_learner_permit_123 + has_learner_permit_5 + has_learner_permit_6a6r +
+                                has_driver_license_1234 + has_driver_license_5 + has_driver_license_6abce +
+                                has_driver_license_6d + has_driver_license_8
+                            ) as value FROM licenses WHERE 1=1
+                            """
+                    } else {
+                        // Fallback to count
+                        query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
+                    }
+
+                case .average:
+                    // For licenses, average operations are typically average license classes per person
+                    if filters.metricField == .licenseClassCount {
+                        query = """
+                            SELECT year, AVG(
+                                has_learner_permit_123 + has_learner_permit_5 + has_learner_permit_6a6r +
+                                has_driver_license_1234 + has_driver_license_5 + has_driver_license_6abce +
+                                has_driver_license_6d + has_driver_license_8
+                            ) as value FROM licenses WHERE 1=1
+                            """
+                    } else {
+                        // Fallback to count
+                        query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
+                    }
+
+                case .percentage:
+                    // For percentage, we need to do dual queries - this is handled separately
+                    query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
+                }
+
+                var bindIndex = 1
+                var bindValues: [(Int32, Any)] = []
+
+                // Add year filter
+                if !filters.years.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filters.years.count).joined(separator: ",")
+                    query += " AND year IN (\(placeholders))"
+                    for year in filters.years.sorted() {
+                        bindValues.append((Int32(bindIndex), year))
+                        bindIndex += 1
+                    }
+                }
+
+                // Add region filter
+                if !filters.regions.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filters.regions.count).joined(separator: ",")
+                    query += " AND admin_region IN (\(placeholders))"
+                    for region in filters.regions.sorted() {
+                        bindValues.append((Int32(bindIndex), region))
+                        bindIndex += 1
+                    }
+                }
+
+                // Add MRC filter
+                if !filters.mrcs.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filters.mrcs.count).joined(separator: ",")
+                    query += " AND mrc IN (\(placeholders))"
+                    for mrc in filters.mrcs.sorted() {
+                        bindValues.append((Int32(bindIndex), mrc))
+                        bindIndex += 1
+                    }
+                }
+
+                // Add license type filter
+                if !filters.licenseTypes.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filters.licenseTypes.count).joined(separator: ",")
+                    query += " AND license_type IN (\(placeholders))"
+                    for licenseType in filters.licenseTypes.sorted() {
+                        bindValues.append((Int32(bindIndex), licenseType))
+                        bindIndex += 1
+                    }
+                }
+
+                // Add age group filter
+                if !filters.ageGroups.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filters.ageGroups.count).joined(separator: ",")
+                    query += " AND age_group IN (\(placeholders))"
+                    for ageGroup in filters.ageGroups.sorted() {
+                        bindValues.append((Int32(bindIndex), ageGroup))
+                        bindIndex += 1
+                    }
+                }
+
+                // Add gender filter
+                if !filters.genders.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filters.genders.count).joined(separator: ",")
+                    query += " AND gender IN (\(placeholders))"
+                    for gender in filters.genders.sorted() {
+                        bindValues.append((Int32(bindIndex), gender))
+                        bindIndex += 1
+                    }
+                }
+
+                // Add experience level filter
+                if !filters.experienceLevels.isEmpty {
+                    var expConditions: [String] = []
+                    for experience in filters.experienceLevels {
+                        // Check all experience fields for the given level
+                        expConditions.append("(experience_1234 = ? OR experience_5 = ? OR experience_6abce = ? OR experience_global = ?)")
+                        for _ in 0..<4 {
+                            bindValues.append((Int32(bindIndex), experience))
+                            bindIndex += 1
+                        }
+                    }
+                    if !expConditions.isEmpty {
+                        query += " AND (\(expConditions.joined(separator: " OR ")))"
+                    }
+                }
+
+                // Add license class filter (this is complex since it involves multiple boolean columns)
+                if !filters.licenseClasses.isEmpty {
+                    var classConditions: [String] = []
+                    for licenseClass in filters.licenseClasses {
+                        switch licenseClass {
+                        case "learner_123":
+                            classConditions.append("has_learner_permit_123 = 1")
+                        case "learner_5":
+                            classConditions.append("has_learner_permit_5 = 1")
+                        case "learner_6a6r":
+                            classConditions.append("has_learner_permit_6a6r = 1")
+                        case "license_1234":
+                            classConditions.append("has_driver_license_1234 = 1")
+                        case "license_5":
+                            classConditions.append("has_driver_license_5 = 1")
+                        case "license_6abce":
+                            classConditions.append("has_driver_license_6abce = 1")
+                        case "license_6d":
+                            classConditions.append("has_driver_license_6d = 1")
+                        case "license_8":
+                            classConditions.append("has_driver_license_8 = 1")
+                        case "probationary":
+                            classConditions.append("is_probationary = 1")
+                        default:
+                            break
+                        }
+                    }
+                    if !classConditions.isEmpty {
+                        query += " AND (\(classConditions.joined(separator: " OR ")))"
+                    }
+                }
+
+                // Group by year and order
+                query += " GROUP BY year ORDER BY year"
+
+                // Debug output
+                print("License Query: \(query)")
+                print("Bind values: \(bindValues)")
+
+                var stmt: OpaquePointer?
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+
+                guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
+                    if let errorMessage = sqlite3_errmsg(db) {
+                        continuation.resume(throwing: DatabaseError.queryFailed(String(cString: errorMessage)))
+                    } else {
+                        continuation.resume(throwing: DatabaseError.queryFailed("Unknown error"))
+                    }
+                    return
+                }
+
+                // Bind values
+                for (index, value) in bindValues {
+                    switch value {
+                    case let intValue as Int:
+                        sqlite3_bind_int(stmt, index, Int32(intValue))
+                    case let stringValue as String:
+                        sqlite3_bind_text(stmt, index, stringValue, -1, SQLITE_TRANSIENT)
+                    default:
+                        break
+                    }
+                }
+
+                // Execute query and collect results
+                var points: [TimeSeriesPoint] = []
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let year = Int(sqlite3_column_int(stmt, 0))
+                    let value = sqlite3_column_double(stmt, 1)  // Use double for averages
+                    points.append(TimeSeriesPoint(year: year, value: value, label: nil))
+                }
+
+                // Handle percentage calculations with dual queries
+                if filters.metricType == .percentage {
+                    // Points now contain the numerator counts, we need to get baseline counts
+                    Task {
+                        do {
+                            let percentagePoints = try await self?.calculatePercentagePoints(
+                                numeratorPoints: points,
+                                baselineFilters: filters.percentageBaseFilters,
+                                db: db
+                            ) ?? []
+
+                            let series = FilteredDataSeries(name: seriesName, filters: filters, points: percentagePoints)
+                            continuation.resume(returning: series)
+                        } catch {
+                            continuation.resume(throwing: error)
+                        }
+                    }
+                } else {
+                    // Create series with the proper name (already resolved)
+                    let series = FilteredDataSeries(name: seriesName, filters: filters, points: points)
+                    continuation.resume(returning: series)
+                }
+            }
+        }
+    }
+
     /// Calculate percentage points by comparing numerator and baseline counts
     private func calculatePercentagePoints(
         numeratorPoints: [TimeSeriesPoint],
@@ -610,9 +954,9 @@ class DatabaseManager: ObservableObject {
             }
         }
 
-        // Query baseline counts for the same years
+        // Query baseline counts for the same years using the appropriate data type
         let baselineConfig = baselineFilters.toFilterConfiguration()
-        let baselineSeries = try await queryVehicleData(filters: baselineConfig)
+        let baselineSeries = try await queryData(filters: baselineConfig)
         let baselinePoints = baselineSeries.points
 
         // Create a dictionary for quick lookup of baseline values by year
@@ -957,7 +1301,7 @@ class DatabaseManager: ObservableObject {
         print("🔍 getAvailableYears() - Cache status: \(filterCache.hasCachedData)")
         
         // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
             let cached = filterCache.getCachedYears()
             if !cached.isEmpty {
                 print("✅ Using cached years: \(cached.count) items")
@@ -1005,7 +1349,7 @@ class DatabaseManager: ObservableObject {
         print("🔍 getAvailableRegions() - Cache status: \(filterCache.hasCachedData)")
         
         // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
             let cached = filterCache.getCachedRegions()
             if !cached.isEmpty {
                 print("✅ Using cached regions: \(cached.count) items")
@@ -1021,7 +1365,7 @@ class DatabaseManager: ObservableObject {
     /// Gets available MRCs - uses cache when possible
     func getAvailableMRCs() async -> [String] {
         // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
             let cached = filterCache.getCachedMRCs()
             if !cached.isEmpty {
                 return cached
@@ -1141,7 +1485,7 @@ class DatabaseManager: ObservableObject {
     /// Gets available classifications - uses cache when possible
     func getAvailableClassifications() async -> [String] {
         // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
             let cached = filterCache.getCachedClassifications()
             if !cached.isEmpty {
                 return cached
@@ -1155,7 +1499,7 @@ class DatabaseManager: ObservableObject {
     /// Gets available vehicle makes - uses cache when possible
     func getAvailableVehicleMakes() async -> [String] {
         // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
             let cached = filterCache.getCachedVehicleMakes()
             if !cached.isEmpty {
                 return cached
@@ -1169,7 +1513,7 @@ class DatabaseManager: ObservableObject {
     /// Gets available vehicle models - uses cache when possible
     func getAvailableVehicleModels() async -> [String] {
         // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
             let cached = filterCache.getCachedVehicleModels()
             if !cached.isEmpty {
                 return cached
@@ -1183,7 +1527,7 @@ class DatabaseManager: ObservableObject {
     /// Gets available model years - uses cache when possible
     func getAvailableModelYears() async -> [Int] {
         // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
             let cached = filterCache.getCachedModelYears()
             if !cached.isEmpty {
                 return cached
@@ -1197,7 +1541,7 @@ class DatabaseManager: ObservableObject {
     /// Gets available vehicle colors - uses cache when possible
     func getAvailableVehicleColors() async -> [String] {
         // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
             let cached = filterCache.getCachedVehicleColors()
             if !cached.isEmpty {
                 return cached
@@ -1247,7 +1591,7 @@ class DatabaseManager: ObservableObject {
             vehicleColors: colorsList,
             modelYears: modelYearsList,
             databaseStats: dbStats,
-            dataVersion: "\(dataVersion)"
+            dataVersion: getPersistentDataVersion()
         )
 
         print("✅ Filter cache refresh completed")
@@ -1306,6 +1650,59 @@ class DatabaseManager: ObservableObject {
         }
     }
 
+    /// Gets total license count across all years
+    private func getTotalLicenseCount() async -> Int {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: 0)
+                    return
+                }
+                let query = "SELECT COUNT(*) FROM licenses"
+                var stmt: OpaquePointer?
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+                var count = 0
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    if sqlite3_step(stmt) == SQLITE_ROW {
+                        count = Int(sqlite3_column_int(stmt, 0))
+                    }
+                }
+                continuation.resume(returning: count)
+            }
+        }
+    }
+
+    /// Gets all years available in the license table
+    private func getLicenseYearsFromDatabase() async -> [Int] {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+                let query = "SELECT DISTINCT year FROM licenses ORDER BY year"
+                var stmt: OpaquePointer?
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+                var years: [Int] = []
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        let year = Int(sqlite3_column_int(stmt, 0))
+                        years.append(year)
+                    }
+                }
+                continuation.resume(returning: years)
+            }
+        }
+    }
+
     /// Gets database file size in bytes
     func getDatabaseFileSize() async -> Int64 {
         guard let dbURL = databaseURL else { return 0 }
@@ -1321,17 +1718,28 @@ class DatabaseManager: ObservableObject {
 
     /// Gets database summary statistics
     func getDatabaseStats() async -> CachedDatabaseStats {
-        let totalRecords = await getTotalVehicleCount()
-        let years = await getYearsFromDatabase()
-        let yearRange = years.isEmpty ? "No data" : "\(years.min()!) - \(years.max()!)"
+        // Vehicle statistics
+        let totalVehicleRecords = await getTotalVehicleCount()
+        let vehicleYears = await getYearsFromDatabase()
+        let vehicleYearRange = vehicleYears.isEmpty ? "No data" : "\(vehicleYears.min()!) - \(vehicleYears.max()!)"
+
+        // License statistics
+        let totalLicenseRecords = await getTotalLicenseCount()
+        let licenseYears = await getLicenseYearsFromDatabase()
+        let licenseYearRange = licenseYears.isEmpty ? "No data" : "\(licenseYears.min()!) - \(licenseYears.max()!)"
+
+        // Shared statistics
         let municipalities = await getMunicipalitiesFromDatabase()
         let regions = await getRegionsFromDatabase()
         let fileSize = await getDatabaseFileSize()
 
         return CachedDatabaseStats(
-            totalRecords: totalRecords,
-            yearRange: yearRange,
-            availableYearsCount: years.count,
+            totalVehicleRecords: totalVehicleRecords,
+            vehicleYearRange: vehicleYearRange,
+            availableVehicleYearsCount: vehicleYears.count,
+            totalLicenseRecords: totalLicenseRecords,
+            licenseYearRange: licenseYearRange,
+            availableLicenseYearsCount: licenseYears.count,
             municipalities: municipalities.count,
             regions: regions.count,
             fileSizeBytes: fileSize,
@@ -1578,7 +1986,7 @@ class DatabaseManager: ObservableObject {
     /// Gets available municipalities - uses cache when possible
     func getAvailableMunicipalities() async -> [String] {
         // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: "\(dataVersion)") {
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
             let cached = filterCache.getCachedMunicipalities()
             if !cached.isEmpty {
                 return cached

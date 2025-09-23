@@ -131,6 +131,136 @@ enum FuelType: String, CaseIterable {
     }
 }
 
+// MARK: - Driver's License Models
+
+/// Represents a driver's license record from SAAQ data
+struct DriverLicense: Codable {
+    let year: Int                           // AN
+    let licenseSequence: String             // NOSEQ_TITUL
+    let ageGroup: String                    // AGE_1ER_JUIN
+    let gender: String                      // SEXE
+    let mrc: String                         // MRC
+    let adminRegion: String                 // REG_ADM
+    let licenseType: String                 // TYPE_PERMIS
+    let hasLearnerPermit123: Bool           // IND_PERMISAPPRENTI_123
+    let hasLearnerPermit5: Bool             // IND_PERMISAPPRENTI_5
+    let hasLearnerPermit6A6R: Bool          // IND_PERMISAPPRENTI_6A6R
+    let hasDriverLicense1234: Bool          // IND_PERMISCONDUIRE_1234
+    let hasDriverLicense5: Bool             // IND_PERMISCONDUIRE_5
+    let hasDriverLicense6ABCE: Bool         // IND_PERMISCONDUIRE_6ABCE
+    let hasDriverLicense6D: Bool            // IND_PERMISCONDUIRE_6D
+    let hasDriverLicense8: Bool             // IND_PERMISCONDUIRE_8
+    let isProbationary: Bool                // IND_PROBATOIRE
+    let experience1234: String              // EXPERIENCE_1234
+    let experience5: String                 // EXPERIENCE_5
+    let experience6ABCE: String             // EXPERIENCE_6ABCE
+    let experienceGlobal: String            // EXPERIENCE_GLOBALE
+}
+
+/// Driver's license types
+enum LicenseType: String, CaseIterable {
+    case learner = "APPRENTI"       // Learner's permit
+    case probationary = "PROBATOIRE" // Probationary license
+    case regular = "RÉGULIER"       // Regular license
+
+    var description: String {
+        switch self {
+        case .learner: return "Learner's Permit"
+        case .probationary: return "Probationary License"
+        case .regular: return "Regular License"
+        }
+    }
+}
+
+/// Age groups for license holders
+enum AgeGroup: String, CaseIterable {
+    case age16_19 = "16-19"
+    case age20_24 = "20-24"
+    case age25_34 = "25-34"
+    case age35_44 = "35-44"
+    case age45_54 = "45-54"
+    case age55_64 = "55-64"
+    case age65_74 = "65-74"
+    case age75Plus = "75+"
+
+    var description: String {
+        switch self {
+        case .age16_19: return "16-19 years"
+        case .age20_24: return "20-24 years"
+        case .age25_34: return "25-34 years"
+        case .age35_44: return "35-44 years"
+        case .age45_54: return "45-54 years"
+        case .age55_64: return "55-64 years"
+        case .age65_74: return "65-74 years"
+        case .age75Plus: return "75+ years"
+        }
+    }
+}
+
+/// Gender classification
+enum Gender: String, CaseIterable {
+    case female = "F"
+    case male = "M"
+
+    var description: String {
+        switch self {
+        case .female: return "Female"
+        case .male: return "Male"
+        }
+    }
+}
+
+/// Driving experience levels
+enum ExperienceLevel: String, CaseIterable {
+    case absent = "Absente"
+    case under2Years = "Moins de 2 ans"
+    case years2to5 = "2 à 5 ans"
+    case years6to9 = "6 à 9 ans"
+    case years10Plus = "10 ans ou plus"
+
+    var description: String {
+        switch self {
+        case .absent: return "No Experience"
+        case .under2Years: return "Less than 2 years"
+        case .years2to5: return "2 to 5 years"
+        case .years6to9: return "6 to 9 years"
+        case .years10Plus: return "10+ years"
+        }
+    }
+}
+
+// MARK: - Data Entity Type and Shared Protocol
+
+/// Type of data entity being analyzed
+enum DataEntityType: String, CaseIterable {
+    case vehicle = "Vehicle"
+    case license = "License"
+
+    var description: String {
+        switch self {
+        case .vehicle: return "Vehicle Registration"
+        case .license: return "Driver's License"
+        }
+    }
+
+    var pluralDescription: String {
+        switch self {
+        case .vehicle: return "Vehicle Registrations"
+        case .license: return "Driver's Licenses"
+        }
+    }
+}
+
+/// Protocol for shared fields between vehicles and licenses
+protocol SAAQDataRecord {
+    var year: Int { get }
+    var adminRegion: String { get }
+    var mrc: String { get }
+}
+
+extension VehicleRegistration: SAAQDataRecord {}
+extension DriverLicense: SAAQDataRecord {}
+
 // MARK: - Geographic Models
 
 /// Represents a geographic entity (municipality, MRC, region)
@@ -194,10 +324,16 @@ enum AdministrativeRegion: String, CaseIterable {
 
 /// Configuration for filtering data
 struct FilterConfiguration: Equatable {
+    // Data type selection
+    var dataEntityType: DataEntityType = .vehicle
+
+    // Shared filters (available for both vehicles and licenses)
     var years: Set<Int> = []
     var regions: Set<String> = []
     var mrcs: Set<String> = []
     var municipalities: Set<String> = []
+
+    // Vehicle-specific filters
     var vehicleClassifications: Set<String> = []
     var vehicleMakes: Set<String> = []
     var vehicleModels: Set<String> = []
@@ -205,6 +341,13 @@ struct FilterConfiguration: Equatable {
     var modelYears: Set<Int> = []
     var fuelTypes: Set<String> = []
     var ageRanges: [AgeRange] = []
+
+    // License-specific filters
+    var licenseTypes: Set<String> = []
+    var ageGroups: Set<String> = []
+    var genders: Set<String> = []
+    var experienceLevels: Set<String> = []
+    var licenseClasses: Set<String> = []  // For various license class indicators
 
     // Metric configuration
     var metricType: ChartMetricType = .count
@@ -229,10 +372,16 @@ struct FilterConfiguration: Equatable {
 /// Simplified filter configuration for percentage baseline calculations
 /// Avoids recursion by not including metric configuration
 struct PercentageBaseFilters: Equatable {
+    // Data type selection
+    var dataEntityType: DataEntityType = .vehicle
+
+    // Shared filters
     var years: Set<Int> = []
     var regions: Set<String> = []
     var mrcs: Set<String> = []
     var municipalities: Set<String> = []
+
+    // Vehicle-specific filters
     var vehicleClassifications: Set<String> = []
     var vehicleMakes: Set<String> = []
     var vehicleModels: Set<String> = []
@@ -241,9 +390,17 @@ struct PercentageBaseFilters: Equatable {
     var fuelTypes: Set<String> = []
     var ageRanges: [FilterConfiguration.AgeRange] = []
 
+    // License-specific filters
+    var licenseTypes: Set<String> = []
+    var ageGroups: Set<String> = []
+    var genders: Set<String> = []
+    var experienceLevels: Set<String> = []
+    var licenseClasses: Set<String> = []
+
     /// Convert to full FilterConfiguration for database queries
     func toFilterConfiguration() -> FilterConfiguration {
         var config = FilterConfiguration()
+        config.dataEntityType = dataEntityType
         config.years = years
         config.regions = regions
         config.mrcs = mrcs
@@ -255,6 +412,11 @@ struct PercentageBaseFilters: Equatable {
         config.modelYears = modelYears
         config.fuelTypes = fuelTypes
         config.ageRanges = ageRanges
+        config.licenseTypes = licenseTypes
+        config.ageGroups = ageGroups
+        config.genders = genders
+        config.experienceLevels = experienceLevels
+        config.licenseClasses = licenseClasses
         config.metricType = .count  // Always count for baseline
         return config
     }
@@ -262,6 +424,7 @@ struct PercentageBaseFilters: Equatable {
     /// Create from existing FilterConfiguration
     static func from(_ config: FilterConfiguration) -> PercentageBaseFilters {
         var base = PercentageBaseFilters()
+        base.dataEntityType = config.dataEntityType
         base.years = config.years
         base.regions = config.regions
         base.mrcs = config.mrcs
@@ -273,6 +436,11 @@ struct PercentageBaseFilters: Equatable {
         base.modelYears = config.modelYears
         base.fuelTypes = config.fuelTypes
         base.ageRanges = config.ageRanges
+        base.licenseTypes = config.licenseTypes
+        base.ageGroups = config.ageGroups
+        base.genders = config.genders
+        base.experienceLevels = config.experienceLevels
+        base.licenseClasses = config.licenseClasses
         return base
     }
 }
@@ -308,39 +476,65 @@ enum ChartMetricType: String, CaseIterable {
 /// Fields that can be used for sum/average calculations
 enum ChartMetricField: String, CaseIterable {
     case none = "None"
+
+    // Vehicle-specific fields
     case netMass = "Vehicle Mass"
     case displacement = "Engine Displacement"
     case cylinderCount = "Cylinders"
     case vehicleAge = "Vehicle Age"
     case modelYear = "Model Year"
 
+    // License-specific fields
+    case licenseHolderCount = "License Holder Count"
+    case licenseClassCount = "License Class Count"
+
     var databaseColumn: String? {
         switch self {
         case .none: return nil
+        // Vehicle fields
         case .netMass: return "net_mass"
         case .displacement: return "displacement"
         case .cylinderCount: return "cylinder_count"
         case .vehicleAge: return nil // Computed: year - model_year
         case .modelYear: return "model_year"
+        // License fields
+        case .licenseHolderCount: return nil // Count of records
+        case .licenseClassCount: return nil  // Count of license classes held
         }
     }
 
     var unit: String? {
         switch self {
         case .none: return nil
+        // Vehicle fields
         case .netMass: return "kg"
         case .displacement: return "cm³"
         case .cylinderCount: return nil
         case .vehicleAge: return "Y"
         case .modelYear: return nil
+        // License fields
+        case .licenseHolderCount: return nil
+        case .licenseClassCount: return nil
         }
     }
 
     var requiresNotNull: String? {
         switch self {
         case .vehicleAge: return "model_year"
-        case .none: return nil
+        case .none, .licenseHolderCount, .licenseClassCount: return nil
         default: return databaseColumn
+        }
+    }
+
+    /// Returns true if this field is applicable to the given data entity type
+    func isApplicable(to entityType: DataEntityType) -> Bool {
+        switch self {
+        case .none:
+            return true
+        case .netMass, .displacement, .cylinderCount, .vehicleAge, .modelYear:
+            return entityType == .vehicle
+        case .licenseHolderCount, .licenseClassCount:
+            return entityType == .license
         }
     }
 }
@@ -380,9 +574,15 @@ class FilteredDataSeries: ObservableObject, Identifiable {
 
     /// Get formatted Y-axis label for this series
     var yAxisLabel: String {
+        let entityType = filters.dataEntityType
         switch metricType {
         case .count:
-            return "Number of Vehicles"
+            switch entityType {
+            case .vehicle:
+                return "Number of Vehicles"
+            case .license:
+                return "Number of License Holders"
+            }
         case .sum:
             if let unit = metricField.unit {
                 return "Total \(metricField.rawValue) (\(unit))"
@@ -402,9 +602,15 @@ class FilteredDataSeries: ObservableObject, Identifiable {
 
     /// Format a value for display (tooltips, labels, etc.)
     func formatValue(_ value: Double) -> String {
+        let entityType = filters.dataEntityType
         switch metricType {
         case .count:
-            return "\(Int(value)) vehicles"
+            switch entityType {
+            case .vehicle:
+                return "\(Int(value)) vehicles"
+            case .license:
+                return "\(Int(value)) license holders"
+            }
         case .sum:
             if metricField == .netMass {
                 // Convert kg to tonnes for large values

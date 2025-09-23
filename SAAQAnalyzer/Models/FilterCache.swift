@@ -2,13 +2,45 @@ import Foundation
 
 /// Database statistics for caching
 struct CachedDatabaseStats: Codable {
-    let totalRecords: Int
-    let yearRange: String
-    let availableYearsCount: Int
+    // Vehicle data statistics
+    let totalVehicleRecords: Int
+    let vehicleYearRange: String
+    let availableVehicleYearsCount: Int
+
+    // License data statistics
+    let totalLicenseRecords: Int
+    let licenseYearRange: String
+    let availableLicenseYearsCount: Int
+
+    // Shared statistics
     let municipalities: Int
     let regions: Int
     let fileSizeBytes: Int64
     let lastUpdated: Date
+
+    // Computed properties for backward compatibility and convenience
+    var totalRecords: Int {
+        totalVehicleRecords + totalLicenseRecords
+    }
+
+    var yearRange: String {
+        let vehicleEmpty = vehicleYearRange == "No data"
+        let licenseEmpty = licenseYearRange == "No data"
+
+        if vehicleEmpty && licenseEmpty {
+            return "No data"
+        } else if vehicleEmpty {
+            return licenseYearRange
+        } else if licenseEmpty {
+            return vehicleYearRange
+        } else {
+            return "\(vehicleYearRange) (vehicles), \(licenseYearRange) (licenses)"
+        }
+    }
+
+    var availableYearsCount: Int {
+        max(availableVehicleYearsCount, availableLicenseYearsCount)
+    }
 }
 
 /// Manages caching of filter options to avoid expensive database queries on every app launch
@@ -165,12 +197,27 @@ class FilterCache {
             print("📊 No cached data version, refresh needed")
             return true
         }
-        
+
+        // Handle migration from old integer-based versions to timestamp-based versions
+        // Old versions were simple integers (1, 2, 3...), new versions are timestamps (10+ digits)
+        if cachedVersion.count < 10 && currentDataVersion.count >= 10 {
+            print("📊 Migrating from old version system (\(cachedVersion) → \(currentDataVersion)), updating cache version")
+            // Immediately update the cache version to prevent repeated migration checks
+            updateDataVersion(currentDataVersion)
+            return true
+        }
+
         let needsRefresh = cachedVersion != currentDataVersion
         if needsRefresh {
             print("📊 Data version changed (\(cachedVersion) → \(currentDataVersion)), refresh needed")
         }
-        
+
         return needsRefresh
+    }
+
+    /// Updates only the data version in cache (for migration scenarios)
+    func updateDataVersion(_ newVersion: String) {
+        userDefaults.set(newVersion, forKey: CacheKeys.dataVersion)
+        print("📊 Cache data version updated to: \(newVersion)")
     }
 }

@@ -37,6 +37,7 @@ struct ContentView: View {
     @State private var duplicateYearToReplace: Int?
     @State private var pendingImportURLs: [URL] = []
     @State private var currentImportIndex = 0
+    @State private var currentImportType: DataEntityType = .vehicle
     
     var body: some View {
         NavigationSplitView {
@@ -62,6 +63,9 @@ struct ContentView: View {
                     Button("Import Vehicle Data...") {
                         importVehicleData()
                     }
+                    Button("Import License Data...") {
+                        importLicenseData()
+                    }
                     Divider()
                     Button("Clear All Data", role: .destructive) {
                         clearAllData()
@@ -75,7 +79,23 @@ struct ContentView: View {
                 }
                 
                 Divider()
-                
+
+                // Data type selector
+                Menu {
+                    ForEach(DataEntityType.allCases, id: \.self) { dataType in
+                        Button {
+                            selectedFilters.dataEntityType = dataType
+                        } label: {
+                            Label(dataType.description, systemImage: dataType == .vehicle ? "car" : "person.crop.circle")
+                        }
+                    }
+                } label: {
+                    Label(selectedFilters.dataEntityType.description,
+                          systemImage: selectedFilters.dataEntityType == .vehicle ? "car" : "person.crop.circle")
+                }
+
+                Divider()
+
                 // Add series button
                 Button {
                     addNewSeries()
@@ -137,7 +157,7 @@ struct ContentView: View {
                 }
             }
         }
-        .alert("Year \(duplicateYearToReplace ?? 0) Already Exists", isPresented: $showingDuplicateYearAlert) {
+        .alert("Year \(duplicateYearToReplace?.formatted(.number.grouping(.never)) ?? "Unknown") Already Exists", isPresented: $showingDuplicateYearAlert) {
             Button("Replace Existing Data", role: .destructive) {
                 Task {
                     await handleDuplicateYearReplace(replace: true)
@@ -149,7 +169,7 @@ struct ContentView: View {
                 }
             }
         } message: {
-            Text("Data for year \(duplicateYearToReplace ?? 0) has already been imported. Do you want to replace the existing data with the new import?")
+            Text("Data for year \(duplicateYearToReplace?.formatted(.number.grouping(.never)) ?? "Unknown") has already been imported. Do you want to replace the existing data with the new import?")
         }
     }
     
@@ -186,7 +206,7 @@ struct ContentView: View {
             }
             
             do {
-                let series = try await databaseManager.queryVehicleData(
+                let series = try await databaseManager.queryData(
                     filters: selectedFilters
                 )
                 await MainActor.run {
@@ -244,11 +264,100 @@ struct ContentView: View {
             }
         }
     }
-    
+
+    /// Imports license data from CSV file(s)
+    private func importLicenseData() {
+        Task { @MainActor in
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.commaSeparatedText]
+            panel.allowsMultipleSelection = true
+            panel.message = "Select license CSV file(s) - multiple files will be imported sequentially"
+
+            panel.begin { response in
+                guard response == .OK, !panel.urls.isEmpty else { return }
+
+                Task {
+                    await self.importMultipleLicenseFiles(panel.urls)
+                }
+            }
+        }
+    }
+
+    /// Imports multiple license files sequentially
+    private func importMultipleLicenseFiles(_ urls: [URL]) async {
+        pendingImportURLs = urls
+        currentImportIndex = 0
+        currentImportType = .license
+        await processNextLicenseImport()
+    }
+
+    /// Processes the next license import in the queue
+    private func processNextLicenseImport() async {
+        guard currentImportIndex < pendingImportURLs.count else {
+            // All imports completed
+            print("🎉 Batch license import completed!")
+            await progressManager.reset()
+            pendingImportURLs = []
+            currentImportIndex = 0
+            return
+        }
+
+        let url = pendingImportURLs[currentImportIndex]
+        let filename = url.lastPathComponent
+        let yearPattern = /(\d{4})/
+
+        guard let match = filename.firstMatch(of: yearPattern),
+              let year = Int(match.1) else {
+            print("❌ Could not extract year from filename: \(filename)")
+            currentImportIndex += 1
+            await processNextLicenseImport()
+            return
+        }
+
+        print("📁 Importing license file \(currentImportIndex + 1)/\(pendingImportURLs.count): \(filename)")
+
+        // Show progress immediately while checking for duplicates
+        await MainActor.run {
+            showingImportProgress = true
+        }
+        await progressManager.startImport()
+        await progressManager.updateToReading()
+
+        // Check if license year already exists
+        if await databaseManager.isLicenseYearImported(year) {
+            // Temporarily hide progress for alert
+            await MainActor.run {
+                showingImportProgress = false
+                duplicateYearToReplace = year
+                showingDuplicateYearAlert = true
+            }
+        } else {
+            // Proceed with license import directly
+            await performLicenseImport(url: url, year: year)
+        }
+    }
+
+    /// Performs the actual license import
+    private func performLicenseImport(url: URL, year: Int) async {
+        do {
+            let importer = CSVImporter(databaseManager: databaseManager, progressManager: progressManager)
+            // Use the generic import method with license type
+            let result = try await importer.importFile(at: url, year: year, dataType: .license, skipDuplicateCheck: true)
+            print("✅ License import completed: \(result.successCount) records imported for year \(year)")
+        } catch {
+            await progressManager.reset()
+            print("❌ Error importing license data: \(error)")
+        }
+
+        currentImportIndex += 1
+        await processNextLicenseImport()
+    }
+
     /// Imports multiple vehicle files sequentially
     private func importMultipleFiles(_ urls: [URL]) async {
         pendingImportURLs = urls
         currentImportIndex = 0
+        currentImportType = .vehicle
         await processNextImport()
     }
     
@@ -318,18 +427,36 @@ struct ContentView: View {
             do {
                 try await databaseManager.clearYearData(year)
                 print("✅ Existing data for year \(year) deleted successfully")
-                await performImport(url: url, year: year)
+
+                // Call the appropriate import method based on current import type
+                if currentImportType == .license {
+                    await performLicenseImport(url: url, year: year)
+                } else {
+                    await performImport(url: url, year: year)
+                }
             } catch {
                 print("❌ Error deleting data for year \(year): \(error)")
                 await progressManager.reset()
                 currentImportIndex += 1
-                await processNextImport()
+
+                // Call the appropriate process method based on import type
+                if currentImportType == .license {
+                    await processNextLicenseImport()
+                } else {
+                    await processNextImport()
+                }
             }
         } else {
             print("⏹️ Import cancelled by user for year \(year)")
             await progressManager.reset()
             currentImportIndex += 1
-            await processNextImport()
+
+            // Call the appropriate process method based on import type
+            if currentImportType == .license {
+                await processNextLicenseImport()
+            } else {
+                await processNextImport()
+            }
         }
         
         duplicateYearToReplace = nil
@@ -950,26 +1077,48 @@ struct DatabaseSummaryView: View {
                         .foregroundColor(.secondary)
                 }
             } else if let stats = cachedStats {
+                // Vehicle data section
+                if stats.totalVehicleRecords > 0 {
+                    HStack {
+                        Text("Vehicle Records:")
+                        Spacer()
+                        Text("\(stats.totalVehicleRecords.formatted())")
+                            .fontWeight(.medium)
+                    }
+                    HStack {
+                        Text("Vehicle Years:")
+                        Spacer()
+                        Text(stats.vehicleYearRange)
+                            .fontWeight(.medium)
+                    }
+                }
+
+                // License data section
+                if stats.totalLicenseRecords > 0 {
+                    HStack {
+                        Text("License Records:")
+                        Spacer()
+                        Text("\(stats.totalLicenseRecords.formatted())")
+                            .fontWeight(.medium)
+                    }
+                    HStack {
+                        Text("License Years:")
+                        Spacer()
+                        Text(stats.licenseYearRange)
+                            .fontWeight(.medium)
+                    }
+                }
+
+                // Combined totals
                 HStack {
-                    Text("Total Records:")
+                    Text("Combined Total:")
                     Spacer()
                     Text("\(stats.totalRecords.formatted())")
                         .fontWeight(.medium)
+                        .foregroundColor(.primary)
                 }
 
-                HStack {
-                    Text("Year Range:")
-                    Spacer()
-                    Text(stats.yearRange)
-                        .fontWeight(.medium)
-                }
 
-                HStack {
-                    Text("Available Years:")
-                    Spacer()
-                    Text("\(stats.availableYearsCount)")
-                        .fontWeight(.medium)
-                }
 
                 HStack {
                     Text("Geographic Coverage:")

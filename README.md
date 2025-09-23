@@ -1,21 +1,24 @@
 # SAAQAnalyzer
 
-A macOS SwiftUI application for importing, analyzing, and visualizing vehicle registration data from SAAQ (Société de l'assurance automobile du Québec).
+A macOS SwiftUI application for importing, analyzing, and visualizing vehicle registration and driver's license data from SAAQ (Société de l'assurance automobile du Québec).
 
 ## Features
 
 ### Data Import & Management
-- **CSV Import**: Import vehicle registration CSV files with automatic encoding detection for French characters
-- **Geographic Data**: Import d001 geographic reference files for municipality/region mapping
+- **Dual Data Types**: Support for both vehicle registration and driver's license data with unified workflow
+- **CSV Import**: Import CSV files with automatic encoding detection for French characters
+- **Data Type Switching**: Seamless switching between vehicle and license data analysis modes
 - **SQLite Database**: Efficient storage with WAL mode, indexing, and 64MB cache for optimal performance
-- **Batch Processing**: Handle large datasets (77M+ records) with 1000-record batch processing
-- **Import Logging**: Track import operations with success/failure status and detailed progress
+- **Batch Processing**: Handle large datasets (77M+ records) with 50K-record batch processing and parallel workers
+- **Import Progress**: Real-time progress indication with detailed stage tracking and indexing updates
 
 ### Advanced Filtering System
-- **Temporal Filters**: Filter by registration years and model years
+- **Temporal Filters**: Filter by registration/license years and model years (vehicle data)
 - **Geographic Filters**: Filter by administrative regions, MRCs, and municipalities
 - **Vehicle Characteristics**: Filter by classification, make, model, color, fuel type, and age ranges
-- **Cached Performance**: Smart caching system for instant filter option loading
+- **License Demographics**: Filter by age groups, gender, license types, classes, and experience levels
+- **Data Type Aware**: Dynamic filter panels that adapt based on selected data type
+- **Cached Performance**: Smart caching system for instant filter option loading with persistent versioning
 
 ### Flexible Chart System
 - **Multiple Chart Types**: Line charts, bar charts, and area charts using native Charts framework
@@ -79,7 +82,8 @@ xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
 ### First Launch
 1. Launch SAAQAnalyzer
 2. The app will create a default SQLite database in your Documents folder
-3. Import your first dataset using File → Import Vehicle CSV
+3. Use the data type selector in the toolbar to choose between Vehicle Registration or Driver's License data
+4. Import your first dataset using File → Import Vehicle CSV or File → Import License CSV
 
 ### Importing Data
 
@@ -91,18 +95,29 @@ xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
 3. **Encoding**: Automatic detection (UTF-8, ISO-Latin-1, Windows-1252)
 4. **Size**: Handles large files (20GB+, 77M+ records)
 
-#### Geographic Reference Data
+#### Driver's License Data
+1. **File Format**: CSV files with license holder demographics and license information
+2. **Data Schema**: 20 fields including age groups, gender, license types, classes, and experience
+3. **Geographic Data**: Human-readable region and MRC names (no d001 mapping required)
+4. **Years Available**: 2011-2022 data with consistent schema across years
+5. **Import Process**: Uses same parallel processing and progress indication as vehicle data
+
+#### Geographic Reference Data (Vehicle Data Only)
 1. **File Format**: `d001_min.txt` format
 2. **Content**: Municipality codes, names, and hierarchical relationships
-3. **Purpose**: Enables proper municipality name display in filters
+3. **Purpose**: Enables proper municipality name display in vehicle data filters
+4. **Note**: Not required for license data as geographic names are already human-readable
 
 ### Data Analysis Workflow
 
-1. **Set Filters**: Use the left panel to select years, regions, and vehicle characteristics
-2. **Choose Metrics**: Select count, sum, average, or percentage calculations
-3. **Generate Charts**: Data automatically updates with interactive visualizations
-4. **Compare Series**: Add multiple filter combinations as separate data series
-5. **Export Results**: Save charts as PNG images for presentations
+1. **Select Data Type**: Use the toolbar selector to choose Vehicle Registration or Driver's License data
+2. **Set Filters**: Use the left panel to select years, regions, and data-specific characteristics:
+   - **Vehicle Data**: Classification, make, model, color, fuel type, age ranges
+   - **License Data**: Age groups, gender, license types, classes, experience levels
+3. **Choose Metrics**: Select count, sum, average, or percentage calculations
+4. **Generate Charts**: Data automatically updates with interactive visualizations
+5. **Compare Series**: Add multiple filter combinations as separate data series
+6. **Export Results**: Save charts as PNG images for presentations
 
 ### Advanced Features
 
@@ -140,24 +155,27 @@ SAAQAnalyzer/
 
 ### Database Schema
 
-- **vehicles**: Main table with vehicle registration data
-- **geographic_entities**: Hierarchical geographic reference data
-- **import_log**: Import operation tracking and status
+- **vehicles**: Vehicle registration data with 15-16 fields (year-dependent schema)
+- **licenses**: Driver's license data with 20 fields including demographics and license details
+- **geographic_entities**: Hierarchical geographic reference data (for vehicle data)
+- **import_log**: Import operation tracking and status for both data types
 
 ### Key Design Patterns
 
 - **MVVM Architecture**: ObservableObject with @StateObject and @EnvironmentObject
 - **Structured Concurrency**: Async/await throughout data layer
-- **Protocol-Oriented Design**: Extensible for future data types
-- **Enum-Driven UI**: Type-safe metric and filter selection
+- **Generic Data Infrastructure**: Unified handling of multiple data types with type routing
+- **Protocol-Oriented Design**: Shared interfaces for common fields across data types
+- **Enum-Driven UI**: Type-safe metric and filter selection with data-aware components
 
 ## Data Sources
 
 SAAQAnalyzer works with public data from SAAQ (Société de l'assurance automobile du Québec):
 
-- **Vehicle Registration Data**: Annual CSV exports of registered vehicles
-- **Geographic Reference**: Municipality and region mapping files
-- **Data Availability**: Multiple years of historical data
+- **Vehicle Registration Data**: Annual CSV exports of registered vehicles (2009-2022)
+- **Driver's License Data**: Annual CSV exports of license holder demographics (2011-2022)
+- **Geographic Reference**: Municipality and region mapping files (for vehicle data)
+- **Data Availability**: Multiple years of historical data for both data types
 - **Update Frequency**: Annual releases
 
 *Note: Data files are not included in this repository. Obtain them from official SAAQ sources.*
@@ -191,8 +209,8 @@ These documents provide essential reference information for understanding the da
 
 #### New Filter Types
 1. Update `FilterConfiguration` in `DataModels.swift`
-2. Add UI components in `FilterPanel.swift`
-3. Update query building in `DatabaseManager.queryVehicleData()`
+2. Add UI components in `FilterPanel.swift` (consider data type compatibility)
+3. Update query building in `DatabaseManager.queryVehicleData()` or `queryLicenseData()`
 4. Add caching support in `FilterCache.swift`
 
 #### New Chart Types
@@ -248,4 +266,4 @@ For bug reports and feature requests, please use the GitHub Issues page.
 
 ---
 
-**SAAQAnalyzer** - Making Quebec vehicle registration data accessible and analyzable.
+**SAAQAnalyzer** - Making Quebec vehicle registration and driver's license data accessible and analyzable.

@@ -5,16 +5,25 @@ struct FilterPanel: View {
     @Binding var configuration: FilterConfiguration
     @EnvironmentObject var databaseManager: DatabaseManager
     
-    // Available options loaded from database
+    // Available options loaded from database (shared)
     @State private var availableYears: [Int] = []
     @State private var availableRegions: [String] = []
     @State private var availableMRCs: [String] = []
     @State private var availableMunicipalities: [String] = []
+
+    // Vehicle-specific options
     @State private var availableClassifications: [String] = []
     @State private var availableVehicleMakes: [String] = []
     @State private var availableVehicleModels: [String] = []
     @State private var availableVehicleColors: [String] = []
     @State private var availableModelYears: [Int] = []
+
+    // License-specific options
+    @State private var availableLicenseTypes: [String] = []
+    @State private var availableAgeGroups: [String] = []
+    @State private var availableGenders: [String] = []
+    @State private var availableExperienceLevels: [String] = []
+    @State private var availableLicenseClasses: [String] = []
 
     // Municipality code-to-name mapping for UI display
     @State private var municipalityCodeToName: [String: String] = [:]
@@ -28,6 +37,7 @@ struct FilterPanel: View {
     @State private var geographySectionExpanded = true
     @State private var vehicleSectionExpanded = true
     @State private var ageSectionExpanded = false
+    @State private var licenseSectionExpanded = true
     @State private var metricSectionExpanded = true
     
     var body: some View {
@@ -97,36 +107,58 @@ struct FilterPanel: View {
                     }
                     
                     Divider()
-                    
-                    // Vehicle characteristics section
-                    DisclosureGroup(isExpanded: $vehicleSectionExpanded) {
-                        VehicleFilterSection(
-                            selectedClassifications: $configuration.vehicleClassifications,
-                            selectedVehicleMakes: $configuration.vehicleMakes,
-                            selectedVehicleModels: $configuration.vehicleModels,
-                            selectedVehicleColors: $configuration.vehicleColors,
-                            selectedModelYears: $configuration.modelYears,
-                            selectedFuelTypes: $configuration.fuelTypes,
-                            availableYears: availableYears,
-                            availableClassifications: availableClassifications,
-                            availableVehicleMakes: availableVehicleMakes,
-                            availableVehicleModels: availableVehicleModels,
-                            availableVehicleColors: availableVehicleColors,
-                            availableModelYears: availableModelYears
-                        )
-                    } label: {
-                        Label("Vehicle Characteristics", systemImage: "car")
-                            .font(.subheadline)
-                    }
-                    
-                    Divider()
-                    
-                    // Age ranges section
-                    DisclosureGroup(isExpanded: $ageSectionExpanded) {
-                        AgeRangeFilterSection(ageRanges: $configuration.ageRanges)
-                    } label: {
-                        Label("Vehicle Age", systemImage: "clock")
-                            .font(.subheadline)
+
+                    // Data type specific sections
+                    if configuration.dataEntityType == .vehicle {
+                        // Vehicle characteristics section
+                        DisclosureGroup(isExpanded: $vehicleSectionExpanded) {
+                            VehicleFilterSection(
+                                selectedClassifications: $configuration.vehicleClassifications,
+                                selectedVehicleMakes: $configuration.vehicleMakes,
+                                selectedVehicleModels: $configuration.vehicleModels,
+                                selectedVehicleColors: $configuration.vehicleColors,
+                                selectedModelYears: $configuration.modelYears,
+                                selectedFuelTypes: $configuration.fuelTypes,
+                                availableYears: availableYears,
+                                availableClassifications: availableClassifications,
+                                availableVehicleMakes: availableVehicleMakes,
+                                availableVehicleModels: availableVehicleModels,
+                                availableVehicleColors: availableVehicleColors,
+                                availableModelYears: availableModelYears
+                            )
+                        } label: {
+                            Label("Vehicle Characteristics", systemImage: "car")
+                                .font(.subheadline)
+                        }
+
+                        Divider()
+
+                        // Vehicle age ranges section
+                        DisclosureGroup(isExpanded: $ageSectionExpanded) {
+                            AgeRangeFilterSection(ageRanges: $configuration.ageRanges)
+                        } label: {
+                            Label("Vehicle Age", systemImage: "clock")
+                                .font(.subheadline)
+                        }
+                    } else {
+                        // License characteristics section
+                        DisclosureGroup(isExpanded: $licenseSectionExpanded) {
+                            LicenseFilterSection(
+                                selectedLicenseTypes: $configuration.licenseTypes,
+                                selectedAgeGroups: $configuration.ageGroups,
+                                selectedGenders: $configuration.genders,
+                                selectedExperienceLevels: $configuration.experienceLevels,
+                                selectedLicenseClasses: $configuration.licenseClasses,
+                                availableLicenseTypes: availableLicenseTypes,
+                                availableAgeGroups: availableAgeGroups,
+                                availableGenders: availableGenders,
+                                availableExperienceLevels: availableExperienceLevels,
+                                availableLicenseClasses: availableLicenseClasses
+                            )
+                        } label: {
+                            Label("License Characteristics", systemImage: "person.crop.circle")
+                                .font(.subheadline)
+                        }
                     }
 
                     Divider()
@@ -162,15 +194,26 @@ struct FilterPanel: View {
                 }
             }
         }
+        .onChange(of: configuration.dataEntityType) { _, _ in
+            // Reload data type specific options when switching between vehicle and license
+            Task {
+                await loadDataTypeSpecificOptions()
+            }
+        }
     }
     
     /// Loads available filter options from database
     private func loadAvailableOptions() {
         Task {
-            isLoadingData = true
-            
-            // Check if we need to populate cache first
+            // Only show loading if we don't already have cached data
             let cacheInfo = databaseManager.filterCacheInfo
+            let shouldShowLoading = !cacheInfo.hasCache || availableYears.isEmpty
+
+            if shouldShowLoading {
+                isLoadingData = true
+            }
+
+            // Check if we need to populate cache first
             print("🔍 Filter cache status: hasCache=\(cacheInfo.hasCache), years=\(cacheInfo.itemCounts.years)")
             if !cacheInfo.hasCache {
                 print("💾 No filter cache found, populating cache before loading options...")
@@ -179,38 +222,77 @@ struct FilterPanel: View {
                 print("✅ Using existing filter cache")
             }
             
-            // Load all available options from database/cache
+            // Load shared options from database/cache
             availableYears = await databaseManager.getAvailableYears()
             availableRegions = await databaseManager.getAvailableRegions()
             availableMRCs = await databaseManager.getAvailableMRCs()
             availableMunicipalities = await databaseManager.getAvailableMunicipalities()
+            municipalityCodeToName = await databaseManager.getMunicipalityCodeToNameMapping()
+
+            // Load data type specific options
+            await loadDataTypeSpecificOptions()
+
+            print("📊 Loaded filter options: \(availableYears.count) years, \(availableRegions.count) regions, \(availableMRCs.count) MRCs")
+            
+            isLoadingData = false
+            hasInitiallyLoaded = true
+        }
+    }
+
+    /// Loads data type specific filter options
+    private func loadDataTypeSpecificOptions() async {
+        switch configuration.dataEntityType {
+        case .vehicle:
+            // Load vehicle-specific options
             availableClassifications = await databaseManager.getAvailableClassifications()
             availableVehicleMakes = await databaseManager.getAvailableVehicleMakes()
             availableVehicleModels = await databaseManager.getAvailableVehicleModels()
             availableVehicleColors = await databaseManager.getAvailableVehicleColors()
             availableModelYears = await databaseManager.getAvailableModelYears()
 
-            print("📊 Loaded filter options: \(availableYears.count) years, \(availableVehicleMakes.count) makes, \(availableVehicleModels.count) models, \(availableVehicleColors.count) colors, \(availableModelYears.count) model years")
+            // Clear license options
+            availableLicenseTypes = []
+            availableAgeGroups = []
+            availableGenders = []
+            availableExperienceLevels = []
+            availableLicenseClasses = []
 
-            // Load municipality mapping for UI display
-            municipalityCodeToName = await databaseManager.getMunicipalityCodeToNameMapping()
-            
-            isLoadingData = false
-            hasInitiallyLoaded = true
+        case .license:
+            // For now, populate with placeholder data until we add license data fetching methods
+            // These will be populated when license data is imported
+            availableLicenseTypes = ["APPRENTI", "PROBATOIRE", "RÉGULIER"]
+            availableAgeGroups = ["16-19", "20-24", "25-34", "35-44", "45-54", "55-64", "65-74", "75+"]
+            availableGenders = ["F", "M"]
+            availableExperienceLevels = ["Absente", "Moins de 2 ans", "2 à 5 ans", "6 à 9 ans", "10 ans ou plus"]
+            availableLicenseClasses = ["learner_123", "learner_5", "learner_6a6r", "license_1234", "license_5", "license_6abce", "license_6d", "license_8", "probationary"]
+
+            // Clear vehicle options
+            availableClassifications = []
+            availableVehicleMakes = []
+            availableVehicleModels = []
+            availableVehicleColors = []
+            availableModelYears = []
         }
     }
     
     /// Smart refresh that only updates if there are actual changes
     private func refreshIfNeeded() async {
+        // Check if we already have data loaded and if cache is valid
+        let cacheInfo = databaseManager.filterCacheInfo
+        if !availableYears.isEmpty && cacheInfo.hasCache {
+            print("📊 Cache is valid and data already loaded, skipping refresh")
+            return
+        }
+
         // Check if years have changed (most common update)
         let newYears = await databaseManager.getAvailableYears()
-        
+
         // Only reload everything if we have new years
         // (replacing existing year data doesn't add new years)
         if Set(newYears) != Set(availableYears) {
             print("📊 New years detected, refreshing filter options...")
             availableYears = newYears
-            
+
             // Also refresh classifications in case new year has different vehicle types
             availableClassifications = await databaseManager.getAvailableClassifications()
         }
@@ -1229,6 +1311,123 @@ struct MetricConfigurationSection: View {
             return "Percentage of baseline category"
         }
     }
+}
 
+// MARK: - License Filter Section
+
+struct LicenseFilterSection: View {
+    @Binding var selectedLicenseTypes: Set<String>
+    @Binding var selectedAgeGroups: Set<String>
+    @Binding var selectedGenders: Set<String>
+    @Binding var selectedExperienceLevels: Set<String>
+    @Binding var selectedLicenseClasses: Set<String>
+
+    let availableLicenseTypes: [String]
+    let availableAgeGroups: [String]
+    let availableGenders: [String]
+    let availableExperienceLevels: [String]
+    let availableLicenseClasses: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // License Types
+            if !availableLicenseTypes.isEmpty {
+                Text("License Type")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                SearchableFilterList(
+                    items: availableLicenseTypes,
+                    selectedItems: $selectedLicenseTypes,
+                    searchPrompt: "Search license types..."
+                )
+            }
+
+            // Age Groups
+            if !availableAgeGroups.isEmpty {
+                Divider()
+
+                Text("Age Group")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                SearchableFilterList(
+                    items: availableAgeGroups,
+                    selectedItems: $selectedAgeGroups,
+                    searchPrompt: "Search age groups..."
+                )
+            }
+
+            // Gender
+            if !availableGenders.isEmpty {
+                Divider()
+
+                Text("Gender")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                SearchableFilterList(
+                    items: availableGenders.map { gender in
+                        switch gender {
+                        case "F": return "Female"
+                        case "M": return "Male"
+                        default: return gender
+                        }
+                    },
+                    selectedItems: Binding(
+                        get: {
+                            Set(selectedGenders.map { gender in
+                                switch gender {
+                                case "F": return "Female"
+                                case "M": return "Male"
+                                default: return gender
+                                }
+                            })
+                        },
+                        set: { displayValues in
+                            selectedGenders = Set(displayValues.map { displayValue in
+                                switch displayValue {
+                                case "Female": return "F"
+                                case "Male": return "M"
+                                default: return displayValue
+                                }
+                            })
+                        }
+                    ),
+                    searchPrompt: "Search genders..."
+                )
+            }
+
+            // Experience Levels
+            if !availableExperienceLevels.isEmpty {
+                Divider()
+
+                Text("Experience Level")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                SearchableFilterList(
+                    items: availableExperienceLevels,
+                    selectedItems: $selectedExperienceLevels,
+                    searchPrompt: "Search experience levels..."
+                )
+            }
+
+            // License Classes
+            if !availableLicenseClasses.isEmpty {
+                Divider()
+
+                Text("License Classes")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                SearchableFilterList(
+                    items: availableLicenseClasses,
+                    selectedItems: $selectedLicenseClasses,
+                    searchPrompt: "Search license classes..."
+                )
+            }
+        }
+    }
 }
 
