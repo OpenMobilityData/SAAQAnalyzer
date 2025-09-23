@@ -122,49 +122,50 @@ struct ChartView: View {
     /// Main chart content view
     @ViewBuilder
     private var chartContentView: some View {
-        Chart(dataSeries.filter { $0.isVisible }, id: \.id) { series in
-            ForEach(series.points.sorted { $0.year < $1.year }) { point in
-                switch chartType {
-                case .line:
-                    LineMark(
-                        x: .value("Year", point.year),
-                        y: .value("Count", point.value),
-                        series: .value("Series", series.id.uuidString)
-                    )
-                    .foregroundStyle(series.color)
-                    .interpolationMethod(.linear)
-                    
-                    PointMark(
-                        x: .value("Year", point.year),
-                        y: .value("Count", point.value)
-                    )
-                    .foregroundStyle(series.color)
-                    .symbolSize(selectedSeries?.id == series.id ? 100 : 60)
-                    
-                case .bar:
-                    BarMark(
-                        x: .value("Year", point.year),
-                        y: .value("Count", point.value)
-                    )
-                    .foregroundStyle(series.color.opacity(
-                        selectedSeries?.id == series.id ? 1.0 : 0.7
-                    ))
-                    
-                case .area:
-                    AreaMark(
-                        x: .value("Year", point.year),
-                        y: .value("Count", point.value),
-                        series: .value("Series", series.id.uuidString)
-                    )
-                    .foregroundStyle(series.color.opacity(0.3))
-                    
-                    LineMark(
-                        x: .value("Year", point.year),
-                        y: .value("Count", point.value),
-                        series: .value("Series", series.id.uuidString)
-                    )
-                    .foregroundStyle(series.color)
-                    .interpolationMethod(.linear)
+        Chart {
+            ForEach(dataSeries.filter { $0.isVisible }, id: \.id) { series in
+                ForEach(series.points.sorted { $0.year < $1.year }) { point in
+                    switch chartType {
+                    case .line:
+                        LineMark(
+                            x: .value("Year", point.year),
+                            y: .value("Count", point.value),
+                            series: .value("Series", series.name)
+                        )
+                        .foregroundStyle(series.color)
+                        .interpolationMethod(.linear)
+
+                        PointMark(
+                            x: .value("Year", point.year),
+                            y: .value("Count", point.value)
+                        )
+                        .foregroundStyle(series.color)
+                        .symbolSize(selectedSeries?.id == series.id ? 100 : 60)
+
+                    case .bar:
+                        BarMark(
+                            x: .value("Year", point.year),
+                            y: .value("Count", point.value)
+                        )
+                        .foregroundStyle(series.color.opacity(
+                            selectedSeries?.id == series.id ? 1.0 : 0.7
+                        ))
+                        .position(by: .value("Series", series.name))
+
+                    case .area:
+                        AreaMark(
+                            x: .value("Year", point.year),
+                            y: .value("Count", point.value)
+                        )
+                        .foregroundStyle(series.color.opacity(0.3))
+
+                        LineMark(
+                            x: .value("Year", point.year),
+                            y: .value("Count", point.value)
+                        )
+                        .foregroundStyle(series.color)
+                        .interpolationMethod(.linear)
+                    }
                 }
             }
         }
@@ -189,10 +190,11 @@ struct ChartView: View {
             }
         }
         .chartXScale(domain: xAxisDomain())
-        .chartYScale(domain: yAxisDomain())
+        .chartYScale(domain: chartType == .line ? yAxisDomain() : yAxisDomainForBarArea())
         .chartPlotStyle { plotArea in
             plotArea
                 .border(Color.secondary.opacity(0.2), width: 1)
+                .clipped()
         }
     }
     
@@ -217,13 +219,25 @@ struct ChartView: View {
         let allValues = visibleSeries.flatMap { $0.points.map { $0.value } }
         let minValue = allValues.min() ?? 0
         let maxValue = allValues.max() ?? 100
-        
+
         if includeZero {
             return 0...(maxValue * 1.1)  // Add 10% padding
         } else {
             let range = maxValue - minValue
             return (minValue - range * 0.1)...(maxValue + range * 0.1)
         }
+    }
+
+    /// Calculate Y-axis domain for bar and area charts (always includes zero)
+    private func yAxisDomainForBarArea() -> ClosedRange<Double> {
+        let visibleSeries = dataSeries.filter { $0.isVisible }
+        guard !visibleSeries.isEmpty else { return 0...100 }
+
+        let allValues = visibleSeries.flatMap { $0.points.map { $0.value } }
+        let maxValue = allValues.max() ?? 100
+
+        // Bar and area charts always start from zero
+        return 0...(maxValue * 1.1)  // Add 10% padding at the top
     }
 
     /// Get symbol for series index
