@@ -255,10 +255,18 @@ struct ChartView: View {
 
     /// Format Y-axis value based on the metric type of visible series
     private func formatYAxisValue(_ value: Double) -> String {
-        // Get the metric type from the first visible series (they should all be similar)
-        guard let firstSeries = dataSeries.filter({ $0.isVisible }).first else {
+        let visibleSeries = dataSeries.filter { $0.isVisible }
+        guard let firstSeries = visibleSeries.first else {
             return String(format: "%.0f", value)
         }
+
+        // Check if all visible series have the same metric type and field
+        let allSameMetric = visibleSeries.allSatisfy {
+            $0.metricType == firstSeries.metricType && $0.metricField == firstSeries.metricField
+        }
+
+        // Only show units if all visible series use the same metric and field
+        let showUnits = allSameMetric
 
         switch firstSeries.metricType {
         case .count:
@@ -272,8 +280,8 @@ struct ChartView: View {
             }
 
         case .sum:
-            if firstSeries.metricField == .netMass {
-                // Convert to tonnes for large mass values
+            if showUnits && firstSeries.metricField == .netMass {
+                // Convert to tonnes for large mass values with units
                 if value >= 1_000_000 {
                     return String(format: "%.0fKt", value / 1_000_000)
                 } else if value >= 1_000 {
@@ -282,7 +290,7 @@ struct ChartView: View {
                     return String(format: "%.0fkg", value)
                 }
             } else {
-                // Generic sum formatting
+                // Generic sum formatting without units (mixed series) or for non-mass fields
                 if value >= 1_000_000 {
                     return String(format: "%.1fM", value / 1_000_000)
                 } else if value >= 1_000 {
@@ -293,8 +301,8 @@ struct ChartView: View {
             }
 
         case .average:
-            // Show one decimal place for averages with units
-            if let unit = firstSeries.metricField.unit {
+            // Show one decimal place for averages with conditional units
+            if showUnits, let unit = firstSeries.metricField.unit {
                 return String(format: "%.1f%@", value, unit)
             } else {
                 return String(format: "%.1f", value)
