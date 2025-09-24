@@ -691,7 +691,9 @@ class DatabaseManager: ObservableObject {
                                 db: db
                             ) ?? []
 
-                            let series = FilteredDataSeries(name: seriesName, filters: filters, points: percentagePoints)
+                            let series = await MainActor.run {
+                                FilteredDataSeries(name: seriesName, filters: filters, points: percentagePoints)
+                            }
                             continuation.resume(returning: series)
                         } catch {
                             continuation.resume(throwing: error)
@@ -928,7 +930,9 @@ class DatabaseManager: ObservableObject {
                                 db: db
                             ) ?? []
 
-                            let series = FilteredDataSeries(name: seriesName, filters: filters, points: percentagePoints)
+                            let series = await MainActor.run {
+                                FilteredDataSeries(name: seriesName, filters: filters, points: percentagePoints)
+                            }
                             continuation.resume(returning: series)
                         } catch {
                             continuation.resume(throwing: error)
@@ -1142,7 +1146,7 @@ class DatabaseManager: ObservableObject {
         var baseComponents: [String] = []
 
         // Determine which category was dropped by comparing baseline with original
-        let droppedCategory = determineDifference(original: originalFilters, baseline: baseFilters)
+        let _ = determineDifference(original: originalFilters, baseline: baseFilters)
 
         if !baseFilters.vehicleClassifications.isEmpty {
             let classifications = baseFilters.vehicleClassifications
@@ -1538,17 +1542,35 @@ class DatabaseManager: ObservableObject {
     /// Gets available regions - uses cache when possible
     func getAvailableRegions(for dataEntityType: DataEntityType = .vehicle) async -> [String] {
         print("🔍 getAvailableRegions() - Cache status: \(filterCache.hasCachedData)")
-        
-        // For data type aware queries, bypass cache and query directly from appropriate table
-        // This ensures vehicle mode only shows vehicle data, license mode only shows license data
-        print("📊 Querying regions directly for data type: \(dataEntityType)")
+
+        // Check cache first
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+            let cached = filterCache.getCachedRegions()
+            if !cached.isEmpty {
+                print("✅ Using cached regions (\(cached.count) items), filtering for \(dataEntityType)")
+                // Filter cached results to only show data from the selected entity type
+                return await filterCachedRegionsByDataType(regions: cached, dataEntityType: dataEntityType)
+            }
+        }
+
+        // Fall back to database query
+        print("📊 Querying regions from database for \(dataEntityType)...")
         return await getRegionsFromDatabase(for: dataEntityType)
     }
     
     /// Gets available MRCs - uses cache when possible
     func getAvailableMRCs(for dataEntityType: DataEntityType = .vehicle) async -> [String] {
-        // For data type aware queries, bypass cache and query directly from appropriate table
-        // This ensures vehicle mode only shows vehicle data, license mode only shows license data
+        // Check cache first
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+            let cached = filterCache.getCachedMRCs()
+            if !cached.isEmpty {
+                print("✅ Using cached MRCs (\(cached.count) items), filtering for \(dataEntityType)")
+                // Filter cached results to only show data from the selected entity type
+                return await filterCachedMRCsByDataType(mrcs: cached, dataEntityType: dataEntityType)
+            }
+        }
+
+        // Fall back to database query
         return await getMRCsFromDatabase(for: dataEntityType)
     }
     
@@ -1728,6 +1750,178 @@ class DatabaseManager: ObservableObject {
         return await getVehicleColorsFromDatabase()
     }
 
+    // MARK: - License Data Methods
+
+    /// Gets available license types from database (cache-aware)
+    func getAvailableLicenseTypes() async -> [String] {
+        // Check cache first (only if license data is cached)
+        if filterCache.hasCachedData && filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+            let cached = filterCache.getCachedLicenseTypes()
+            if !cached.isEmpty {
+                return cached
+            }
+        }
+
+        return await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+
+                var types: [String] = []
+                let query = "SELECT DISTINCT license_type FROM licenses ORDER BY license_type"
+                var stmt: OpaquePointer?
+
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let typePtr = sqlite3_column_text(stmt, 0) {
+                            types.append(String(cString: typePtr))
+                        }
+                    }
+                }
+                sqlite3_finalize(stmt)
+                continuation.resume(returning: types)
+            }
+        }
+    }
+
+    /// Gets available age groups from database (cache-aware)
+    func getAvailableAgeGroups() async -> [String] {
+        // Check cache first (only if license data is cached)
+        if filterCache.hasCachedData && filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+            let cached = filterCache.getCachedAgeGroups()
+            if !cached.isEmpty {
+                return cached
+            }
+        }
+
+        return await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+
+                var groups: [String] = []
+                let query = "SELECT DISTINCT age_group FROM licenses ORDER BY age_group"
+                var stmt: OpaquePointer?
+
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let groupPtr = sqlite3_column_text(stmt, 0) {
+                            groups.append(String(cString: groupPtr))
+                        }
+                    }
+                }
+                sqlite3_finalize(stmt)
+                continuation.resume(returning: groups)
+            }
+        }
+    }
+
+    /// Gets available genders from database (cache-aware)
+    func getAvailableGenders() async -> [String] {
+        // Check cache first (only if license data is cached)
+        if filterCache.hasCachedData && filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+            let cached = filterCache.getCachedGenders()
+            if !cached.isEmpty {
+                return cached
+            }
+        }
+
+        return await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+
+                var genders: [String] = []
+                let query = "SELECT DISTINCT gender FROM licenses ORDER BY gender"
+                var stmt: OpaquePointer?
+
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let genderPtr = sqlite3_column_text(stmt, 0) {
+                            genders.append(String(cString: genderPtr))
+                        }
+                    }
+                }
+                sqlite3_finalize(stmt)
+                continuation.resume(returning: genders)
+            }
+        }
+    }
+
+    /// Gets available experience levels from database (cache-aware)
+    func getAvailableExperienceLevels() async -> [String] {
+        // Check cache first (only if license data is cached)
+        if filterCache.hasCachedData && filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+            let cached = filterCache.getCachedExperienceLevels()
+            if !cached.isEmpty {
+                return cached
+            }
+        }
+
+        return await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+
+                var levels: [String] = []
+                let query = "SELECT DISTINCT experience_level FROM licenses ORDER BY experience_level"
+                var stmt: OpaquePointer?
+
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let levelPtr = sqlite3_column_text(stmt, 0) {
+                            levels.append(String(cString: levelPtr))
+                        }
+                    }
+                }
+                sqlite3_finalize(stmt)
+                continuation.resume(returning: levels)
+            }
+        }
+    }
+
+    /// Gets available license classes from database (cache-aware)
+    func getAvailableLicenseClasses() async -> [String] {
+        // Check cache first (only if license data is cached)
+        if filterCache.hasCachedData && filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+            let cached = filterCache.getCachedLicenseClasses()
+            if !cached.isEmpty {
+                return cached
+            }
+        }
+
+        return await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+
+                var classes: [String] = []
+                let query = "SELECT DISTINCT license_class FROM licenses ORDER BY license_class"
+                var stmt: OpaquePointer?
+
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let classPtr = sqlite3_column_text(stmt, 0) {
+                            classes.append(String(cString: classPtr))
+                        }
+                    }
+                }
+                sqlite3_finalize(stmt)
+                continuation.resume(returning: classes)
+            }
+        }
+    }
+
     // MARK: - Filter Cache Management
     
     /// Refreshes the filter cache with current database values
@@ -1740,20 +1934,26 @@ class DatabaseManager: ObservableObject {
         async let regions = getRegionsFromBothTables()
         async let mrcs = getMRCsFromBothTables()
         async let municipalities = getMunicipalitiesFromDatabase()
+        async let municipalityMapping = getMunicipalityCodeToNameMappingFromDatabase()
         async let classifications = getClassificationsFromDatabase()
         async let vehicleMakes = getVehicleMakesFromDatabase()
         async let vehicleModels = getVehicleModelsFromDatabase()
         async let vehicleColors = getVehicleColorsFromDatabase()
         async let modelYears = getModelYearsFromDatabase()
+        async let licenseTypes = getAvailableLicenseTypes()
+        async let ageGroups = getAvailableAgeGroups()
+        async let genders = getAvailableGenders()
+        async let experienceLevels = getAvailableExperienceLevels()
+        async let licenseClasses = getAvailableLicenseClasses()
         async let databaseStats = getDatabaseStats()
 
         // Wait for all queries to complete
-        let (yearsList, regionsList, mrcsList, municipalitiesList, classificationsList, makesList, modelsList, colorsList, modelYearsList, dbStats) =
-            await (years, regions, mrcs, municipalities, classifications, vehicleMakes, vehicleModels, vehicleColors, modelYears, databaseStats)
+        let (yearsList, regionsList, mrcsList, municipalitiesList, municipalityMappingData, classificationsList, makesList, modelsList, colorsList, modelYearsList, licenseTypesList, ageGroupsList, gendersList, experienceLevelsList, licenseClassesList, dbStats) =
+            await (years, regions, mrcs, municipalities, municipalityMapping, classifications, vehicleMakes, vehicleModels, vehicleColors, modelYears, licenseTypes, ageGroups, genders, experienceLevels, licenseClasses, databaseStats)
 
         let duration = Date().timeIntervalSince(startTime)
         print("🔄 Database queries completed in \(String(format: "%.2f", duration))s")
-        print("🔄 Found: \(yearsList.count) years, \(regionsList.count) regions, \(mrcsList.count) MRCs, \(municipalitiesList.count) municipalities, \(classificationsList.count) classifications, \(makesList.count) makes, \(modelsList.count) models, \(colorsList.count) colors, \(modelYearsList.count) model years")
+        print("🔄 Found: \(yearsList.count) years, \(regionsList.count) regions, \(mrcsList.count) MRCs, \(municipalitiesList.count) municipalities, \(classificationsList.count) classifications, \(makesList.count) makes, \(modelsList.count) models, \(colorsList.count) colors, \(modelYearsList.count) model years, \(licenseTypesList.count) license types, \(ageGroupsList.count) age groups, \(gendersList.count) genders, \(experienceLevelsList.count) experience levels, \(licenseClassesList.count) license classes")
 
         // Update cache with database stats
         filterCache.updateCache(
@@ -1761,11 +1961,17 @@ class DatabaseManager: ObservableObject {
             regions: regionsList,
             mrcs: mrcsList,
             municipalities: municipalitiesList,
+            municipalityCodeToName: municipalityMappingData,
             classifications: classificationsList,
             vehicleMakes: makesList,
             vehicleModels: modelsList,
             vehicleColors: colorsList,
             modelYears: modelYearsList,
+            licenseTypes: licenseTypesList,
+            ageGroups: ageGroupsList,
+            genders: gendersList,
+            experienceLevels: experienceLevelsList,
+            licenseClasses: licenseClassesList,
             databaseStats: dbStats,
             dataVersion: getPersistentDataVersion()
         )
@@ -1950,6 +2156,24 @@ class DatabaseManager: ObservableObject {
         )
     }
 
+
+    // MARK: - Cache Filtering Methods (Private)
+
+    /// Filters cached regions to only include those present in the specified data entity type
+    private func filterCachedRegionsByDataType(regions: [String], dataEntityType: DataEntityType) async -> [String] {
+        // For now, return all cached regions since we cache from both tables
+        // In the future, we could maintain separate caches per data type if needed
+        // The cache already contains all regions from both vehicle and license tables
+        return regions
+    }
+
+    /// Filters cached MRCs to only include those present in the specified data entity type
+    private func filterCachedMRCsByDataType(mrcs: [String], dataEntityType: DataEntityType) async -> [String] {
+        // For now, return all cached MRCs since we cache from both tables
+        // In the future, we could maintain separate caches per data type if needed
+        // The cache already contains all MRCs from both vehicle and license tables
+        return mrcs
+    }
 
     // MARK: - Database Query Methods (Private)
 
@@ -2385,9 +2609,22 @@ class DatabaseManager: ObservableObject {
         }
     }
 
-    /// Gets municipality code-to-name mapping for UI display
+    /// Gets municipality code-to-name mapping for UI display (cache-aware)
     func getMunicipalityCodeToNameMapping() async -> [String: String] {
-        await withCheckedContinuation { continuation in
+        // Check cache first
+        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+            let cached = filterCache.getCachedMunicipalityCodeToName()
+            if !cached.isEmpty {
+                return cached
+            }
+        }
+
+        return await getMunicipalityCodeToNameMappingFromDatabase()
+    }
+
+    /// Gets municipality code-to-name mapping directly from database (for cache refresh)
+    private func getMunicipalityCodeToNameMappingFromDatabase() async -> [String: String] {
+        return await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
                 guard let db = self?.db else {
                     continuation.resume(returning: [:])

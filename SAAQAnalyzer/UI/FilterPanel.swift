@@ -198,6 +198,8 @@ struct FilterPanel: View {
             // Reload data type specific options when switching between vehicle and license
             Task {
                 await loadDataTypeSpecificOptions()
+                // Clear filter selections that are no longer valid for the new data type
+                await cleanupInvalidFilterSelections()
             }
         }
     }
@@ -222,12 +224,16 @@ struct FilterPanel: View {
                 print("✅ Using existing filter cache")
             }
             
-            // Load shared options from database/cache
-            availableYears = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
-            availableRegions = await databaseManager.getAvailableRegions(for: configuration.dataEntityType)
-            availableMRCs = await databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
-            availableMunicipalities = await databaseManager.getAvailableMunicipalities()
-            municipalityCodeToName = await databaseManager.getMunicipalityCodeToNameMapping()
+            // Load shared options from database/cache in parallel
+            async let years = databaseManager.getAvailableYears(for: configuration.dataEntityType)
+            async let regions = databaseManager.getAvailableRegions(for: configuration.dataEntityType)
+            async let mrcs = databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
+            async let municipalities = databaseManager.getAvailableMunicipalities()
+            async let municipalityMapping = databaseManager.getMunicipalityCodeToNameMapping()
+
+            // Wait for all to complete
+            (availableYears, availableRegions, availableMRCs, availableMunicipalities, municipalityCodeToName) =
+                await (years, regions, mrcs, municipalities, municipalityMapping)
 
             // Load data type specific options
             await loadDataTypeSpecificOptions()
@@ -241,19 +247,27 @@ struct FilterPanel: View {
 
     /// Loads data type specific filter options
     private func loadDataTypeSpecificOptions() async {
-        // Always reload shared options when switching data types
-        availableYears = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
-        availableRegions = await databaseManager.getAvailableRegions(for: configuration.dataEntityType)
-        availableMRCs = await databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
+        // Only reload shared options when explicitly switching data types (not on initial load)
+        // These are already loaded in loadAvailableOptions() for initial load
+        if hasInitiallyLoaded {
+            availableYears = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
+            availableRegions = await databaseManager.getAvailableRegions(for: configuration.dataEntityType)
+            availableMRCs = await databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
+        }
 
         switch configuration.dataEntityType {
         case .vehicle:
-            // Load vehicle-specific options
-            availableClassifications = await databaseManager.getAvailableClassifications()
-            availableVehicleMakes = await databaseManager.getAvailableVehicleMakes()
-            availableVehicleModels = await databaseManager.getAvailableVehicleModels()
-            availableVehicleColors = await databaseManager.getAvailableVehicleColors()
-            availableModelYears = await databaseManager.getAvailableModelYears()
+            // Load vehicle-specific options in parallel for better performance
+            async let classifications = databaseManager.getAvailableClassifications()
+            async let vehicleMakes = databaseManager.getAvailableVehicleMakes()
+            async let vehicleModels = databaseManager.getAvailableVehicleModels()
+            async let vehicleColors = databaseManager.getAvailableVehicleColors()
+            async let modelYears = databaseManager.getAvailableModelYears()
+
+            // Wait for all to complete
+            (availableClassifications, availableVehicleMakes, availableVehicleModels,
+             availableVehicleColors, availableModelYears) =
+                await (classifications, vehicleMakes, vehicleModels, vehicleColors, modelYears)
 
             // Clear license options
             availableLicenseTypes = []
@@ -263,13 +277,17 @@ struct FilterPanel: View {
             availableLicenseClasses = []
 
         case .license:
-            // For now, populate with placeholder data until we add license data fetching methods
-            // These will be populated when license data is imported
-            availableLicenseTypes = ["APPRENTI", "PROBATOIRE", "RÉGULIER"]
-            availableAgeGroups = ["16-19", "20-24", "25-34", "35-44", "45-54", "55-64", "65-74", "75+"]
-            availableGenders = ["F", "M"]
-            availableExperienceLevels = ["Absente", "Moins de 2 ans", "2 à 5 ans", "6 à 9 ans", "10 ans ou plus"]
-            availableLicenseClasses = ["learner_123", "learner_5", "learner_6a6r", "license_1234", "license_5", "license_6abce", "license_6d", "license_8", "probationary"]
+            // Load license-specific options in parallel for better performance
+            async let licenseTypes = databaseManager.getAvailableLicenseTypes()
+            async let ageGroups = databaseManager.getAvailableAgeGroups()
+            async let genders = databaseManager.getAvailableGenders()
+            async let experienceLevels = databaseManager.getAvailableExperienceLevels()
+            async let licenseClasses = databaseManager.getAvailableLicenseClasses()
+
+            // Wait for all to complete
+            (availableLicenseTypes, availableAgeGroups, availableGenders,
+             availableExperienceLevels, availableLicenseClasses) =
+                await (licenseTypes, ageGroups, genders, experienceLevels, licenseClasses)
 
             // Clear vehicle options
             availableClassifications = []
@@ -315,6 +333,45 @@ struct FilterPanel: View {
     /// Clears all filter selections
     private func clearAllFilters() {
         configuration = FilterConfiguration()
+    }
+
+    /// Removes filter selections that are no longer valid for the current data type
+    private func cleanupInvalidFilterSelections() async {
+        let currentRegions = await databaseManager.getAvailableRegions(for: configuration.dataEntityType)
+        let currentMRCs = await databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
+
+        // Ensure UI updates happen on main thread
+        await MainActor.run {
+            // Remove region selections that don't exist in the current data type
+            configuration.regions = configuration.regions.filter { currentRegions.contains($0) }
+
+            // Remove MRC selections that don't exist in the current data type
+            configuration.mrcs = configuration.mrcs.filter { currentMRCs.contains($0) }
+
+            // Clear data-type-specific filters when switching modes
+            switch configuration.dataEntityType {
+            case .vehicle:
+                // Clear all license-specific filters when switching to vehicle mode
+                configuration.licenseTypes.removeAll()
+                configuration.ageGroups.removeAll()
+                configuration.genders.removeAll()
+                configuration.experienceLevels.removeAll()
+                configuration.licenseClasses.removeAll()
+
+            case .license:
+                // Clear all vehicle-specific filters when switching to license mode
+                configuration.vehicleClassifications.removeAll()
+                configuration.vehicleMakes.removeAll()
+                configuration.vehicleModels.removeAll()
+                configuration.vehicleColors.removeAll()
+                configuration.modelYears.removeAll()
+                configuration.fuelTypes.removeAll()
+            }
+
+            print("🧹 Cleaned up invalid filter selections for \(configuration.dataEntityType)")
+            print("   Remaining regions: \(configuration.regions.count)")
+            print("   Remaining MRCs: \(configuration.mrcs.count)")
+        }
     }
 }
 

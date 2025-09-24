@@ -49,18 +49,29 @@ class FilterCache {
     
     // Cache keys
     private enum CacheKeys {
+        // Shared keys
         static let years = "FilterCache.years"
         static let regions = "FilterCache.regions"
         static let mrcs = "FilterCache.mrcs"
         static let municipalities = "FilterCache.municipalities"
+        static let municipalityCodeToName = "FilterCache.municipalityCodeToName"
+        static let databaseStats = "FilterCache.databaseStats"
+        static let lastUpdated = "FilterCache.lastUpdated"
+        static let dataVersion = "FilterCache.dataVersion"
+
+        // Vehicle-specific keys
         static let classifications = "FilterCache.classifications"
         static let vehicleMakes = "FilterCache.vehicleMakes"
         static let vehicleModels = "FilterCache.vehicleModels"
         static let vehicleColors = "FilterCache.vehicleColors"
         static let modelYears = "FilterCache.modelYears"
-        static let databaseStats = "FilterCache.databaseStats"
-        static let lastUpdated = "FilterCache.lastUpdated"
-        static let dataVersion = "FilterCache.dataVersion"
+
+        // License-specific keys
+        static let licenseTypes = "FilterCache.licenseTypes"
+        static let ageGroups = "FilterCache.ageGroups"
+        static let genders = "FilterCache.genders"
+        static let experienceLevels = "FilterCache.experienceLevels"
+        static let licenseClasses = "FilterCache.licenseClasses"
     }
     
     // MARK: - Cache Status
@@ -73,23 +84,57 @@ class FilterCache {
             return false
         }
 
-        // Check that all required cache keys exist (even if empty arrays)
-        // This ensures new fields trigger a cache refresh when first added
-        let requiredKeys = [
+        // Check that all shared cache keys exist (even if empty arrays)
+        let sharedKeys = [
             CacheKeys.regions,
             CacheKeys.mrcs,
             CacheKeys.municipalities,
+            CacheKeys.databaseStats
+        ]
+
+        // Check that all vehicle cache keys exist
+        let vehicleKeys = [
             CacheKeys.classifications,
             CacheKeys.vehicleMakes,
             CacheKeys.vehicleModels,
             CacheKeys.vehicleColors,
-            CacheKeys.modelYears,
-            CacheKeys.databaseStats
+            CacheKeys.modelYears
         ]
 
-        return requiredKeys.allSatisfy { key in
+        // Check that all license cache keys exist (only if we have license data)
+        // For backward compatibility, we don't require license keys if they don't exist yet
+        let licenseKeys = [
+            CacheKeys.licenseTypes,
+            CacheKeys.ageGroups,
+            CacheKeys.genders,
+            CacheKeys.experienceLevels,
+            CacheKeys.licenseClasses
+        ]
+
+        // First check if shared and vehicle keys exist (minimum requirement)
+        let hasMinimumKeys = (sharedKeys + vehicleKeys).allSatisfy { key in
             userDefaults.object(forKey: key) != nil
         }
+
+        if !hasMinimumKeys {
+            return false
+        }
+
+        // If any license key exists, check that all license keys exist
+        // This ensures consistency once license data starts being cached
+        let hasAnyLicenseKey = licenseKeys.contains { key in
+            userDefaults.object(forKey: key) != nil
+        }
+
+        if hasAnyLicenseKey {
+            // If we have any license key, we should have all of them
+            return licenseKeys.allSatisfy { key in
+                userDefaults.object(forKey: key) != nil
+            }
+        }
+
+        // Cache is valid even without license keys (backward compatibility)
+        return true
     }
     
     /// Get the last cache update timestamp
@@ -119,6 +164,11 @@ class FilterCache {
     func getCachedMunicipalities() -> [String] {
         return userDefaults.stringArray(forKey: CacheKeys.municipalities) ?? []
     }
+
+    func getCachedMunicipalityCodeToName() -> [String: String] {
+        guard let data = userDefaults.data(forKey: CacheKeys.municipalityCodeToName) else { return [:] }
+        return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+    }
     
     func getCachedClassifications() -> [String] {
         return userDefaults.stringArray(forKey: CacheKeys.classifications) ?? []
@@ -145,22 +195,67 @@ class FilterCache {
         return try? JSONDecoder().decode(CachedDatabaseStats.self, from: data)
     }
 
+    // License-specific cache reading methods
+    func getCachedLicenseTypes() -> [String] {
+        return userDefaults.stringArray(forKey: CacheKeys.licenseTypes) ?? []
+    }
+
+    func getCachedAgeGroups() -> [String] {
+        return userDefaults.stringArray(forKey: CacheKeys.ageGroups) ?? []
+    }
+
+    func getCachedGenders() -> [String] {
+        return userDefaults.stringArray(forKey: CacheKeys.genders) ?? []
+    }
+
+    func getCachedExperienceLevels() -> [String] {
+        return userDefaults.stringArray(forKey: CacheKeys.experienceLevels) ?? []
+    }
+
+    func getCachedLicenseClasses() -> [String] {
+        return userDefaults.stringArray(forKey: CacheKeys.licenseClasses) ?? []
+    }
+
+    /// Check if license data is cached
+    var hasLicenseDataCached: Bool {
+        // Check if any license cache key exists
+        return userDefaults.object(forKey: CacheKeys.licenseTypes) != nil
+    }
+
     // MARK: - Cache Writing
     
     /// Update the entire cache with fresh data
     func updateCache(years: [Int], regions: [String], mrcs: [String], municipalities: [String],
+                    municipalityCodeToName: [String: String],
                     classifications: [String], vehicleMakes: [String], vehicleModels: [String],
                     vehicleColors: [String], modelYears: [Int],
+                    licenseTypes: [String], ageGroups: [String], genders: [String],
+                    experienceLevels: [String], licenseClasses: [String],
                     databaseStats: CachedDatabaseStats, dataVersion: String) {
+        // Shared data
         userDefaults.set(years, forKey: CacheKeys.years)
         userDefaults.set(regions, forKey: CacheKeys.regions)
         userDefaults.set(mrcs, forKey: CacheKeys.mrcs)
         userDefaults.set(municipalities, forKey: CacheKeys.municipalities)
+
+        // Cache municipality mapping as JSON data
+        if let mappingData = try? JSONEncoder().encode(municipalityCodeToName) {
+            userDefaults.set(mappingData, forKey: CacheKeys.municipalityCodeToName)
+        }
+
+        // Vehicle-specific data
         userDefaults.set(classifications, forKey: CacheKeys.classifications)
         userDefaults.set(vehicleMakes, forKey: CacheKeys.vehicleMakes)
         userDefaults.set(vehicleModels, forKey: CacheKeys.vehicleModels)
         userDefaults.set(vehicleColors, forKey: CacheKeys.vehicleColors)
         userDefaults.set(modelYears, forKey: CacheKeys.modelYears)
+
+        // License-specific data
+        userDefaults.set(licenseTypes, forKey: CacheKeys.licenseTypes)
+        userDefaults.set(ageGroups, forKey: CacheKeys.ageGroups)
+        userDefaults.set(genders, forKey: CacheKeys.genders)
+        userDefaults.set(experienceLevels, forKey: CacheKeys.experienceLevels)
+        userDefaults.set(licenseClasses, forKey: CacheKeys.licenseClasses)
 
         // Cache database stats as JSON data
         if let statsData = try? JSONEncoder().encode(databaseStats) {
@@ -170,24 +265,35 @@ class FilterCache {
         userDefaults.set(Date(), forKey: CacheKeys.lastUpdated)
         userDefaults.set(dataVersion, forKey: CacheKeys.dataVersion)
 
-        print("💾 Filter cache updated with \(years.count) years, \(regions.count) regions, \(mrcs.count) MRCs, \(municipalities.count) municipalities, \(classifications.count) classifications, \(vehicleMakes.count) makes, \(vehicleModels.count) models, \(vehicleColors.count) colors, \(modelYears.count) model years, database stats")
+        print("💾 Filter cache updated with \(years.count) years, \(regions.count) regions, \(mrcs.count) MRCs, \(municipalities.count) municipalities, \(classifications.count) classifications, \(vehicleMakes.count) makes, \(vehicleModels.count) models, \(vehicleColors.count) colors, \(modelYears.count) model years, \(licenseTypes.count) license types, \(ageGroups.count) age groups, \(genders.count) genders, \(experienceLevels.count) experience levels, \(licenseClasses.count) license classes, database stats")
     }
     
     /// Clear the entire cache
     func clearCache() {
+        // Shared keys
         userDefaults.removeObject(forKey: CacheKeys.years)
         userDefaults.removeObject(forKey: CacheKeys.regions)
         userDefaults.removeObject(forKey: CacheKeys.mrcs)
         userDefaults.removeObject(forKey: CacheKeys.municipalities)
+        userDefaults.removeObject(forKey: CacheKeys.municipalityCodeToName)
+        userDefaults.removeObject(forKey: CacheKeys.databaseStats)
+        userDefaults.removeObject(forKey: CacheKeys.lastUpdated)
+        userDefaults.removeObject(forKey: CacheKeys.dataVersion)
+
+        // Vehicle-specific keys
         userDefaults.removeObject(forKey: CacheKeys.classifications)
         userDefaults.removeObject(forKey: CacheKeys.vehicleMakes)
         userDefaults.removeObject(forKey: CacheKeys.vehicleModels)
         userDefaults.removeObject(forKey: CacheKeys.vehicleColors)
         userDefaults.removeObject(forKey: CacheKeys.modelYears)
-        userDefaults.removeObject(forKey: CacheKeys.databaseStats)
-        userDefaults.removeObject(forKey: CacheKeys.lastUpdated)
-        userDefaults.removeObject(forKey: CacheKeys.dataVersion)
-        
+
+        // License-specific keys
+        userDefaults.removeObject(forKey: CacheKeys.licenseTypes)
+        userDefaults.removeObject(forKey: CacheKeys.ageGroups)
+        userDefaults.removeObject(forKey: CacheKeys.genders)
+        userDefaults.removeObject(forKey: CacheKeys.experienceLevels)
+        userDefaults.removeObject(forKey: CacheKeys.licenseClasses)
+
         print("🗑️ Filter cache cleared")
     }
     
