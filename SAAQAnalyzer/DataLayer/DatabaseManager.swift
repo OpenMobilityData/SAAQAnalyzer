@@ -254,7 +254,8 @@ class DatabaseManager: ObservableObject {
             }
         }
     }
-    
+
+
     /// Closes database connection
     private func closeDatabase() {
         if let db = db {
@@ -879,6 +880,7 @@ class DatabaseManager: ObservableObject {
                 print("License Query: \(query)")
                 print("Bind values: \(bindValues)")
 
+
                 var stmt: OpaquePointer?
                 defer {
                     if stmt != nil {
@@ -1021,32 +1023,32 @@ class DatabaseManager: ObservableObject {
         if !filters.vehicleClassifications.isEmpty {
             let classifications = filters.vehicleClassifications
                 .compactMap { VehicleClassification(rawValue: $0)?.description }
-                .joined(separator: ", ")
+                .joined(separator: " OR ")
             if !classifications.isEmpty {
                 components.append("[\(classifications)]")
             }
         }
 
         if !filters.vehicleMakes.isEmpty {
-            let makes = Array(filters.vehicleMakes).sorted().prefix(3).joined(separator: ", ")
+            let makes = Array(filters.vehicleMakes).sorted().prefix(3).joined(separator: " OR ")
             let suffix = filters.vehicleMakes.count > 3 ? " (+\(filters.vehicleMakes.count - 3))" : ""
             components.append("[Make: \(makes)\(suffix)]")
         }
 
         if !filters.vehicleModels.isEmpty {
-            let models = Array(filters.vehicleModels).sorted().prefix(3).joined(separator: ", ")
+            let models = Array(filters.vehicleModels).sorted().prefix(3).joined(separator: " OR ")
             let suffix = filters.vehicleModels.count > 3 ? " (+\(filters.vehicleModels.count - 3))" : ""
             components.append("[Model: \(models)\(suffix)]")
         }
 
         if !filters.vehicleColors.isEmpty {
-            let colors = Array(filters.vehicleColors).sorted().prefix(3).joined(separator: ", ")
+            let colors = Array(filters.vehicleColors).sorted().prefix(3).joined(separator: " OR ")
             let suffix = filters.vehicleColors.count > 3 ? " (+\(filters.vehicleColors.count - 3))" : ""
             components.append("[Color: \(colors)\(suffix)]")
         }
 
         if !filters.modelYears.isEmpty {
-            let years = Array(filters.modelYears).sorted(by: >).prefix(3).map { String($0) }.joined(separator: ", ")
+            let years = Array(filters.modelYears).sorted(by: >).prefix(3).map { String($0) }.joined(separator: " OR ")
             let suffix = filters.modelYears.count > 3 ? " (+\(filters.modelYears.count - 3))" : ""
             components.append("[Model Year: \(years)\(suffix)]")
         }
@@ -1054,26 +1056,85 @@ class DatabaseManager: ObservableObject {
         if !filters.fuelTypes.isEmpty {
             let fuels = filters.fuelTypes
                 .compactMap { FuelType(rawValue: $0)?.description }
-                .joined(separator: ", ")
+                .joined(separator: " OR ")
             if !fuels.isEmpty {
                 components.append("[\(fuels)]")
             }
         }
 
         if !filters.regions.isEmpty {
-            components.append("[Region: \(filters.regions.joined(separator: ", "))]")
+            components.append("[Region: \(filters.regions.joined(separator: " OR "))]")
         } else if !filters.mrcs.isEmpty {
-            components.append("[MRC: \(filters.mrcs.joined(separator: ", "))]")
+            components.append("[MRC: \(filters.mrcs.joined(separator: " OR "))]")
         } else if !filters.municipalities.isEmpty {
             // Convert municipality codes to names for display
             let codeToName = await getMunicipalityCodeToNameMapping()
             let municipalityNames = filters.municipalities.compactMap { code in
                 codeToName[code] ?? code  // Fallback to code if name not found
             }
-            components.append("[Municipality: \(municipalityNames.joined(separator: ", "))]")
+            components.append("[Municipality: \(municipalityNames.joined(separator: " OR "))]")
         }
 
-        return components.isEmpty ? "All Vehicles" : components.joined(separator: " AND ")
+        // License-specific filters
+        if !filters.licenseTypes.isEmpty {
+            let types = filters.licenseTypes
+                .compactMap { LicenseType(rawValue: $0)?.description }
+                .joined(separator: " OR ")
+            if !types.isEmpty {
+                components.append("[License Type: \(types)]")
+            } else {
+                // Fallback to raw values if enum lookup fails
+                components.append("[License Type: \(Array(filters.licenseTypes).sorted().joined(separator: " OR "))]")
+            }
+        }
+
+        if !filters.ageGroups.isEmpty {
+            let groups = filters.ageGroups
+                .compactMap { AgeGroup(rawValue: $0)?.description }
+                .joined(separator: " OR ")
+            if !groups.isEmpty {
+                components.append("[Age Group: \(groups)]")
+            } else {
+                // Fallback to raw values if enum lookup fails
+                components.append("[Age Group: \(Array(filters.ageGroups).sorted().joined(separator: " OR "))]")
+            }
+        }
+
+        if !filters.genders.isEmpty {
+            let genders = filters.genders
+                .compactMap { Gender(rawValue: $0)?.description }
+                .joined(separator: " OR ")
+            if !genders.isEmpty {
+                components.append("[Gender: \(genders)]")
+            } else {
+                // Fallback to raw values if enum lookup fails
+                components.append("[Gender: \(Array(filters.genders).sorted().joined(separator: " OR "))]")
+            }
+        }
+
+        if !filters.experienceLevels.isEmpty {
+            let levels = filters.experienceLevels
+                .compactMap { ExperienceLevel(rawValue: $0)?.description }
+                .joined(separator: " OR ")
+            if !levels.isEmpty {
+                components.append("[Experience: \(levels)]")
+            } else {
+                // Fallback to raw values if enum lookup fails
+                components.append("[Experience: \(Array(filters.experienceLevels).sorted().joined(separator: " OR "))]")
+            }
+        }
+
+        if !filters.licenseClasses.isEmpty {
+            let classes = Array(filters.licenseClasses).sorted().joined(separator: " OR ")
+            components.append("[License Classes: \(classes)]")
+        }
+
+        // Return appropriate default based on data entity type
+        if components.isEmpty {
+            return filters.dataEntityType == .license ? "All License Holders" : "All Vehicles"
+        } else {
+            return components.joined(separator: " AND ")
+        }
     }
 
     /// Generate a description of what the percentage baseline represents
@@ -1086,7 +1147,7 @@ class DatabaseManager: ObservableObject {
         if !baseFilters.vehicleClassifications.isEmpty {
             let classifications = baseFilters.vehicleClassifications
                 .compactMap { VehicleClassification(rawValue: $0)?.description }
-                .joined(separator: ", ")
+                .joined(separator: " OR ")
             if !classifications.isEmpty {
                 baseComponents.append("[\(classifications)]")
             }
@@ -1095,35 +1156,94 @@ class DatabaseManager: ObservableObject {
         if !baseFilters.fuelTypes.isEmpty {
             let fuels = baseFilters.fuelTypes
                 .compactMap { FuelType(rawValue: $0)?.description }
-                .joined(separator: ", ")
+                .joined(separator: " OR ")
             if !fuels.isEmpty {
                 baseComponents.append("[\(fuels)]")
             }
         }
 
         if !baseFilters.regions.isEmpty {
-            baseComponents.append("[Region: \(baseFilters.regions.joined(separator: ", "))]")
+            baseComponents.append("[Region: \(baseFilters.regions.joined(separator: " OR "))]")
         }
 
         if !baseFilters.vehicleMakes.isEmpty {
-            let makes = Array(baseFilters.vehicleMakes).sorted().prefix(3).joined(separator: ", ")
+            let makes = Array(baseFilters.vehicleMakes).sorted().prefix(3).joined(separator: " OR ")
             let suffix = baseFilters.vehicleMakes.count > 3 ? " (+\(baseFilters.vehicleMakes.count - 3))" : ""
             baseComponents.append("[Make: \(makes)\(suffix)]")
         }
 
         if !baseFilters.vehicleModels.isEmpty {
-            let models = Array(baseFilters.vehicleModels).sorted().prefix(3).joined(separator: ", ")
+            let models = Array(baseFilters.vehicleModels).sorted().prefix(3).joined(separator: " OR ")
             let suffix = baseFilters.vehicleModels.count > 3 ? " (+\(baseFilters.vehicleModels.count - 3))" : ""
             baseComponents.append("[Model: \(models)\(suffix)]")
         }
 
         if !baseFilters.vehicleColors.isEmpty {
-            let colors = Array(baseFilters.vehicleColors).sorted().prefix(3).joined(separator: ", ")
+            let colors = Array(baseFilters.vehicleColors).sorted().prefix(3).joined(separator: " OR ")
             let suffix = baseFilters.vehicleColors.count > 3 ? " (+\(baseFilters.vehicleColors.count - 3))" : ""
             baseComponents.append("[Color: \(colors)\(suffix)]")
         }
 
-        let baseDescription = baseComponents.isEmpty ? "All Vehicles" : baseComponents.joined(separator: " AND ")
+        // License-specific filters for baseline description
+        if !baseFilters.licenseTypes.isEmpty {
+            let types = baseFilters.licenseTypes
+                .compactMap { LicenseType(rawValue: $0)?.description }
+                .joined(separator: " OR ")
+            if !types.isEmpty {
+                baseComponents.append("[License Type: \(types)]")
+            } else {
+                // Fallback to raw values if enum lookup fails
+                baseComponents.append("[License Type: \(Array(baseFilters.licenseTypes).sorted().joined(separator: " OR "))]")
+            }
+        }
+
+        if !baseFilters.ageGroups.isEmpty {
+            let groups = baseFilters.ageGroups
+                .compactMap { AgeGroup(rawValue: $0)?.description }
+                .joined(separator: " OR ")
+            if !groups.isEmpty {
+                baseComponents.append("[Age Group: \(groups)]")
+            } else {
+                // Fallback to raw values if enum lookup fails
+                baseComponents.append("[Age Group: \(Array(baseFilters.ageGroups).sorted().joined(separator: " OR "))]")
+            }
+        }
+
+        if !baseFilters.genders.isEmpty {
+            let genders = baseFilters.genders
+                .compactMap { Gender(rawValue: $0)?.description }
+                .joined(separator: " OR ")
+            if !genders.isEmpty {
+                baseComponents.append("[Gender: \(genders)]")
+            } else {
+                // Fallback to raw values if enum lookup fails
+                baseComponents.append("[Gender: \(Array(baseFilters.genders).sorted().joined(separator: " OR "))]")
+            }
+        }
+
+        if !baseFilters.experienceLevels.isEmpty {
+            let levels = baseFilters.experienceLevels
+                .compactMap { ExperienceLevel(rawValue: $0)?.description }
+                .joined(separator: " OR ")
+            if !levels.isEmpty {
+                baseComponents.append("[Experience: \(levels)]")
+            } else {
+                // Fallback to raw values if enum lookup fails
+                baseComponents.append("[Experience: \(Array(baseFilters.experienceLevels).sorted().joined(separator: " OR "))]")
+            }
+        }
+
+        if !baseFilters.licenseClasses.isEmpty {
+            let classes = Array(baseFilters.licenseClasses).sorted().joined(separator: " OR ")
+            baseComponents.append("[License Classes: \(classes)]")
+        }
+
+        // Return appropriate default based on data entity type
+        let baseDescription = if baseComponents.isEmpty {
+            baseFilters.dataEntityType == .license ? "All License Holders" : "All Vehicles"
+        } else {
+            baseComponents.joined(separator: " AND ")
+        }
         return baseDescription
     }
 
@@ -1158,6 +1278,22 @@ class DatabaseManager: ObservableObject {
         }
         if !original.ageRanges.isEmpty && baseline.ageRanges.isEmpty {
             return "age ranges"
+        }
+        // License-specific filter differences
+        if !original.licenseTypes.isEmpty && baseline.licenseTypes.isEmpty {
+            return "license types"
+        }
+        if !original.ageGroups.isEmpty && baseline.ageGroups.isEmpty {
+            return "age groups"
+        }
+        if !original.genders.isEmpty && baseline.genders.isEmpty {
+            return "genders"
+        }
+        if !original.experienceLevels.isEmpty && baseline.experienceLevels.isEmpty {
+            return "experience levels"
+        }
+        if !original.licenseClasses.isEmpty && baseline.licenseClasses.isEmpty {
+            return "license classes"
         }
         return nil
     }
@@ -1219,6 +1355,42 @@ class DatabaseManager: ObservableObject {
                 let suffix = filters.modelYears.count > 3 ? " & Others" : ""
                 return "\(years)\(suffix) Model Years"
             }
+        case "license types":
+            if filters.licenseTypes.count == 1, let licenseType = filters.licenseTypes.first {
+                return LicenseType(rawValue: licenseType)?.description ?? licenseType
+            } else if !filters.licenseTypes.isEmpty {
+                let types = filters.licenseTypes.compactMap { LicenseType(rawValue: $0)?.description }.joined(separator: " & ")
+                return types.isEmpty ? nil : types
+            }
+        case "age groups":
+            if filters.ageGroups.count == 1, let ageGroup = filters.ageGroups.first {
+                return AgeGroup(rawValue: ageGroup)?.description ?? ageGroup
+            } else if !filters.ageGroups.isEmpty {
+                let groups = filters.ageGroups.compactMap { AgeGroup(rawValue: $0)?.description }.joined(separator: " & ")
+                return groups.isEmpty ? nil : groups
+            }
+        case "genders":
+            if filters.genders.count == 1, let gender = filters.genders.first {
+                return Gender(rawValue: gender)?.description ?? gender
+            } else if !filters.genders.isEmpty {
+                let genders = filters.genders.compactMap { Gender(rawValue: $0)?.description }.joined(separator: " & ")
+                return genders.isEmpty ? nil : genders
+            }
+        case "experience levels":
+            if filters.experienceLevels.count == 1, let experience = filters.experienceLevels.first {
+                return ExperienceLevel(rawValue: experience)?.description ?? experience
+            } else if !filters.experienceLevels.isEmpty {
+                let levels = filters.experienceLevels.compactMap { ExperienceLevel(rawValue: $0)?.description }.joined(separator: " & ")
+                return levels.isEmpty ? nil : levels
+            }
+        case "license classes":
+            if filters.licenseClasses.count == 1 {
+                return "License Class \(filters.licenseClasses.first!)"
+            } else if !filters.licenseClasses.isEmpty {
+                let classes = Array(filters.licenseClasses).sorted().prefix(3).joined(separator: " & ")
+                let suffix = filters.licenseClasses.count > 3 ? " & Others" : ""
+                return "License Classes \(classes)\(suffix)"
+            }
         default:
             break
         }
@@ -1245,32 +1417,32 @@ class DatabaseManager: ObservableObject {
         if !filters.vehicleClassifications.isEmpty {
             let classifications = filters.vehicleClassifications
                 .compactMap { VehicleClassification(rawValue: $0)?.description }
-                .joined(separator: ", ")
+                .joined(separator: " OR ")
             if !classifications.isEmpty {
                 components.append("[\(classifications)]")
             }
         }
 
         if !filters.vehicleMakes.isEmpty {
-            let makes = Array(filters.vehicleMakes).sorted().prefix(3).joined(separator: ", ")
+            let makes = Array(filters.vehicleMakes).sorted().prefix(3).joined(separator: " OR ")
             let suffix = filters.vehicleMakes.count > 3 ? " (+\(filters.vehicleMakes.count - 3))" : ""
             components.append("[Make: \(makes)\(suffix)]")
         }
 
         if !filters.vehicleModels.isEmpty {
-            let models = Array(filters.vehicleModels).sorted().prefix(3).joined(separator: ", ")
+            let models = Array(filters.vehicleModels).sorted().prefix(3).joined(separator: " OR ")
             let suffix = filters.vehicleModels.count > 3 ? " (+\(filters.vehicleModels.count - 3))" : ""
             components.append("[Model: \(models)\(suffix)]")
         }
 
         if !filters.vehicleColors.isEmpty {
-            let colors = Array(filters.vehicleColors).sorted().prefix(3).joined(separator: ", ")
+            let colors = Array(filters.vehicleColors).sorted().prefix(3).joined(separator: " OR ")
             let suffix = filters.vehicleColors.count > 3 ? " (+\(filters.vehicleColors.count - 3))" : ""
             components.append("[Color: \(colors)\(suffix)]")
         }
 
         if !filters.modelYears.isEmpty {
-            let years = Array(filters.modelYears).sorted(by: >).prefix(3).map { String($0) }.joined(separator: ", ")
+            let years = Array(filters.modelYears).sorted(by: >).prefix(3).map { String($0) }.joined(separator: " OR ")
             let suffix = filters.modelYears.count > 3 ? " (+\(filters.modelYears.count - 3))" : ""
             components.append("[Model Year: \(years)\(suffix)]")
         }
@@ -1278,19 +1450,19 @@ class DatabaseManager: ObservableObject {
         if !filters.fuelTypes.isEmpty {
             let fuels = filters.fuelTypes
                 .compactMap { FuelType(rawValue: $0)?.description }
-                .joined(separator: ", ")
+                .joined(separator: " OR ")
             if !fuels.isEmpty {
                 components.append("[\(fuels)]")
             }
         }
 
         if !filters.regions.isEmpty {
-            components.append("[Region: \(filters.regions.joined(separator: ", "))]")
+            components.append("[Region: \(filters.regions.joined(separator: " OR "))]")
         } else if !filters.mrcs.isEmpty {
-            components.append("[MRC: \(filters.mrcs.joined(separator: ", "))]")
+            components.append("[MRC: \(filters.mrcs.joined(separator: " OR "))]")
         } else if !filters.municipalities.isEmpty {
             // Use codes in series name (fallback for synchronous version)
-            components.append("[Municipality: \(filters.municipalities.joined(separator: ", "))]")
+            components.append("[Municipality: \(filters.municipalities.joined(separator: " OR "))]")
         }
 
         return components.isEmpty ? "All Vehicles" : components.joined(separator: " AND ")
@@ -1299,7 +1471,7 @@ class DatabaseManager: ObservableObject {
     /// Gets available years - uses cache when possible
     func getAvailableYears() async -> [Int] {
         print("🔍 getAvailableYears() - Cache status: \(filterCache.hasCachedData)")
-        
+
         // Check cache first
         if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
             let cached = filterCache.getCachedYears()
@@ -1308,10 +1480,22 @@ class DatabaseManager: ObservableObject {
                 return cached
             }
         }
-        
+
         // Fall back to database query
         print("📊 Querying years from database...")
         return await getYearsFromDatabase()
+    }
+
+    /// Gets available years for a specific data entity type
+    func getAvailableYears(for dataType: DataEntityType) async -> [Int] {
+        print("🔍 getAvailableYears(for: \(dataType)) - Data-type-aware query")
+
+        switch dataType {
+        case .vehicle:
+            return await getVehicleYearsFromDatabase()
+        case .license:
+            return await getLicenseYearsFromDatabase()
+        }
     }
     
     /// Internal method to query years directly from database
@@ -1322,58 +1506,50 @@ class DatabaseManager: ObservableObject {
                     continuation.resume(returning: [])
                     return
                 }
-                
-                let query = "SELECT DISTINCT year FROM vehicles ORDER BY year"
+
+                // Query both vehicles and licenses tables, then merge unique values
+                let query = """
+                    SELECT DISTINCT year FROM (
+                        SELECT year FROM vehicles
+                        UNION
+                        SELECT year FROM licenses
+                    ) ORDER BY year
+                    """
                 var stmt: OpaquePointer?
-                
+
                 defer {
                     if stmt != nil {
                         sqlite3_finalize(stmt)
                     }
                 }
-                
+
                 var years: [Int] = []
                 if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
                     while sqlite3_step(stmt) == SQLITE_ROW {
                         years.append(Int(sqlite3_column_int(stmt, 0)))
                     }
                 }
-                
+
                 continuation.resume(returning: years)
             }
         }
     }
     
     /// Gets available regions - uses cache when possible
-    func getAvailableRegions() async -> [String] {
+    func getAvailableRegions(for dataEntityType: DataEntityType = .vehicle) async -> [String] {
         print("🔍 getAvailableRegions() - Cache status: \(filterCache.hasCachedData)")
         
-        // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedRegions()
-            if !cached.isEmpty {
-                print("✅ Using cached regions: \(cached.count) items")
-                return cached
-            }
-        }
-        
-        // Fall back to database query
-        print("📊 Querying regions from database...")
-        return await getRegionsFromDatabase()
+        // For data type aware queries, bypass cache and query directly from appropriate table
+        // This ensures vehicle mode only shows vehicle data, license mode only shows license data
+        print("📊 Querying regions directly for data type: \(dataEntityType)")
+        return await getRegionsFromDatabase(for: dataEntityType)
     }
     
     /// Gets available MRCs - uses cache when possible
-    func getAvailableMRCs() async -> [String] {
-        // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedMRCs()
-            if !cached.isEmpty {
-                return cached
-            }
-        }
-        
-        // Fall back to database query
-        return await getMRCsFromDatabase()
+    func getAvailableMRCs(for dataEntityType: DataEntityType = .vehicle) async -> [String] {
+        // For data type aware queries, bypass cache and query directly from appropriate table
+        // This ensures vehicle mode only shows vehicle data, license mode only shows license data
+        return await getMRCsFromDatabase(for: dataEntityType)
     }
     
     /// Prepares database for bulk import session
@@ -1561,8 +1737,8 @@ class DatabaseManager: ObservableObject {
 
         // Query all filter values from database in parallel
         async let years = getYearsFromDatabase()
-        async let regions = getRegionsFromDatabase()
-        async let mrcs = getMRCsFromDatabase()
+        async let regions = getRegionsFromBothTables()
+        async let mrcs = getMRCsFromBothTables()
         async let municipalities = getMunicipalitiesFromDatabase()
         async let classifications = getClassificationsFromDatabase()
         async let vehicleMakes = getVehicleMakesFromDatabase()
@@ -1703,6 +1879,33 @@ class DatabaseManager: ObservableObject {
         }
     }
 
+    /// Gets all years available in the vehicles table
+    private func getVehicleYearsFromDatabase() async -> [Int] {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+                let query = "SELECT DISTINCT year FROM vehicles ORDER BY year"
+                var stmt: OpaquePointer?
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+                var years: [Int] = []
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        let year = Int(sqlite3_column_int(stmt, 0))
+                        years.append(year)
+                    }
+                }
+                continuation.resume(returning: years)
+            }
+        }
+    }
+
     /// Gets database file size in bytes
     func getDatabaseFileSize() async -> Int64 {
         guard let dbURL = databaseURL else { return 0 }
@@ -1747,26 +1950,34 @@ class DatabaseManager: ObservableObject {
         )
     }
 
+
     // MARK: - Database Query Methods (Private)
-    
-    /// Internal method to query regions directly from database
-    private func getRegionsFromDatabase() async -> [String] {
+
+    /// Internal method to query regions from both tables (for cache refresh)
+    private func getRegionsFromBothTables() async -> [String] {
         await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
                 guard let db = self?.db else {
                     continuation.resume(returning: [])
                     return
                 }
-                
-                let query = "SELECT DISTINCT admin_region FROM vehicles ORDER BY admin_region"
+
+                // Query both vehicles and licenses tables, then merge unique values
+                let query = """
+                    SELECT DISTINCT admin_region FROM (
+                        SELECT admin_region FROM vehicles
+                        UNION
+                        SELECT admin_region FROM licenses
+                    ) ORDER BY admin_region
+                    """
                 var stmt: OpaquePointer?
-                
+
                 defer {
                     if stmt != nil {
                         sqlite3_finalize(stmt)
                     }
                 }
-                
+
                 var regions: [String] = []
                 if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
                     while sqlite3_step(stmt) == SQLITE_ROW {
@@ -1775,30 +1986,37 @@ class DatabaseManager: ObservableObject {
                         }
                     }
                 }
-                
+
                 continuation.resume(returning: regions)
             }
         }
     }
-    
-    /// Internal method to query MRCs directly from database
-    private func getMRCsFromDatabase() async -> [String] {
+
+    /// Internal method to query MRCs from both tables (for cache refresh)
+    private func getMRCsFromBothTables() async -> [String] {
         await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
                 guard let db = self?.db else {
                     continuation.resume(returning: [])
                     return
                 }
-                
-                let query = "SELECT DISTINCT mrc FROM vehicles ORDER BY mrc"
+
+                // Query both vehicles and licenses tables, then merge unique values
+                let query = """
+                    SELECT DISTINCT mrc FROM (
+                        SELECT mrc FROM vehicles
+                        UNION
+                        SELECT mrc FROM licenses
+                    ) ORDER BY mrc
+                    """
                 var stmt: OpaquePointer?
-                
+
                 defer {
                     if stmt != nil {
                         sqlite3_finalize(stmt)
                     }
                 }
-                
+
                 var mrcs: [String] = []
                 if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
                     while sqlite3_step(stmt) == SQLITE_ROW {
@@ -1807,7 +2025,75 @@ class DatabaseManager: ObservableObject {
                         }
                     }
                 }
-                
+
+                continuation.resume(returning: mrcs)
+            }
+        }
+    }
+    
+    /// Internal method to query regions directly from database
+    private func getRegionsFromDatabase(for dataEntityType: DataEntityType = .vehicle) async -> [String] {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+
+                // Query the appropriate table based on data entity type
+                let tableName = dataEntityType == .license ? "licenses" : "vehicles"
+                let query = "SELECT DISTINCT admin_region FROM \(tableName) ORDER BY admin_region"
+                var stmt: OpaquePointer?
+
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+
+                var regions: [String] = []
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let regionPtr = sqlite3_column_text(stmt, 0) {
+                            regions.append(String(cString: regionPtr))
+                        }
+                    }
+                }
+
+                continuation.resume(returning: regions)
+            }
+        }
+    }
+    
+    /// Internal method to query MRCs directly from database
+    private func getMRCsFromDatabase(for dataEntityType: DataEntityType = .vehicle) async -> [String] {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+
+                // Query the appropriate table based on data entity type
+                let tableName = dataEntityType == .license ? "licenses" : "vehicles"
+                let query = "SELECT DISTINCT mrc FROM \(tableName) ORDER BY mrc"
+                var stmt: OpaquePointer?
+
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+
+                var mrcs: [String] = []
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let mrcPtr = sqlite3_column_text(stmt, 0) {
+                            mrcs.append(String(cString: mrcPtr))
+                        }
+                    }
+                }
+
                 continuation.resume(returning: mrcs)
             }
         }

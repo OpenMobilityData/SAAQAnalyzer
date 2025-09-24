@@ -223,9 +223,9 @@ struct FilterPanel: View {
             }
             
             // Load shared options from database/cache
-            availableYears = await databaseManager.getAvailableYears()
-            availableRegions = await databaseManager.getAvailableRegions()
-            availableMRCs = await databaseManager.getAvailableMRCs()
+            availableYears = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
+            availableRegions = await databaseManager.getAvailableRegions(for: configuration.dataEntityType)
+            availableMRCs = await databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
             availableMunicipalities = await databaseManager.getAvailableMunicipalities()
             municipalityCodeToName = await databaseManager.getMunicipalityCodeToNameMapping()
 
@@ -241,6 +241,11 @@ struct FilterPanel: View {
 
     /// Loads data type specific filter options
     private func loadDataTypeSpecificOptions() async {
+        // Always reload shared options when switching data types
+        availableYears = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
+        availableRegions = await databaseManager.getAvailableRegions(for: configuration.dataEntityType)
+        availableMRCs = await databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
+
         switch configuration.dataEntityType {
         case .vehicle:
             // Load vehicle-specific options
@@ -285,7 +290,7 @@ struct FilterPanel: View {
         }
 
         // Check if years have changed (most common update)
-        let newYears = await databaseManager.getAvailableYears()
+        let newYears = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
 
         // Only reload everything if we have new years
         // (replacing existing year data doesn't add new years)
@@ -300,8 +305,8 @@ struct FilterPanel: View {
         // Geographic data rarely changes after initial load
         // Only check if we have no regions (indicating new geographic import)
         if availableRegions.isEmpty {
-            availableRegions = await databaseManager.getAvailableRegions()
-            availableMRCs = await databaseManager.getAvailableMRCs()
+            availableRegions = await databaseManager.getAvailableRegions(for: configuration.dataEntityType)
+            availableMRCs = await databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
             availableMunicipalities = await databaseManager.getAvailableMunicipalities()
             municipalityCodeToName = await databaseManager.getMunicipalityCodeToNameMapping()
         }
@@ -1151,6 +1156,18 @@ struct MetricConfigurationSection: View {
         return categories
     }
 
+    /// Available metric types based on data entity type
+    private var availableMetricTypes: [ChartMetricType] {
+        switch currentFilters.dataEntityType {
+        case .license:
+            // License data only has meaningful count and percentage metrics
+            return [.count, .percentage]
+        case .vehicle:
+            // Vehicle data supports all metric types (count, sum, average, percentage)
+            return ChartMetricType.allCases
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Metric type selector
@@ -1160,7 +1177,7 @@ struct MetricConfigurationSection: View {
                     .foregroundColor(.secondary)
 
                 Picker("", selection: $metricType) {
-                    ForEach(ChartMetricType.allCases, id: \.self) { type in
+                    ForEach(availableMetricTypes, id: \.self) { type in
                         Text(type.description).tag(type)
                     }
                 }
@@ -1219,7 +1236,7 @@ struct MetricConfigurationSection: View {
                     .frame(maxWidth: .infinity)
 
                     if selectedCategoryToRemove != nil {
-                        Text("Percentage of vehicles within other selected filters")
+                        Text("Percentage of \(currentFilters.dataEntityType == .license ? "license holders" : "vehicles") within other selected filters")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 8)
@@ -1246,6 +1263,12 @@ struct MetricConfigurationSection: View {
             }
         }
         .padding(.vertical, 4)
+        .onChange(of: currentFilters.dataEntityType) { newDataType in
+            // Reset metric type to count if current selection is not available for the new data type
+            if !availableMetricTypes.contains(metricType) {
+                metricType = .count
+            }
+        }
     }
 
     private func createBaselineFilters(droppingCategory: FilterCategory) -> PercentageBaseFilters {

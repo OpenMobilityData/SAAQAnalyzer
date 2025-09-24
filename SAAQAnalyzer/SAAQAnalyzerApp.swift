@@ -197,7 +197,8 @@ struct ContentView: View {
             }
         }
     }
-    
+
+
     /// Adds a new data series based on current filter configuration
     private func addNewSeries() {
         Task {

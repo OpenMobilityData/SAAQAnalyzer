@@ -225,6 +225,44 @@ These documents provide essential reference information for understanding the da
 - **UI Responsiveness**: Cached filter options and async data loading
 - **Memory Usage**: Optimized for large datasets with streaming processing
 
+## Data Quality and Formatting
+
+SAAQAnalyzer includes built-in data quality monitoring that helps identify formatting inconsistencies in SAAQ data files.
+
+### Filter Duplicate Detection and Data-Type Awareness
+
+The application uses a **data-type-aware filtering system** that shows only values present in the currently selected data type, while maintaining complete transparency about data quality issues within each dataset.
+
+**How it works**:
+- **Vehicle Mode**: Shows only admin regions, MRCs, and other geographic values present in vehicle registration data
+- **License Mode**: Shows only values present in driver's license data, including formatting variations found within that dataset
+
+**Admin Region Formatting Example**:
+When analyzing license data, you may see both "Montréal(06)" and "Montréal (06)" in the Admin Region filter. This indicates:
+- License data from different years uses inconsistent formatting (with/without space before parentheses)
+- Both formats represent the same geographic region but exist as separate values in the license dataset
+- You should select both options to ensure complete coverage of Montreal license holders
+- Vehicle data will show only the formatting variant(s) present in vehicle registration records
+
+**Key Benefits**:
+- **Data Type Isolation**: Vehicle analysis isn't contaminated by license data formatting issues, and vice versa
+- **Quality Transparency**: All formatting variations within the selected data type remain visible
+- **Complete Coverage**: Users can select all format variants to ensure comprehensive results
+- **No Data Loss**: All imported data remains accessible and analyzable
+
+**Best Practices**:
+1. **Switch data types to see different perspectives**: Vehicle vs. license data may have different geographic coverage and formatting
+2. **Select all format variants** within your chosen data type to ensure complete results
+3. **Review filter options** when switching between vehicle and license modes to identify data-specific formatting issues
+4. **Monitor console output** during imports for data quality warnings
+
+### Encoding and Character Handling
+
+The application automatically handles French character encoding issues:
+- Tries multiple encodings (UTF-8, ISO-Latin-1, Windows-1252)
+- Fixes common corruption patterns (Ã, Â characters)
+- Maintains data integrity across different source file encodings
+
 ## Troubleshooting
 
 ### Common Issues

@@ -100,12 +100,25 @@ struct SeriesSummaryView: View {
                     .textSelection(.enabled)
             }
             
+            // Data type indicator
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Data Type")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                HStack {
+                    Image(systemName: series.filters.dataEntityType == .license ? "person.crop.circle.badge.checkmark" : "car")
+                        .foregroundColor(series.filters.dataEntityType == .license ? .blue : .purple)
+                    Text(series.filters.dataEntityType.description)
+                        .font(.body)
+                }
+            }
+
             // Color indicator
             HStack {
                 Text("Color:")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                
+
                 RoundedRectangle(cornerRadius: 4)
                     .fill(series.color)
                     .frame(width: 60, height: 20)
@@ -156,7 +169,8 @@ struct SeriesSummaryView: View {
     private func exportSeriesAsCSV() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.commaSeparatedText]
-        panel.nameFieldStringValue = "\(series.name.replacingOccurrences(of: " ", with: "_")).csv"
+        let dataType = series.filters.dataEntityType == .license ? "license" : "vehicle"
+        panel.nameFieldStringValue = "\(dataType)_\(series.name.replacingOccurrences(of: " ", with: "_")).csv"
         
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
@@ -238,6 +252,57 @@ struct FilterSummaryView: View {
                         .foregroundColor(.red)
                         .frame(width: 16)
                     Text("Fuel Types: \(filters.fuelTypes.count)")
+                        .font(.caption)
+                }
+            }
+
+            // License-specific filters
+            if !filters.licenseTypes.isEmpty {
+                HStack {
+                    Image(systemName: "person.crop.circle.badge.checkmark")
+                        .foregroundColor(.blue)
+                        .frame(width: 16)
+                    Text("License Types: \(filters.licenseTypes.count)")
+                        .font(.caption)
+                }
+            }
+
+            if !filters.ageGroups.isEmpty {
+                HStack {
+                    Image(systemName: "person.3")
+                        .foregroundColor(.green)
+                        .frame(width: 16)
+                    Text("Age Groups: \(filters.ageGroups.count)")
+                        .font(.caption)
+                }
+            }
+
+            if !filters.genders.isEmpty {
+                HStack {
+                    Image(systemName: "person.2")
+                        .foregroundColor(.purple)
+                        .frame(width: 16)
+                    Text("Genders: \(filters.genders.count)")
+                        .font(.caption)
+                }
+            }
+
+            if !filters.experienceLevels.isEmpty {
+                HStack {
+                    Image(systemName: "graduationcap")
+                        .foregroundColor(.orange)
+                        .frame(width: 16)
+                    Text("Experience Levels: \(filters.experienceLevels.count)")
+                        .font(.caption)
+                }
+            }
+
+            if !filters.licenseClasses.isEmpty {
+                HStack {
+                    Image(systemName: "list.clipboard")
+                        .foregroundColor(.cyan)
+                        .frame(width: 16)
+                    Text("License Classes: \(filters.licenseClasses.count)")
                         .font(.caption)
                 }
             }

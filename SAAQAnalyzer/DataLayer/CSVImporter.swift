@@ -798,7 +798,11 @@ class CSVImporter {
                         sqlite3_bind_text(insertStmt, 3, record["AGE_1ER_JUIN"] ?? "", -1, SQLITE_TRANSIENT)
                         sqlite3_bind_text(insertStmt, 4, record["SEXE"] ?? "", -1, SQLITE_TRANSIENT)
                         sqlite3_bind_text(insertStmt, 5, record["MRC"] ?? "", -1, SQLITE_TRANSIENT)
-                        sqlite3_bind_text(insertStmt, 6, record["REG_ADM"] ?? "", -1, SQLITE_TRANSIENT)
+
+                        // Normalize admin_region format (ensure space before parentheses)
+                        let rawAdminRegion = record["REG_ADM"] ?? ""
+                        let normalizedAdminRegion = self.normalizeAdminRegion(rawAdminRegion)
+                        sqlite3_bind_text(insertStmt, 6, normalizedAdminRegion, -1, SQLITE_TRANSIENT)
                         sqlite3_bind_text(insertStmt, 7, record["TYPE_PERMIS"] ?? "", -1, SQLITE_TRANSIENT)
 
                         // Bind boolean fields (convert OUI/NON to 1/0)
@@ -843,6 +847,29 @@ class CSVImporter {
                 continuation.resume(returning: (success: successCount, errors: errorCount))
             }
         }
+    }
+
+    /// Normalizes admin_region format to ensure consistency across years
+    /// Ensures there's always a space before the parentheses
+    private func normalizeAdminRegion(_ region: String) -> String {
+        let trimmed = region.trimmingCharacters(in: .whitespaces)
+
+        // If empty, return as-is
+        guard !trimmed.isEmpty else { return trimmed }
+
+        // Check if it contains parentheses without a space before them
+        if let openParenIndex = trimmed.lastIndex(of: "(") {
+            let beforeParen = trimmed.index(before: openParenIndex)
+
+            // If the character before '(' is not a space, add one
+            if beforeParen >= trimmed.startIndex && trimmed[beforeParen] != " " {
+                let prefix = String(trimmed[..<openParenIndex])
+                let suffix = String(trimmed[openParenIndex...])
+                return "\(prefix) \(suffix)"
+            }
+        }
+
+        return trimmed
     }
 }
 
