@@ -1494,6 +1494,15 @@ class DatabaseManager: ObservableObject {
     func getAvailableYears(for dataType: DataEntityType) async -> [Int] {
         print("🔍 getAvailableYears(for: \(dataType)) - Data-type-aware query")
 
+        // Check cache first
+        if filterCache.hasCachedData(for: dataType) && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+            let cached = filterCache.getCachedYears(for: dataType)
+            if !cached.isEmpty {
+                print("✅ Using cached years (\(cached.count) items) for \(dataType)")
+                return cached
+            }
+        }
+
         switch dataType {
         case .vehicle:
             return await getVehicleYearsFromDatabase()
@@ -1541,15 +1550,14 @@ class DatabaseManager: ObservableObject {
     
     /// Gets available regions - uses cache when possible
     func getAvailableRegions(for dataEntityType: DataEntityType = .vehicle) async -> [String] {
-        print("🔍 getAvailableRegions() - Cache status: \(filterCache.hasCachedData)")
+        print("🔍 getAvailableRegions() - Cache status: \(filterCache.hasCachedData(for: dataEntityType))")
 
         // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedRegions()
+        if filterCache.hasCachedData(for: dataEntityType) && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+            let cached = filterCache.getCachedRegions(for: dataEntityType)
             if !cached.isEmpty {
-                print("✅ Using cached regions (\(cached.count) items), filtering for \(dataEntityType)")
-                // Filter cached results to only show data from the selected entity type
-                return await filterCachedRegionsByDataType(regions: cached, dataEntityType: dataEntityType)
+                print("✅ Using cached regions (\(cached.count) items) for \(dataEntityType)")
+                return cached
             }
         }
 
@@ -1561,12 +1569,11 @@ class DatabaseManager: ObservableObject {
     /// Gets available MRCs - uses cache when possible
     func getAvailableMRCs(for dataEntityType: DataEntityType = .vehicle) async -> [String] {
         // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedMRCs()
+        if filterCache.hasCachedData(for: dataEntityType) && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+            let cached = filterCache.getCachedMRCs(for: dataEntityType)
             if !cached.isEmpty {
-                print("✅ Using cached MRCs (\(cached.count) items), filtering for \(dataEntityType)")
-                // Filter cached results to only show data from the selected entity type
-                return await filterCachedMRCsByDataType(mrcs: cached, dataEntityType: dataEntityType)
+                print("✅ Using cached MRCs (\(cached.count) items) for \(dataEntityType)")
+                return cached
             }
         }
 
@@ -1931,8 +1938,12 @@ class DatabaseManager: ObservableObject {
 
         // Query all filter values from database in parallel
         async let years = getYearsFromDatabase()
-        async let regions = getRegionsFromBothTables()
-        async let mrcs = getMRCsFromBothTables()
+        async let regions = getRegionsFromBothTables()  // For backward compatibility
+        async let mrcs = getMRCsFromBothTables()  // For backward compatibility
+        async let vehicleRegions = getRegionsFromDatabase(for: .vehicle)
+        async let vehicleMRCs = getMRCsFromDatabase(for: .vehicle)
+        async let licenseRegions = getRegionsFromDatabase(for: .license)
+        async let licenseMRCs = getMRCsFromDatabase(for: .license)
         async let municipalities = getMunicipalitiesFromDatabase()
         async let municipalityMapping = getMunicipalityCodeToNameMappingFromDatabase()
         async let classifications = getClassificationsFromDatabase()
@@ -1948,30 +1959,44 @@ class DatabaseManager: ObservableObject {
         async let databaseStats = getDatabaseStats()
 
         // Wait for all queries to complete
-        let (yearsList, regionsList, mrcsList, municipalitiesList, municipalityMappingData, classificationsList, makesList, modelsList, colorsList, modelYearsList, licenseTypesList, ageGroupsList, gendersList, experienceLevelsList, licenseClassesList, dbStats) =
-            await (years, regions, mrcs, municipalities, municipalityMapping, classifications, vehicleMakes, vehicleModels, vehicleColors, modelYears, licenseTypes, ageGroups, genders, experienceLevels, licenseClasses, databaseStats)
+        let (yearsList, regionsList, mrcsList, vehicleRegionsList, vehicleMRCsList, licenseRegionsList, licenseMRCsList,
+             municipalitiesList, municipalityMappingData, classificationsList, makesList, modelsList, colorsList,
+             modelYearsList, licenseTypesList, ageGroupsList, gendersList, experienceLevelsList, licenseClassesList, dbStats) =
+            await (years, regions, mrcs, vehicleRegions, vehicleMRCs, licenseRegions, licenseMRCs,
+                   municipalities, municipalityMapping, classifications, vehicleMakes, vehicleModels, vehicleColors,
+                   modelYears, licenseTypes, ageGroups, genders, experienceLevels, licenseClasses, databaseStats)
 
         let duration = Date().timeIntervalSince(startTime)
         print("🔄 Database queries completed in \(String(format: "%.2f", duration))s")
         print("🔄 Found: \(yearsList.count) years, \(regionsList.count) regions, \(mrcsList.count) MRCs, \(municipalitiesList.count) municipalities, \(classificationsList.count) classifications, \(makesList.count) makes, \(modelsList.count) models, \(colorsList.count) colors, \(modelYearsList.count) model years, \(licenseTypesList.count) license types, \(ageGroupsList.count) age groups, \(gendersList.count) genders, \(experienceLevelsList.count) experience levels, \(licenseClassesList.count) license classes")
 
-        // Update cache with database stats
-        filterCache.updateCache(
+        // Update separate caches
+        filterCache.updateVehicleCache(
             years: yearsList,
-            regions: regionsList,
-            mrcs: mrcsList,
-            municipalities: municipalitiesList,
-            municipalityCodeToName: municipalityMappingData,
+            regions: vehicleRegionsList,
+            mrcs: vehicleMRCsList,
+            municipalities: municipalitiesList, // Use combined for now since municipalities are shared
             classifications: classificationsList,
             vehicleMakes: makesList,
             vehicleModels: modelsList,
             vehicleColors: colorsList,
-            modelYears: modelYearsList,
+            modelYears: modelYearsList
+        )
+
+        filterCache.updateLicenseCache(
+            years: yearsList,
+            regions: licenseRegionsList,
+            mrcs: licenseMRCsList,
+            municipalities: municipalitiesList, // Use combined for now since municipalities are shared
             licenseTypes: licenseTypesList,
             ageGroups: ageGroupsList,
             genders: gendersList,
             experienceLevels: experienceLevelsList,
-            licenseClasses: licenseClassesList,
+            licenseClasses: licenseClassesList
+        )
+
+        filterCache.finalizeCacheUpdate(
+            municipalityCodeToName: municipalityMappingData,
             databaseStats: dbStats,
             dataVersion: getPersistentDataVersion()
         )
@@ -2161,18 +2186,16 @@ class DatabaseManager: ObservableObject {
 
     /// Filters cached regions to only include those present in the specified data entity type
     private func filterCachedRegionsByDataType(regions: [String], dataEntityType: DataEntityType) async -> [String] {
-        // For now, return all cached regions since we cache from both tables
-        // In the future, we could maintain separate caches per data type if needed
-        // The cache already contains all regions from both vehicle and license tables
-        return regions
+        // Use data-type-specific cached data if available
+        let cachedRegions = filterCache.getCachedRegions(for: dataEntityType)
+        return cachedRegions.isEmpty ? regions : cachedRegions
     }
 
     /// Filters cached MRCs to only include those present in the specified data entity type
     private func filterCachedMRCsByDataType(mrcs: [String], dataEntityType: DataEntityType) async -> [String] {
-        // For now, return all cached MRCs since we cache from both tables
-        // In the future, we could maintain separate caches per data type if needed
-        // The cache already contains all MRCs from both vehicle and license tables
-        return mrcs
+        // Use data-type-specific cached data if available
+        let cachedMRCs = filterCache.getCachedMRCs(for: dataEntityType)
+        return cachedMRCs.isEmpty ? mrcs : cachedMRCs
     }
 
     // MARK: - Database Query Methods (Private)
