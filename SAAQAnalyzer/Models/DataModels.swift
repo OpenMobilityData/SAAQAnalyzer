@@ -459,7 +459,7 @@ enum ChartMetricType: String, CaseIterable {
         case .count: return "Record Count"
         case .sum: return "Sum of Values"
         case .average: return "Average Value"
-        case .percentage: return "Percentage of Category"
+        case .percentage: return "Percentage in Superset"
         }
     }
 

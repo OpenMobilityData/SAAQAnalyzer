@@ -612,7 +612,7 @@ struct ExportMenu: View {
                 }
             }
         } label: {
-            Image(systemName: "square.and.arrow.up")
+            Label("Export", systemImage: "square.and.arrow.up")
         }
         .menuStyle(.button)
         .help("Export or share")

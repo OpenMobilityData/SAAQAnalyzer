@@ -54,32 +54,8 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 400)
         }
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                // Import menu
-                Menu {
-                    Button("Import Geographic Data...") {
-                        importGeographicData()
-                    }
-                    Button("Import Vehicle Data...") {
-                        importVehicleData()
-                    }
-                    Button("Import License Data...") {
-                        importLicenseData()
-                    }
-                    Divider()
-                    Button("Clear All Data", role: .destructive) {
-                        clearAllData()
-                    }
-                    Divider()
-                    Button("Debug: Show Database Contents") {
-                        showDatabaseContents()
-                    }
-                } label: {
-                    Label("Import", systemImage: "square.and.arrow.down")
-                }
-                
-                Divider()
-
+            // Left side: Mode selection and series creation (after app name)
+            ToolbarItemGroup(placement: .principal) {
                 // Data type selector
                 Menu {
                     ForEach(DataEntityType.allCases, id: \.self) { dataType in
@@ -108,12 +84,36 @@ struct ContentView: View {
                     }
                 }
                 .disabled(isAddingSeries)
-                
+            }
+
+            // Right side: Import and export
+            ToolbarItemGroup(placement: .primaryAction) {
+                // Import menu
+                Menu {
+                    Button("Import Geographic Data...") {
+                        importGeographicData()
+                    }
+                    Button("Import Vehicle Data...") {
+                        importVehicleData()
+                    }
+                    Button("Import License Data...") {
+                        importLicenseData()
+                    }
+                    Divider()
+                    Button("Clear All Data", role: .destructive) {
+                        clearAllData()
+                    }
+                    Divider()
+                    Button("Debug: Show Database Contents") {
+                        showDatabaseContents()
+                    }
+                } label: {
+                    Label("Import", systemImage: "square.and.arrow.down")
+                }
+
                 // Export button
                 ExportMenu(chartData: chartData)
-                
-                Divider()
-                
+
                 // Settings are available via macOS Settings menu automatically
             }
         }
