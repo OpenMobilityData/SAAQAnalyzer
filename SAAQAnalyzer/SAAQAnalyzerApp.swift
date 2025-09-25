@@ -26,19 +26,25 @@ struct SAAQAnalyzerApp: App {
 struct ContentView: View {
     @EnvironmentObject var databaseManager: DatabaseManager
     @StateObject private var progressManager = ImportProgressManager()
+    @StateObject private var packageManager = DataPackageManager.shared
     @State private var selectedFilters = FilterConfiguration()
     @State private var chartData: [FilteredDataSeries] = []
     @State private var selectedSeries: FilteredDataSeries?
     @State private var showingImportProgress = false
     @State private var isAddingSeries = false
-    
+
     // Import handling state
     @State private var showingDuplicateYearAlert = false
     @State private var duplicateYearToReplace: Int?
     @State private var pendingImportURLs: [URL] = []
     @State private var currentImportIndex = 0
     @State private var currentImportType: DataEntityType = .vehicle
-    
+
+    // Data package import handling state
+    @State private var showingPackageAlert = false
+    @State private var packageAlertMessage = ""
+
+
     var body: some View {
         NavigationSplitView {
             // Left panel: Filter tree
@@ -90,13 +96,25 @@ struct ContentView: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 // Import menu
                 Menu {
-                    Button("Import Vehicle Data...") {
+                    Label("CSV Files", systemImage: "doc.text")
+                        .font(.caption)
+                    Button("Import Vehicle CSV...") {
                         importVehicleData()
                     }
-                    Button("Import License Data...") {
+                    Button("Import Driver CSV...") {
                         importLicenseData()
                     }
+
                     Divider()
+
+                    Label("Data Package", systemImage: "shippingbox")
+                        .font(.caption)
+                    Button("Import Data Package...") {
+                        importDataPackage()
+                    }
+
+                    Divider()
+
                     Button("Clear All Data", role: .destructive) {
                         clearAllData()
                     }
@@ -110,6 +128,7 @@ struct ContentView: View {
 
                 // Export button
                 ExportMenu(chartData: chartData)
+                    .withPackageAlerts()
 
                 // Settings are available via macOS Settings menu automatically
             }
@@ -167,6 +186,13 @@ struct ContentView: View {
             }
         } message: {
             Text("Data for year \(duplicateYearToReplace?.formatted(.number.grouping(.never)) ?? "Unknown") has already been imported. Do you want to replace the existing data with the new import?")
+        }
+        .alert("Data Package Import", isPresented: $showingPackageAlert) {
+            Button("OK") {
+                showingPackageAlert = false
+            }
+        } message: {
+            Text(packageAlertMessage)
         }
         .onAppear {
             // Import bundled geographic data on first launch
@@ -503,6 +529,56 @@ struct ContentView: View {
         await processNextImport()
     }
     
+    // MARK: - Data Package Operations
+
+    /// Imports a data package file
+    private func importDataPackage() {
+        Task { @MainActor in
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.saaqPackage]
+            panel.allowsMultipleSelection = false
+            panel.message = "Select a SAAQ data package to import"
+            panel.prompt = "Import Package"
+
+            if panel.runModal() == .OK, let url = panel.url {
+                // Validate package first
+                let validationResult = await packageManager.validateDataPackage(at: url)
+
+                if validationResult != .valid {
+                    packageAlertMessage = validationResult.errorMessage
+                    showingPackageAlert = true
+                    return
+                }
+
+                // Confirm import with user
+                let alert = NSAlert()
+                alert.messageText = "Import Data Package?"
+                alert.informativeText = "This will replace your current database and caches. This operation cannot be undone."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Import")
+                alert.addButton(withTitle: "Cancel")
+
+                if alert.runModal() == .alertFirstButtonReturn {
+                    do {
+                        showingImportProgress = true
+                        try await packageManager.importDataPackage(from: url)
+
+                        // Refresh UI after import
+                        await databaseManager.refreshFilterCache()
+
+                        packageAlertMessage = "Data package imported successfully!"
+                        showingPackageAlert = true
+                    } catch {
+                        packageAlertMessage = "Import failed: \(error.localizedDescription)"
+                        showingPackageAlert = true
+                    }
+                    showingImportProgress = false
+                }
+            }
+        }
+    }
+
+
     /// Shows database contents for debugging
     private func showDatabaseContents() {
         Task {

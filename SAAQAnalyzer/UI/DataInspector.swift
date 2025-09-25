@@ -574,21 +574,37 @@ struct StatisticRow: View {
 
 struct ExportMenu: View {
     let chartData: [FilteredDataSeries]
+    @StateObject private var packageManager = DataPackageManager.shared
+    @State private var showingPackageAlert = false
+    @State private var packageAlertMessage = ""
+    @State private var showingPackageProgress = false
     
     var body: some View {
         Menu {
+            Label("Charts & Data", systemImage: "chart.bar")
+                .font(.caption)
             Button {
                 exportChartAsPNG()
             } label: {
                 Label("Export Chart as PNG", systemImage: "photo")
             }
-            
+
             Button {
                 exportDataAsCSV()
             } label: {
                 Label("Export Data as CSV", systemImage: "tablecells")
             }
-            
+
+            Divider()
+
+            Label("Complete Database", systemImage: "shippingbox")
+                .font(.caption)
+            Button {
+                exportDataPackage()
+            } label: {
+                Label("Export Data Package", systemImage: "shippingbox")
+            }
+
             Divider()
             
             // Sharing submenu
@@ -673,5 +689,46 @@ struct ExportMenu: View {
     private func shareViaMessages() {
         // Use NSSharingService for Messages
         print("Share via Messages")
+    }
+
+    private func exportDataPackage() {
+        Task { @MainActor in
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.saaqPackage]
+            panel.canCreateDirectories = true
+            panel.nameFieldStringValue = "SAAQData_\(Date().formatted(date: .abbreviated, time: .omitted)).saaqpackage"
+            panel.message = "Choose location to save data package"
+            panel.prompt = "Export"
+
+            if panel.runModal() == .OK, let url = panel.url {
+                do {
+                    showingPackageProgress = true
+
+                    // Use complete export options for now
+                    let options = DataPackageExportOptions.complete
+                    try await packageManager.exportDataPackage(to: url, options: options)
+
+                    packageAlertMessage = "Data package exported successfully!"
+                    showingPackageAlert = true
+                } catch {
+                    packageAlertMessage = "Export failed: \(error.localizedDescription)"
+                    showingPackageAlert = true
+                }
+                showingPackageProgress = false
+            }
+        }
+    }
+}
+
+// Add alert modifier for the ExportMenu
+extension ExportMenu {
+    func withPackageAlerts() -> some View {
+        self.alert("Data Package Export", isPresented: $showingPackageAlert) {
+            Button("OK") {
+                showingPackageAlert = false
+            }
+        } message: {
+            Text(packageAlertMessage)
+        }
     }
 }
