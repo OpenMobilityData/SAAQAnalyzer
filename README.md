@@ -45,10 +45,41 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
 
 ## System Requirements
 
-- **Platform**: macOS 13.0+ (requires NavigationSplitView)
+### Minimum Requirements
+- **Platform**: macOS 13.0+ (Ventura) - *Required for NavigationSplitView*
 - **Architecture**: Universal (Intel and Apple Silicon)
-- **Development**: Xcode 15.0+, Swift 5.9+
+- **RAM**: 16GB - *Essential for large dataset processing*
+- **Storage**: 100GB+ free space - *Database files can grow very large*
+- **CPU**: 4+ cores - *For parallel CSV processing and cache operations*
+
+### Recommended Specifications
+- **Platform**: macOS 14.0+ (Sonoma) or later
+- **RAM**: 32GB+ - *Optimal for 77M+ record datasets*
+- **Storage**: 500GB+ SSD - *Fast I/O critical for SQLite performance*
+- **CPU**: 8+ cores (Apple M2/M3 or Intel i7/i9) - *Significant performance boost*
+
+### Development Requirements
+- **Xcode**: 15.0+
+- **Swift**: 5.9+
 - **Dependencies**: SQLite3, Charts framework, UniformTypeIdentifiers
+
+### Performance Considerations
+
+**Memory Usage:**
+- CSV import: 2-4GB peak during batch processing
+- Database operations: 1-2GB for query processing
+- Cache building: 500MB-1GB depending on data size
+- UI rendering: 200-500MB for chart visualization
+
+**Storage Requirements:**
+- Raw CSV files: 15-25GB per complete vehicle dataset
+- SQLite database: 25-40GB with indexes for full datasets
+- Cache files: 50-100MB (stored in UserDefaults)
+- Temporary files: 5-10GB during large imports
+
+**Hardware Notes:**
+- **Apple Silicon (M1/M2/M3)**: Excellent performance due to unified memory architecture and fast SSD I/O
+- **Intel Macs**: Require more RAM due to discrete memory architecture; benefit significantly from SSD storage
 
 ## Installation
 
