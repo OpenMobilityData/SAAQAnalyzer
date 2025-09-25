@@ -847,35 +847,27 @@ class DatabaseManager: ObservableObject {
                     }
                 }
 
-                // Add license class filter (this is complex since it involves multiple boolean columns)
+                // Add license class filter using centralized mapping
                 if !filters.licenseClasses.isEmpty {
                     var classConditions: [String] = []
+                    let licenseMapping = self?.getLicenseClassMapping() ?? []
+
                     for licenseClass in filters.licenseClasses {
-                        switch licenseClass {
-                        case "learner_123":
-                            classConditions.append("has_learner_permit_123 = 1")
-                        case "learner_5":
-                            classConditions.append("has_learner_permit_5 = 1")
-                        case "learner_6a6r":
-                            classConditions.append("has_learner_permit_6a6r = 1")
-                        case "license_1234":
-                            classConditions.append("has_driver_license_1234 = 1")
-                        case "license_5":
-                            classConditions.append("has_driver_license_5 = 1")
-                        case "license_6abce":
-                            classConditions.append("has_driver_license_6abce = 1")
-                        case "license_6d":
-                            classConditions.append("has_driver_license_6d = 1")
-                        case "license_8":
-                            classConditions.append("has_driver_license_8 = 1")
-                        case "probationary":
-                            classConditions.append("is_probationary = 1")
-                        default:
-                            break
+                        if let column = self?.getDatabaseColumn(for: licenseClass) {
+                            classConditions.append("\(column) = 1")
+                        } else {
+                            // Log unmapped filter values to help debug issues
+                            print("⚠️ Warning: Unmapped license class filter '\(licenseClass)'. Available mappings:")
+                            for (col, name) in licenseMapping {
+                                print("   '\(name)' → \(col)")
+                            }
                         }
                     }
+
                     if !classConditions.isEmpty {
                         query += " AND (\(classConditions.joined(separator: " OR ")))"
+                    } else if !filters.licenseClasses.isEmpty {
+                        print("⚠️ Warning: No valid license class filters applied. All requested filters were unmapped.")
                     }
                 }
 
@@ -1952,17 +1944,10 @@ class DatabaseManager: ObservableObject {
 
                 var classes: Set<String> = []
 
-                // Query to check which license class columns have any TRUE values
-                // The columns are: has_driver_license_1234, has_driver_license_5, has_driver_license_6abce, has_driver_license_6d, has_driver_license_8
-                let classColumns = [
-                    ("has_driver_license_1234", "1-2-3-4"),
-                    ("has_driver_license_5", "5"),
-                    ("has_driver_license_6abce", "6A-6B-6C-6E"),
-                    ("has_driver_license_6d", "6D"),
-                    ("has_driver_license_8", "8")
-                ]
+                // Use centralized mapping for consistent display names
+                let licenseMapping = self?.getLicenseClassMapping() ?? []
 
-                for (column, className) in classColumns {
+                for (column, displayName) in licenseMapping {
                     let query = "SELECT COUNT(*) FROM licenses WHERE \(column) = 1"
                     var stmt: OpaquePointer?
 
@@ -1970,29 +1955,7 @@ class DatabaseManager: ObservableObject {
                         if sqlite3_step(stmt) == SQLITE_ROW {
                             let count = sqlite3_column_int(stmt, 0)
                             if count > 0 {
-                                classes.insert(className)
-                            }
-                        }
-                    }
-                    sqlite3_finalize(stmt)
-                }
-
-                // Also check learner permit columns
-                let permitColumns = [
-                    ("has_learner_permit_123", "Learner 1-2-3"),
-                    ("has_learner_permit_5", "Learner 5"),
-                    ("has_learner_permit_6a6r", "Learner 6A-6R")
-                ]
-
-                for (column, permitName) in permitColumns {
-                    let query = "SELECT COUNT(*) FROM licenses WHERE \(column) = 1"
-                    var stmt: OpaquePointer?
-
-                    if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
-                        if sqlite3_step(stmt) == SQLITE_ROW {
-                            let count = sqlite3_column_int(stmt, 0)
-                            if count > 0 {
-                                classes.insert(permitName)
+                                classes.insert(displayName)
                             }
                         }
                     }
@@ -2003,8 +1966,33 @@ class DatabaseManager: ObservableObject {
         }
     }
 
+    // MARK: - License Class Mapping
+
+    /// Centralized mapping between UI display names and database columns for license classes
+    private func getLicenseClassMapping() -> [(column: String, displayName: String)] {
+        return [
+            // Driver license classes
+            ("has_driver_license_1234", "1-2-3-4"),
+            ("has_driver_license_5", "5"),
+            ("has_driver_license_6abce", "6A-6B-6C-6E"),
+            ("has_driver_license_6d", "6D"),
+            ("has_driver_license_8", "8"),
+            // Learner permit classes
+            ("has_learner_permit_123", "Learner 1-2-3"),
+            ("has_learner_permit_5", "Learner 5"),
+            ("has_learner_permit_6a6r", "Learner 6A-6R"),
+            // Probationary indicator
+            ("is_probationary", "Probationary")
+        ]
+    }
+
+    /// Maps UI display name to database column name
+    private func getDatabaseColumn(for displayName: String) -> String? {
+        return getLicenseClassMapping().first { $0.displayName == displayName }?.column
+    }
+
     // MARK: - Filter Cache Management
-    
+
     /// Refreshes the filter cache with current database values
     func refreshFilterCache() async {
         // Prevent concurrent refreshes
