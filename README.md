@@ -1,24 +1,26 @@
 # SAAQAnalyzer
 
-A macOS SwiftUI application for importing, analyzing, and visualizing vehicle registration and driver's license data from SAAQ (Société de l'assurance automobile du Québec).
+A macOS SwiftUI application for importing, analyzing, and visualizing vehicle and driver data from SAAQ (Société de l'assurance automobile du Québec).
 
 ## Features
 
 ### Data Import & Management
-- **Dual Data Types**: Support for both vehicle registration and driver's license data with unified workflow
+- **Dual Data Types**: Support for both vehicle and driver data with unified workflow
 - **CSV Import**: Import CSV files with automatic encoding detection for French characters
-- **Data Type Switching**: Seamless switching between vehicle and license data analysis modes
+- **Data Type Switching**: Seamless switching between vehicle and driver data analysis modes
 - **SQLite Database**: Efficient storage with WAL mode, indexing, and 64MB cache for optimal performance
 - **Batch Processing**: Handle large datasets (77M+ records) with 50K-record batch processing and parallel workers
 - **Import Progress**: Real-time progress indication with detailed stage tracking and indexing updates
 
 ### Advanced Filtering System
-- **Temporal Filters**: Filter by registration/license years and model years (vehicle data)
-- **Geographic Filters**: Filter by administrative regions, MRCs, and municipalities
+- **Temporal Filters**: Filter by years and model years (vehicle data)
+- **Geographic Filters**: Filter by administrative regions, MRCs, and municipalities (vehicle-only)
 - **Vehicle Characteristics**: Filter by classification, make, model, color, fuel type, and age ranges
-- **License Demographics**: Filter by age groups, gender, license types, classes, and experience levels
+- **Driver Demographics**: Filter by age groups, gender, license types, classes, and experience levels
 - **Data Type Aware**: Dynamic filter panels that adapt based on selected data type
+- **Separate Cache System**: Independent caches for vehicle and driver data prevent cross-contamination
 - **Cached Performance**: Smart caching system for instant filter option loading with persistent versioning
+- **Mode-Specific Options**: Filter lists show only values present in the currently selected data type
 
 ### Flexible Chart System
 - **Multiple Chart Types**: Line charts, bar charts, and area charts using native Charts framework
@@ -32,6 +34,7 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle re
 ### Percentage Analysis
 - **Baseline Calculations**: Compare filtered data against broader baselines
 - **Category Dropping**: Select which filter category to use as numerator vs. baseline
+- **Percentage in Superset**: Clear terminology for percentage calculations showing proportion within larger dataset
 - **Intelligent Naming**: Automatic generation of clear percentage labels like "% [Red Cars] in [All Toyota Vehicles]"
 
 ### Data Visualization
@@ -70,24 +73,37 @@ open SAAQAnalyzer.xcodeproj
 # Build the project
 xcodebuild -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer -configuration Debug build
 
-# Run tests
+# Run comprehensive test suite
 xcodebuild test -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer -destination 'platform=macOS'
 
 # Clean build folder
 xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
 ```
 
+### Testing
+
+SAAQAnalyzer includes a comprehensive XCTest-based test suite covering:
+
+- **FilterCacheTests**: Cache separation validation, preventing cross-contamination between vehicle/driver modes
+- **DatabaseManagerTests**: Database operations, performance benchmarks, and query validation
+- **CSVImporterTests**: CSV import validation with French character encoding and Quebec data patterns
+- **WorkflowIntegrationTests**: End-to-end testing from import through analysis with mode switching
+- **Performance Testing**: Prevents regression to expensive 66M+ record database scans
+
 ## Usage
 
 ### First Launch
 1. Launch SAAQAnalyzer
-2. The app will create a default SQLite database in your Documents folder
-3. Use the data type selector in the toolbar to choose between Vehicle Registration or Driver's License data
-4. Import your first dataset using File → Import Vehicle CSV or File → Import License CSV
+2. The app will automatically:
+   - Create a unified SQLite database with separate tables for vehicles and licenses
+   - Import bundled geographic reference data (no manual setup required)
+   - Build separate filter caches for vehicle and driver data to prevent cross-contamination
+3. Use the data type selector in the toolbar to choose between Vehicle or Driver data
+4. Import your first dataset using File → Import Vehicle CSV or File → Import Driver CSV
 
 ### Importing Data
 
-#### Vehicle Registration Data
+#### Vehicle Data
 1. **File Format**: CSV files named `Vehicule_En_Circulation_YYYY.csv`
 2. **Data Schema**:
    - 2017+: 16 fields including fuel type
@@ -95,8 +111,8 @@ xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
 3. **Encoding**: Automatic detection (UTF-8, ISO-Latin-1, Windows-1252)
 4. **Size**: Handles large files (20GB+, 77M+ records)
 
-#### Driver's License Data
-1. **File Format**: CSV files with license holder demographics and license information
+#### Driver Data
+1. **File Format**: CSV files with driver demographics and license information
 2. **Data Schema**: 20 fields including age groups, gender, license types, classes, and experience
 3. **Geographic Data**: Human-readable region and MRC names (no d001 mapping required)
 4. **Years Available**: 2011-2022 data with consistent schema across years
@@ -106,14 +122,14 @@ xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
 1. **File Format**: `d001_min.txt` format
 2. **Content**: Municipality codes, names, and hierarchical relationships
 3. **Purpose**: Enables proper municipality name display in vehicle data filters
-4. **Note**: Not required for license data as geographic names are already human-readable
+4. **Note**: Not required for driver data as geographic names are already human-readable
 
 ### Data Analysis Workflow
 
-1. **Select Data Type**: Use the toolbar selector to choose Vehicle Registration or Driver's License data
+1. **Select Data Type**: Use the toolbar selector to choose Vehicle or Driver data
 2. **Set Filters**: Use the left panel to select years, regions, and data-specific characteristics:
    - **Vehicle Data**: Classification, make, model, color, fuel type, age ranges
-   - **License Data**: Age groups, gender, license types, classes, experience levels
+   - **Driver Data**: Age groups, gender, license types, classes, experience levels
 3. **Choose Metrics**: Select count, sum, average, or percentage calculations
 4. **Generate Charts**: Data automatically updates with interactive visualizations
 5. **Compare Series**: Add multiple filter combinations as separate data series
@@ -155,10 +171,17 @@ SAAQAnalyzer/
 
 ### Database Schema
 
-- **vehicles**: Vehicle registration data with 15-16 fields (year-dependent schema)
-- **licenses**: Driver's license data with 20 fields including demographics and license details
-- **geographic_entities**: Hierarchical geographic reference data (for vehicle data)
+- **vehicles**: Vehicle data with 15-16 fields (year-dependent schema)
+- **licenses**: Driver data with 20 fields including demographics and license details
+- **geographic_entities**: Hierarchical geographic reference data (for vehicle data only)
 - **import_log**: Import operation tracking and status for both data types
+
+### Cache Architecture
+
+- **Separate Cache Storage**: Independent cache keys for vehicle and driver data (e.g., `vehicleYears` vs `licenseYears`)
+- **Mode-Specific Validation**: Cache validation ensures data type isolation and prevents cross-contamination
+- **Targeted Cache Management**: Clear vehicle or driver caches independently without affecting the other data type
+- **Performance Optimization**: Parallel cache loading with instant filter option availability
 
 ### Key Design Patterns
 
@@ -172,8 +195,8 @@ SAAQAnalyzer/
 
 SAAQAnalyzer works with public data from SAAQ (Société de l'assurance automobile du Québec):
 
-- **Vehicle Registration Data**: Annual CSV exports of registered vehicles (2009-2022)
-- **Driver's License Data**: Annual CSV exports of license holder demographics (2011-2022)
+- **Vehicle Data**: Annual CSV exports of registered vehicles (2009-2022)
+- **Driver Data**: Annual CSV exports of driver demographics (2011-2022)
 - **Geographic Reference**: Municipality and region mapping files (for vehicle data)
 - **Data Availability**: Multiple years of historical data for both data types
 - **Update Frequency**: Annual releases
@@ -184,8 +207,8 @@ SAAQAnalyzer works with public data from SAAQ (Société de l'assurance automobi
 
 Detailed documentation for SAAQ data formats is available in the `Documentation/` folder:
 
-- **[Vehicle Registration Schema](Documentation/Vehicle-Registration-Schema.md)**: Complete field definitions, classification codes, color codes, fuel types, and geographic variables for vehicle data
-- **[Driver's License Schema](Documentation/Driver-License-Schema.md)**: Comprehensive documentation for license holder demographics, license types, classes, and experience variables
+- **[Vehicle Schema](Documentation/Vehicle-Registration-Schema.md)**: Complete field definitions, classification codes, color codes, fuel types, and geographic variables for vehicle data
+- **[Driver Schema](Documentation/Driver-License-Schema.md)**: Comprehensive documentation for driver demographics, license types, classes, and experience variables
 
 These documents provide essential reference information for understanding the data structure, valid values, and relationships between fields.
 
@@ -234,26 +257,26 @@ SAAQAnalyzer includes built-in data quality monitoring that helps identify forma
 The application uses a **data-type-aware filtering system** that shows only values present in the currently selected data type, while maintaining complete transparency about data quality issues within each dataset.
 
 **How it works**:
-- **Vehicle Mode**: Shows only admin regions, MRCs, and other geographic values present in vehicle registration data
-- **License Mode**: Shows only values present in driver's license data, including formatting variations found within that dataset
+- **Vehicle Mode**: Shows only admin regions, MRCs, and other geographic values present in vehicle data
+- **Driver Mode**: Shows only values present in driver data, including formatting variations found within that dataset
 
 **Admin Region Formatting Example**:
-When analyzing license data, you may see both "Montréal(06)" and "Montréal (06)" in the Admin Region filter. This indicates:
-- License data from different years uses inconsistent formatting (with/without space before parentheses)
-- Both formats represent the same geographic region but exist as separate values in the license dataset
-- You should select both options to ensure complete coverage of Montreal license holders
-- Vehicle data will show only the formatting variant(s) present in vehicle registration records
+When analyzing driver data, you may see both "Montréal(06)" and "Montréal (06)" in the Admin Region filter. This indicates:
+- Driver data from different years uses inconsistent formatting (with/without space before parentheses)
+- Both formats represent the same geographic region but exist as separate values in the driver dataset
+- You should select both options to ensure complete coverage of Montreal drivers
+- Vehicle data will show only the formatting variant(s) present in vehicle records
 
 **Key Benefits**:
-- **Data Type Isolation**: Vehicle analysis isn't contaminated by license data formatting issues, and vice versa
+- **Data Type Isolation**: Vehicle analysis isn't contaminated by driver data formatting issues, and vice versa
 - **Quality Transparency**: All formatting variations within the selected data type remain visible
 - **Complete Coverage**: Users can select all format variants to ensure comprehensive results
 - **No Data Loss**: All imported data remains accessible and analyzable
 
 **Best Practices**:
-1. **Switch data types to see different perspectives**: Vehicle vs. license data may have different geographic coverage and formatting
+1. **Switch data types to see different perspectives**: Vehicle vs. driver data may have different geographic coverage and formatting
 2. **Select all format variants** within your chosen data type to ensure complete results
-3. **Review filter options** when switching between vehicle and license modes to identify data-specific formatting issues
+3. **Review filter options** when switching between vehicle and driver modes to identify data-specific formatting issues
 4. **Monitor console output** during imports for data quality warnings
 
 ### Encoding and Character Handling
@@ -273,14 +296,20 @@ The application automatically handles French character encoding issues:
 - Verify file isn't corrupted or truncated
 
 **Performance Issues**
-- Clear filter cache: Preferences → Clear Cache
-- Restart app to reset database connections
+- Clear specific cache: Use Settings to clear vehicle or driver cache independently
+- Clear all caches: Preferences → Development → Clear Cache options
+- Restart app to reset database connections and rebuild caches automatically
 - Check available disk space for database growth
 
 **Chart Not Updating**
 - Verify filters are properly selected
 - Check that selected years have data
 - Try refreshing data with different filter combinations
+
+**License Class Filtering Issues**
+- License class filters now use proper display names (e.g., "1-2-3-4", "Learner 1-2-3")
+- System handles multi-license holders correctly with OR logic
+- Rebuild driver cache if experiencing filter inconsistencies
 
 ### Debug Information
 - Console logs provide detailed import progress
@@ -304,4 +333,4 @@ For bug reports and feature requests, please use the GitHub Issues page.
 
 ---
 
-**SAAQAnalyzer** - Making Quebec vehicle registration and driver's license data accessible and analyzable.
+**SAAQAnalyzer** - Making Quebec vehicle and driver data accessible and analyzable.
