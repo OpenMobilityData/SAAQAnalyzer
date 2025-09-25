@@ -8,29 +8,76 @@
 import XCTest
 @testable import SAAQAnalyzer
 
+/// Main test suite entry point - comprehensive testing is handled by specialized test classes:
+/// - FilterCacheTests: Cache separation and consistency validation
+/// - DatabaseManagerTests: Query correctness and performance testing
+/// - CSVImporterTests: Data import validation and encoding handling
+/// - WorkflowIntegrationTests: End-to-end workflow verification
 final class SAAQAnalyzerTests: XCTestCase {
 
-    override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
+    func testApplicationInitialization() throws {
+        // Test that core components can be initialized without errors
+        let databaseManager = DatabaseManager.shared
+        let filterCache = FilterCache()
+
+        XCTAssertNotNil(databaseManager, "DatabaseManager should initialize")
+        XCTAssertNotNil(filterCache, "FilterCache should initialize")
     }
 
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
+    func testDataModelTypes() throws {
+        // Test that core data model enums are properly configured
+        XCTAssertGreaterThan(VehicleClassification.allCases.count, 0, "VehicleClassification should have cases")
+        XCTAssertGreaterThan(FuelType.allCases.count, 0, "FuelType should have cases")
+        XCTAssertGreaterThan(LicenseType.allCases.count, 0, "LicenseType should have cases")
+        XCTAssertGreaterThan(AgeGroup.allCases.count, 0, "AgeGroup should have cases")
+        XCTAssertGreaterThan(Gender.allCases.count, 0, "Gender should have cases")
+        XCTAssertGreaterThan(ExperienceLevel.allCases.count, 0, "ExperienceLevel should have cases")
+
+        // Verify critical enum values exist
+        XCTAssertNotNil(VehicleClassification(rawValue: "AUTOMOBILE"), "AUTOMOBILE classification should exist")
+        XCTAssertNotNil(FuelType(rawValue: "ESSENCE"), "ESSENCE fuel type should exist")
+        XCTAssertNotNil(LicenseType(rawValue: "REGULIER"), "REGULIER license type should exist")
+        XCTAssertNotNil(Gender(rawValue: "M"), "Male gender should exist")
+        XCTAssertNotNil(Gender(rawValue: "F"), "Female gender should exist")
     }
 
-    func testExample() throws {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // Any test you write for XCTest can be annotated as throws and async.
-        // Mark your test throws to produce an unexpected failure when your test encounters an uncaught error.
-        // Mark your test async to allow awaiting for asynchronous code to complete. Check the results with assertions afterwards.
+    func testDataEntityTypes() throws {
+        // Test DataEntityType enum functionality
+        let vehicleType = DataEntityType.vehicle
+        let licenseType = DataEntityType.license
+
+        XCTAssertEqual(vehicleType.rawValue, "vehicle", "Vehicle type should have correct raw value")
+        XCTAssertEqual(licenseType.rawValue, "license", "License type should have correct raw value")
+
+        // Test that both types exist in all cases
+        XCTAssertEqual(DataEntityType.allCases.count, 2, "Should have exactly 2 data entity types")
+        XCTAssertTrue(DataEntityType.allCases.contains(.vehicle), "Should contain vehicle type")
+        XCTAssertTrue(DataEntityType.allCases.contains(.license), "Should contain license type")
     }
 
-    func testPerformanceExample() throws {
-        // This is an example of a performance test case.
-        self.measure {
-            // Put the code you want to measure the time of here.
-        }
+    func testFilterConfiguration() throws {
+        // Test FilterConfiguration initialization and basic functionality
+        let config = FilterConfiguration()
+
+        XCTAssertEqual(config.dataEntityType, .vehicle, "Default data entity type should be vehicle")
+        XCTAssertTrue(config.years.isEmpty, "Default years should be empty")
+        XCTAssertTrue(config.regions.isEmpty, "Default regions should be empty")
+        XCTAssertTrue(config.vehicleMakes.isEmpty, "Default vehicle makes should be empty")
+        XCTAssertTrue(config.licenseTypes.isEmpty, "Default license types should be empty")
     }
 
+    @MainActor
+    func testAppSettings() async throws {
+        // Test AppSettings basic functionality
+        let settings = AppSettings.shared
+
+        XCTAssertNotNil(settings, "AppSettings should be accessible")
+        XCTAssertGreaterThanOrEqual(settings.systemProcessorCount, 1, "Should detect at least 1 processor")
+        XCTAssertGreaterThanOrEqual(settings.estimatedPerformanceCores, 1, "Should estimate at least 1 performance core")
+
+        // Test performance settings bounds
+        let threadCount = settings.getOptimalThreadCount(for: 100000)
+        XCTAssertGreaterThan(threadCount, 0, "Thread count should be positive")
+        XCTAssertLessThanOrEqual(threadCount, settings.maxThreadCount, "Thread count should not exceed maximum")
+    }
 }
