@@ -31,6 +31,7 @@ struct FilterPanel: View {
     // Loading state
     @State private var isLoadingData = true
     @State private var hasInitiallyLoaded = false
+    @State private var isLoadingLicenseCharacteristics = false
     
     // Expansion states for sections
     @State private var yearSectionExpanded = true
@@ -143,18 +144,31 @@ struct FilterPanel: View {
                     } else {
                         // License characteristics section
                         DisclosureGroup(isExpanded: $licenseSectionExpanded) {
-                            LicenseFilterSection(
-                                selectedLicenseTypes: $configuration.licenseTypes,
-                                selectedAgeGroups: $configuration.ageGroups,
-                                selectedGenders: $configuration.genders,
-                                selectedExperienceLevels: $configuration.experienceLevels,
-                                selectedLicenseClasses: $configuration.licenseClasses,
-                                availableLicenseTypes: availableLicenseTypes,
-                                availableAgeGroups: availableAgeGroups,
-                                availableGenders: availableGenders,
-                                availableExperienceLevels: availableExperienceLevels,
-                                availableLicenseClasses: availableLicenseClasses
-                            )
+                            if isLoadingLicenseCharacteristics {
+                                // Loading indicator for license characteristics
+                                VStack(spacing: 12) {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                    Text("Loading license characteristics...")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 100)
+                                .padding()
+                            } else {
+                                LicenseFilterSection(
+                                    selectedLicenseTypes: $configuration.licenseTypes,
+                                    selectedAgeGroups: $configuration.ageGroups,
+                                    selectedGenders: $configuration.genders,
+                                    selectedExperienceLevels: $configuration.experienceLevels,
+                                    selectedLicenseClasses: $configuration.licenseClasses,
+                                    availableLicenseTypes: availableLicenseTypes,
+                                    availableAgeGroups: availableAgeGroups,
+                                    availableGenders: availableGenders,
+                                    availableExperienceLevels: availableExperienceLevels,
+                                    availableLicenseClasses: availableLicenseClasses
+                                )
+                            }
                         } label: {
                             Label("License Characteristics", systemImage: "person.crop.circle")
                                 .font(.subheadline)
@@ -195,6 +209,12 @@ struct FilterPanel: View {
             }
         }
         .onChange(of: configuration.dataEntityType) { _, _ in
+            // Immediately clear geographic data to prevent showing wrong mode's data
+            if hasInitiallyLoaded {
+                availableRegions = []
+                availableMRCs = []
+            }
+
             // Reload data type specific options when switching between vehicle and license
             Task {
                 await loadDataTypeSpecificOptions()
@@ -247,8 +267,7 @@ struct FilterPanel: View {
 
     /// Loads data type specific filter options
     private func loadDataTypeSpecificOptions() async {
-        // Only reload shared options when explicitly switching data types (not on initial load)
-        // These are already loaded in loadAvailableOptions() for initial load
+        // Load new data for the current mode
         if hasInitiallyLoaded {
             availableYears = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
             availableRegions = await databaseManager.getAvailableRegions(for: configuration.dataEntityType)
@@ -277,6 +296,9 @@ struct FilterPanel: View {
             availableLicenseClasses = []
 
         case .license:
+            // Set loading state for license characteristics
+            isLoadingLicenseCharacteristics = true
+
             // Load license-specific options in parallel for better performance
             async let licenseTypes = databaseManager.getAvailableLicenseTypes()
             async let ageGroups = databaseManager.getAvailableAgeGroups()
@@ -288,6 +310,9 @@ struct FilterPanel: View {
             (availableLicenseTypes, availableAgeGroups, availableGenders,
              availableExperienceLevels, availableLicenseClasses) =
                 await (licenseTypes, ageGroups, genders, experienceLevels, licenseClasses)
+
+            // Clear loading state
+            isLoadingLicenseCharacteristics = false
 
             // Clear vehicle options
             availableClassifications = []

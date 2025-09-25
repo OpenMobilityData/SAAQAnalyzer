@@ -21,7 +21,11 @@ class DatabaseManager: ObservableObject {
     
     /// Queue for database operations
     internal let dbQueue = DispatchQueue(label: "com.saaqanalyzer.database", qos: .userInitiated)
-    
+
+    /// Flag to prevent concurrent cache refreshes
+    private var isRefreshingCache = false
+    private let refreshLock = NSLock()
+
     private init() {
         setupDefaultDatabase()
     }
@@ -1561,9 +1565,18 @@ class DatabaseManager: ObservableObject {
             }
         }
 
-        // Fall back to database query
-        print("📊 Querying regions from database for \(dataEntityType)...")
-        return await getRegionsFromDatabase(for: dataEntityType)
+        // Cache miss or needs refresh - trigger cache refresh and then return cached data
+        print("💾 Cache miss or refresh needed for \(dataEntityType), refreshing cache...")
+        await refreshFilterCache()
+
+        // Return cached data after refresh - no fallbacks, return exactly what's cached
+        let refreshedCache = filterCache.getCachedRegions(for: dataEntityType)
+        if refreshedCache.isEmpty {
+            print("⚠️ No \(dataEntityType) regions available after refresh")
+        } else {
+            print("✅ Using refreshed cached regions (\(refreshedCache.count) items) for \(dataEntityType)")
+        }
+        return refreshedCache
     }
     
     /// Gets available MRCs - uses cache when possible
@@ -1577,8 +1590,18 @@ class DatabaseManager: ObservableObject {
             }
         }
 
-        // Fall back to database query
-        return await getMRCsFromDatabase(for: dataEntityType)
+        // Cache miss or needs refresh - trigger cache refresh and then return cached data
+        print("💾 Cache miss or refresh needed for \(dataEntityType), refreshing cache...")
+        await refreshFilterCache()
+
+        // Return cached data after refresh - no fallbacks, return exactly what's cached
+        let refreshedCache = filterCache.getCachedMRCs(for: dataEntityType)
+        if refreshedCache.isEmpty {
+            print("⚠️ No \(dataEntityType) MRCs available after refresh")
+        } else {
+            print("✅ Using refreshed cached MRCs (\(refreshedCache.count) items) for \(dataEntityType)")
+        }
+        return refreshedCache
     }
     
     /// Prepares database for bulk import session
@@ -1762,12 +1785,15 @@ class DatabaseManager: ObservableObject {
     /// Gets available license types from database (cache-aware)
     func getAvailableLicenseTypes() async -> [String] {
         // Check cache first (only if license data is cached)
-        if filterCache.hasCachedData && filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+        if filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
             let cached = filterCache.getCachedLicenseTypes()
             if !cached.isEmpty {
+                print("✅ Using cached license types (\(cached.count) items)")
                 return cached
             }
         }
+
+        print("⚠️ License types cache miss, falling back to database query")
 
         return await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
@@ -1796,12 +1822,15 @@ class DatabaseManager: ObservableObject {
     /// Gets available age groups from database (cache-aware)
     func getAvailableAgeGroups() async -> [String] {
         // Check cache first (only if license data is cached)
-        if filterCache.hasCachedData && filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedAgeGroups()
+        if filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+            let cached = filterCache.getCachedLicenseAgeGroups()
             if !cached.isEmpty {
+                print("✅ Using cached age groups (\(cached.count) items)")
                 return cached
             }
         }
+
+        print("⚠️ Age groups cache miss, falling back to database query")
 
         return await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
@@ -1830,12 +1859,15 @@ class DatabaseManager: ObservableObject {
     /// Gets available genders from database (cache-aware)
     func getAvailableGenders() async -> [String] {
         // Check cache first (only if license data is cached)
-        if filterCache.hasCachedData && filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedGenders()
+        if filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+            let cached = filterCache.getCachedLicenseGenders()
             if !cached.isEmpty {
+                print("✅ Using cached genders (\(cached.count) items)")
                 return cached
             }
         }
+
+        print("⚠️ Genders cache miss, falling back to database query")
 
         return await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
@@ -1864,12 +1896,15 @@ class DatabaseManager: ObservableObject {
     /// Gets available experience levels from database (cache-aware)
     func getAvailableExperienceLevels() async -> [String] {
         // Check cache first (only if license data is cached)
-        if filterCache.hasCachedData && filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedExperienceLevels()
+        if filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+            let cached = filterCache.getCachedLicenseExperienceLevels()
             if !cached.isEmpty {
+                print("✅ Using cached experience levels (\(cached.count) items)")
                 return cached
             }
         }
+
+        print("⚠️ Experience levels cache miss, falling back to database query")
 
         return await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
@@ -1879,7 +1914,7 @@ class DatabaseManager: ObservableObject {
                 }
 
                 var levels: [String] = []
-                let query = "SELECT DISTINCT experience_level FROM licenses ORDER BY experience_level"
+                let query = "SELECT DISTINCT experience_global FROM licenses WHERE experience_global IS NOT NULL AND experience_global != '' ORDER BY experience_global"
                 var stmt: OpaquePointer?
 
                 if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
@@ -1898,12 +1933,15 @@ class DatabaseManager: ObservableObject {
     /// Gets available license classes from database (cache-aware)
     func getAvailableLicenseClasses() async -> [String] {
         // Check cache first (only if license data is cached)
-        if filterCache.hasCachedData && filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
+        if filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
             let cached = filterCache.getCachedLicenseClasses()
             if !cached.isEmpty {
+                print("✅ Using cached license classes (\(cached.count) items)")
                 return cached
             }
         }
+
+        print("⚠️ License classes cache miss, falling back to database query")
 
         return await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
@@ -1912,19 +1950,55 @@ class DatabaseManager: ObservableObject {
                     return
                 }
 
-                var classes: [String] = []
-                let query = "SELECT DISTINCT license_class FROM licenses ORDER BY license_class"
-                var stmt: OpaquePointer?
+                var classes: Set<String> = []
 
-                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
-                    while sqlite3_step(stmt) == SQLITE_ROW {
-                        if let classPtr = sqlite3_column_text(stmt, 0) {
-                            classes.append(String(cString: classPtr))
+                // Query to check which license class columns have any TRUE values
+                // The columns are: has_driver_license_1234, has_driver_license_5, has_driver_license_6abce, has_driver_license_6d, has_driver_license_8
+                let classColumns = [
+                    ("has_driver_license_1234", "1-2-3-4"),
+                    ("has_driver_license_5", "5"),
+                    ("has_driver_license_6abce", "6A-6B-6C-6E"),
+                    ("has_driver_license_6d", "6D"),
+                    ("has_driver_license_8", "8")
+                ]
+
+                for (column, className) in classColumns {
+                    let query = "SELECT COUNT(*) FROM licenses WHERE \(column) = 1"
+                    var stmt: OpaquePointer?
+
+                    if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                        if sqlite3_step(stmt) == SQLITE_ROW {
+                            let count = sqlite3_column_int(stmt, 0)
+                            if count > 0 {
+                                classes.insert(className)
+                            }
                         }
                     }
+                    sqlite3_finalize(stmt)
                 }
-                sqlite3_finalize(stmt)
-                continuation.resume(returning: classes)
+
+                // Also check learner permit columns
+                let permitColumns = [
+                    ("has_learner_permit_123", "Learner 1-2-3"),
+                    ("has_learner_permit_5", "Learner 5"),
+                    ("has_learner_permit_6a6r", "Learner 6A-6R")
+                ]
+
+                for (column, permitName) in permitColumns {
+                    let query = "SELECT COUNT(*) FROM licenses WHERE \(column) = 1"
+                    var stmt: OpaquePointer?
+
+                    if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                        if sqlite3_step(stmt) == SQLITE_ROW {
+                            let count = sqlite3_column_int(stmt, 0)
+                            if count > 0 {
+                                classes.insert(permitName)
+                            }
+                        }
+                    }
+                    sqlite3_finalize(stmt)
+                }
+                continuation.resume(returning: Array(classes).sorted())
             }
         }
     }
@@ -1933,6 +2007,22 @@ class DatabaseManager: ObservableObject {
     
     /// Refreshes the filter cache with current database values
     func refreshFilterCache() async {
+        // Prevent concurrent refreshes
+        refreshLock.lock()
+        if isRefreshingCache {
+            refreshLock.unlock()
+            print("⏳ Cache refresh already in progress, skipping...")
+            return
+        }
+        isRefreshingCache = true
+        refreshLock.unlock()
+
+        defer {
+            refreshLock.lock()
+            isRefreshingCache = false
+            refreshLock.unlock()
+        }
+
         print("🔄 Refreshing filter cache...")
         let startTime = Date()
 

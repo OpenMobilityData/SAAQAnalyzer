@@ -44,6 +44,18 @@ class AppSettings: ObservableObject {
         }
     }
 
+    // MARK: - First Launch Settings
+
+    /// Whether this is the first time the app has been launched
+    var isFirstLaunch: Bool {
+        !UserDefaults.standard.bool(forKey: "hasLaunchedBefore")
+    }
+
+    /// Marks the app as having been launched before
+    func markFirstLaunchComplete() {
+        UserDefaults.standard.set(true, forKey: "hasLaunchedBefore")
+    }
+
     // MARK: - Import Performance Settings
 
     /// Whether to use adaptive thread count based on system and file size

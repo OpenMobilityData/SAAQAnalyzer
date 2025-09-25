@@ -1,6 +1,18 @@
 import Foundation
 import SQLite3
 
+/// Errors that can occur during geographic data import
+enum GeographicDataImportError: Error, LocalizedError {
+    case bundledFileNotFound
+
+    var errorDescription: String? {
+        switch self {
+        case .bundledFileNotFound:
+            return "The bundled d001_min.txt file could not be found in the app bundle."
+        }
+    }
+}
+
 /// Handles importing Quebec geographic codes from d001 and d002 files
 class GeographicDataImporter {
     private let databaseManager: DatabaseManager
@@ -8,7 +20,18 @@ class GeographicDataImporter {
     init(databaseManager: DatabaseManager = .shared) {
         self.databaseManager = databaseManager
     }
-    
+
+    /// Imports the bundled d001 municipality data file on first launch
+    func importBundledGeographicData() async throws {
+        guard let url = Bundle.main.url(forResource: "d001_min", withExtension: "txt") else {
+            throw GeographicDataImportError.bundledFileNotFound
+        }
+
+        print("📍 Importing bundled geographic data from: \(url.lastPathComponent)")
+        try await importD001File(at: url)
+        print("✅ Bundled geographic data imported successfully")
+    }
+
     /// Imports the d001 municipality data file
     func importD001File(at url: URL) async throws {
         let content = try String(contentsOf: url, encoding: .isoLatin1)

@@ -142,7 +142,9 @@ class FilterCache {
     
     /// Get the data version when cache was last updated
     var cachedDataVersion: String? {
-        return userDefaults.string(forKey: CacheKeys.dataVersion)
+        let version = userDefaults.string(forKey: CacheKeys.dataVersion)
+        print("🔍 Reading cached data version: \(version ?? "nil")")
+        return version
     }
     
     // MARK: - Cache Reading
@@ -271,7 +273,7 @@ class FilterCache {
     }
 
     func getCachedExperienceLevels() -> [String] {
-        return userDefaults.stringArray(forKey: CacheKeys.experienceLevels) ?? []
+        return userDefaults.stringArray(forKey: CacheKeys.licenseExperienceLevels) ?? []
     }
 
     /// Check if license data is cached
@@ -320,6 +322,7 @@ class FilterCache {
 
     /// Update shared metadata and finish cache update
     func finalizeCacheUpdate(municipalityCodeToName: [String: String], databaseStats: CachedDatabaseStats, dataVersion: String) {
+        print("🔧 finalizeCacheUpdate called with dataVersion: \(dataVersion)")
         // Cache municipality mapping as JSON data
         if let mappingData = try? JSONEncoder().encode(municipalityCodeToName) {
             userDefaults.set(mappingData, forKey: CacheKeys.municipalityCodeToName)
@@ -333,7 +336,14 @@ class FilterCache {
         userDefaults.set(Date(), forKey: CacheKeys.lastUpdated)
         userDefaults.set(dataVersion, forKey: CacheKeys.dataVersion)
 
-        print("💾 Cache metadata updated")
+        // Force synchronization to ensure the write completes
+        userDefaults.synchronize()
+
+        print("💾 Cache metadata updated - data version set to: \(dataVersion)")
+
+        // Verify the write succeeded
+        let verifyVersion = userDefaults.string(forKey: CacheKeys.dataVersion)
+        print("💾 Verification - cached version is now: \(verifyVersion ?? "nil")")
     }
     
     /// Clear the entire cache
@@ -367,6 +377,22 @@ class FilterCache {
         userDefaults.removeObject(forKey: CacheKeys.licenseClasses)
 
         print("🗑️ Filter cache cleared")
+    }
+
+    /// Clear only license-specific cache to force refresh of license data
+    func clearLicenseCache() {
+        // License-specific keys
+        userDefaults.removeObject(forKey: CacheKeys.licenseYears)
+        userDefaults.removeObject(forKey: CacheKeys.licenseRegions)
+        userDefaults.removeObject(forKey: CacheKeys.licenseMRCs)
+        userDefaults.removeObject(forKey: CacheKeys.licenseMunicipalities)
+        userDefaults.removeObject(forKey: CacheKeys.licenseTypes)
+        userDefaults.removeObject(forKey: CacheKeys.licenseAgeGroups)
+        userDefaults.removeObject(forKey: CacheKeys.licenseGenders)
+        userDefaults.removeObject(forKey: CacheKeys.licenseExperienceLevels)
+        userDefaults.removeObject(forKey: CacheKeys.licenseClasses)
+
+        print("🗑️ License cache cleared")
     }
     
     /// Check if cache needs refresh based on data version

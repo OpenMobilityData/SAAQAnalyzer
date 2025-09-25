@@ -90,9 +90,6 @@ struct ContentView: View {
             ToolbarItemGroup(placement: .primaryAction) {
                 // Import menu
                 Menu {
-                    Button("Import Geographic Data...") {
-                        importGeographicData()
-                    }
                     Button("Import Vehicle Data...") {
                         importVehicleData()
                     }
@@ -171,8 +168,35 @@ struct ContentView: View {
         } message: {
             Text("Data for year \(duplicateYearToReplace?.formatted(.number.grouping(.never)) ?? "Unknown") has already been imported. Do you want to replace the existing data with the new import?")
         }
+        .onAppear {
+            // Import bundled geographic data on first launch
+            if AppSettings.shared.isFirstLaunch {
+                Task {
+                    await importBundledGeographicDataOnFirstLaunch()
+                }
+            }
+        }
     }
-    
+
+    /// Imports bundled geographic data on first launch
+    private func importBundledGeographicDataOnFirstLaunch() async {
+        do {
+            print("🚀 First launch detected - importing bundled geographic data...")
+            let importer = GeographicDataImporter(databaseManager: databaseManager)
+            try await importer.importBundledGeographicData()
+
+            // Mark first launch as complete
+            await MainActor.run {
+                AppSettings.shared.markFirstLaunchComplete()
+            }
+
+            print("✅ First launch setup completed")
+        } catch {
+            print("❌ Error importing bundled geographic data: \(error.localizedDescription)")
+            // Don't mark first launch complete if import failed, so it will retry next time
+        }
+    }
+
     /// Clears all data from the database
     private func clearAllData() {
         let alert = NSAlert()
@@ -513,7 +537,7 @@ struct SettingsView: View {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
         }
-        .frame(width: 500, height: 600)
+        .frame(width: 500, height: 790)
     }
 }
 
@@ -641,15 +665,41 @@ struct GeneralSettingsTab: View {
                         databaseManager.clearFilterCache()
                     }
                     .buttonStyle(.bordered)
-                    .help("Clear cached filter options (will reload from database next time)")
+                    .help("Clear ALL cached filter options (vehicle AND license data - will reload everything from database)")
 
                     Spacer()
                 }
             }
 
+            Divider()
+
+            // Development Section
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Development")
+                    .font(.headline)
+
+                Text("Advanced tools for development and exceptional circumstances.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Button("Import Geographic Data File...") {
+                    importGeographicDataFile()
+                }
+                .buttonStyle(.bordered)
+                .help("Import a custom d001_min.txt file for development purposes")
+
+                Button("Clear License Cache") {
+                    FilterCache().clearLicenseCache()
+                }
+                .buttonStyle(.bordered)
+                .help("Clear ONLY license data cache (preserves vehicle cache - use for testing license-specific fixes)")
+            }
+
             Spacer()
         }
-        .padding()
+        .padding(.horizontal)
+        .padding(.top, 32)
+        .padding(.bottom)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -659,6 +709,26 @@ struct GeneralSettingsTab: View {
         panel.begin { response in
             if response == .OK, let url = panel.url {
                 databaseManager.setDatabaseLocation(url)
+            }
+        }
+    }
+
+    private func importGeographicDataFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.plainText]
+        panel.message = "Select d001_min.txt file"
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+
+            Task {
+                do {
+                    let importer = GeographicDataImporter(databaseManager: databaseManager)
+                    try await importer.importD001File(at: url)
+                    print("Geographic data imported successfully from: \(url.lastPathComponent)")
+                } catch {
+                    print("Error importing geographic data: \(error)")
+                }
             }
         }
     }
