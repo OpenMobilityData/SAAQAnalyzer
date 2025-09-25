@@ -66,11 +66,10 @@ class FilterCache {
         static let vehicleColors = "FilterCache.vehicleColors"
         static let vehicleModelYears = "FilterCache.vehicleModelYears"
 
-        // License cache keys
+        // License cache keys (no municipalities - they don't exist in license data)
         static let licenseYears = "FilterCache.licenseYears"
         static let licenseRegions = "FilterCache.licenseRegions"
         static let licenseMRCs = "FilterCache.licenseMRCs"
-        static let licenseMunicipalities = "FilterCache.licenseMunicipalities"
         static let licenseTypes = "FilterCache.licenseTypes"
         static let licenseAgeGroups = "FilterCache.licenseAgeGroups"
         static let licenseGenders = "FilterCache.licenseGenders"
@@ -119,7 +118,6 @@ class FilterCache {
                 CacheKeys.licenseYears,
                 CacheKeys.licenseRegions,
                 CacheKeys.licenseMRCs,
-                CacheKeys.licenseMunicipalities,
                 CacheKeys.licenseTypes,
                 CacheKeys.licenseAgeGroups,
                 CacheKeys.licenseGenders,
@@ -181,7 +179,7 @@ class FilterCache {
         case .vehicle:
             return userDefaults.stringArray(forKey: CacheKeys.vehicleMunicipalities) ?? []
         case .license:
-            return userDefaults.stringArray(forKey: CacheKeys.licenseMunicipalities) ?? []
+            return [] // License data has no municipalities - return empty array
         }
     }
 
@@ -302,22 +300,21 @@ class FilterCache {
         print("💾 Vehicle cache updated with \(years.count) years, \(regions.count) regions, \(mrcs.count) MRCs, \(municipalities.count) municipalities, \(classifications.count) classifications, \(vehicleMakes.count) makes, \(vehicleModels.count) models, \(vehicleColors.count) colors, \(modelYears.count) model years")
     }
 
-    /// Update the license cache with fresh data
-    func updateLicenseCache(years: [Int], regions: [String], mrcs: [String], municipalities: [String],
+    /// Update the license cache with fresh data (no municipalities - they don't exist in license data)
+    func updateLicenseCache(years: [Int], regions: [String], mrcs: [String],
                            licenseTypes: [String], ageGroups: [String], genders: [String],
                            experienceLevels: [String], licenseClasses: [String]) {
-        // License-specific data
+        // License-specific data (no municipalities - they don't exist in license data)
         userDefaults.set(years, forKey: CacheKeys.licenseYears)
         userDefaults.set(regions, forKey: CacheKeys.licenseRegions)
         userDefaults.set(mrcs, forKey: CacheKeys.licenseMRCs)
-        userDefaults.set(municipalities, forKey: CacheKeys.licenseMunicipalities)
         userDefaults.set(licenseTypes, forKey: CacheKeys.licenseTypes)
         userDefaults.set(ageGroups, forKey: CacheKeys.licenseAgeGroups)
         userDefaults.set(genders, forKey: CacheKeys.licenseGenders)
         userDefaults.set(experienceLevels, forKey: CacheKeys.licenseExperienceLevels)
         userDefaults.set(licenseClasses, forKey: CacheKeys.licenseClasses)
 
-        print("💾 License cache updated with \(years.count) years, \(regions.count) regions, \(mrcs.count) MRCs, \(municipalities.count) municipalities, \(licenseTypes.count) license types, \(ageGroups.count) age groups, \(genders.count) genders, \(experienceLevels.count) experience levels, \(licenseClasses.count) license classes")
+        print("💾 License cache updated with \(years.count) years, \(regions.count) regions, \(mrcs.count) MRCs, \(licenseTypes.count) license types, \(ageGroups.count) age groups, \(genders.count) genders, \(experienceLevels.count) experience levels, \(licenseClasses.count) license classes")
     }
 
     /// Update shared metadata and finish cache update
@@ -385,7 +382,6 @@ class FilterCache {
         userDefaults.removeObject(forKey: CacheKeys.licenseYears)
         userDefaults.removeObject(forKey: CacheKeys.licenseRegions)
         userDefaults.removeObject(forKey: CacheKeys.licenseMRCs)
-        userDefaults.removeObject(forKey: CacheKeys.licenseMunicipalities)
         userDefaults.removeObject(forKey: CacheKeys.licenseTypes)
         userDefaults.removeObject(forKey: CacheKeys.licenseAgeGroups)
         userDefaults.removeObject(forKey: CacheKeys.licenseGenders)

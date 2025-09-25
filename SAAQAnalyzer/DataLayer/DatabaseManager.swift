@@ -2065,7 +2065,7 @@ class DatabaseManager: ObservableObject {
             years: yearsList,
             regions: vehicleRegionsList,
             mrcs: vehicleMRCsList,
-            municipalities: municipalitiesList, // Use combined for now since municipalities are shared
+            municipalities: municipalitiesList, // Municipalities only available for vehicle data
             classifications: classificationsList,
             vehicleMakes: makesList,
             vehicleModels: modelsList,
@@ -2077,7 +2077,6 @@ class DatabaseManager: ObservableObject {
             years: yearsList,
             regions: licenseRegionsList,
             mrcs: licenseMRCsList,
-            municipalities: municipalitiesList, // Use combined for now since municipalities are shared
             licenseTypes: licenseTypesList,
             ageGroups: ageGroupsList,
             genders: gendersList,
@@ -2606,16 +2605,22 @@ class DatabaseManager: ObservableObject {
         }
     }
 
-    /// Gets available municipalities - uses cache when possible
-    func getAvailableMunicipalities() async -> [String] {
+    /// Gets available municipalities for vehicle data only - uses cache when possible
+    /// Note: Municipalities are only available for vehicle data, not license data
+    func getAvailableMunicipalities(for dataType: DataEntityType = .vehicle) async -> [String] {
+        // Municipalities only exist for vehicle data
+        guard dataType == .vehicle else {
+            return []
+        }
+
         // Check cache first
         if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedMunicipalities()
+            let cached = filterCache.getCachedMunicipalities(for: .vehicle)
             if !cached.isEmpty {
                 return cached
             }
         }
-        
+
         // Fall back to database query
         return await getMunicipalitiesFromDatabase()
     }

@@ -131,11 +131,15 @@ final class DatabaseManagerTests: XCTestCase {
     // MARK: - Geographic Data Tests
 
     func testGeographicHierarchy() async {
-        let municipalities = await databaseManager.getAvailableMunicipalities()
+        let municipalities = await databaseManager.getAvailableMunicipalities(for: .vehicle)
         let municipalityMapping = await databaseManager.getMunicipalityCodeToNameMapping()
 
         XCTAssertNotNil(municipalities, "Municipalities should be retrievable")
         XCTAssertNotNil(municipalityMapping, "Municipality mapping should be retrievable")
+
+        // Test that municipalities are NOT available for license mode
+        let licenseMunicipalities = await databaseManager.getAvailableMunicipalities(for: .license)
+        XCTAssertTrue(licenseMunicipalities.isEmpty, "License mode should not return municipalities - license table has no municipality field")
 
         // Validate municipality codes are numeric
         XCTAssertTrue(municipalities.allSatisfy { code in

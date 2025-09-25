@@ -63,7 +63,6 @@ final class FilterCacheTests: XCTestCase {
             years: vehicleYears,
             regions: vehicleRegions,
             mrcs: vehicleMRCs,
-            municipalities: [],
             classifications: [],
             vehicleMakes: [],
             vehicleModels: [],
@@ -95,7 +94,6 @@ final class FilterCacheTests: XCTestCase {
             years: licenseYears,
             regions: licenseRegions,
             mrcs: licenseMRCs,
-            municipalities: [],
             licenseTypes: licenseTypes,
             ageGroups: ageGroups,
             genders: [],
@@ -129,7 +127,6 @@ final class FilterCacheTests: XCTestCase {
             years: [],
             regions: [],
             mrcs: [],
-            municipalities: [],
             licenseTypes: [],
             ageGroups: ageGroups,
             genders: genders,
@@ -161,7 +158,6 @@ final class FilterCacheTests: XCTestCase {
             years: [2022],
             regions: ["Montreal"],
             mrcs: ["06"],
-            municipalities: [],
             classifications: [],
             vehicleMakes: [],
             vehicleModels: [],
@@ -178,7 +174,6 @@ final class FilterCacheTests: XCTestCase {
             years: [2022],
             regions: ["Montreal"],
             mrcs: ["06"],
-            municipalities: [],
             licenseTypes: ["REGULIER"],
             ageGroups: [],
             genders: [],
@@ -252,7 +247,6 @@ final class FilterCacheTests: XCTestCase {
             years: [2022],
             regions: ["Montreal"],
             mrcs: ["06"],
-            municipalities: [],
             classifications: [],
             vehicleMakes: [],
             vehicleModels: [],
@@ -264,7 +258,6 @@ final class FilterCacheTests: XCTestCase {
             years: [2022],
             regions: ["Montreal"],
             mrcs: ["06"],
-            municipalities: [],
             licenseTypes: ["REGULIER"],
             ageGroups: ["25-34"],
             genders: [],
@@ -292,7 +285,6 @@ final class FilterCacheTests: XCTestCase {
             years: [2022],
             regions: ["Montreal"],
             mrcs: ["06"],
-            municipalities: [],
             classifications: [],
             vehicleMakes: [],
             vehicleModels: [],
@@ -304,7 +296,6 @@ final class FilterCacheTests: XCTestCase {
             years: [2022],
             regions: ["Quebec"],
             mrcs: ["23"],
-            municipalities: [],
             licenseTypes: ["REGULIER"],
             ageGroups: ["25-34"],
             genders: [],
@@ -337,15 +328,12 @@ final class FilterCacheTests: XCTestCase {
         let years = Array(2012...2023) // 12 years
         let regions = Array(1...35).map { "Region \($0)" } // 35 regions like license mode
         let mrcs = Array(1...106).map { "MRC \($0)" } // 106 MRCs
-        let municipalities = Array(1...1290).map { "Municipality \($0)" } // 1290 municipalities
-
-        // Performance test for cache update
+        // Performance test for cache update (no municipalities for license cache)
         measure {
             filterCache.updateLicenseCache(
                 years: years,
                 regions: regions,
                 mrcs: mrcs,
-                municipalities: municipalities,
                 licenseTypes: ["REGULIER", "PROBATOIRE", "APPRENTI"],
                 ageGroups: ["16-19", "20-24", "25-34", "35-44", "45-54", "55-64", "65-74", "75+"],
                 genders: ["Male", "Female"],

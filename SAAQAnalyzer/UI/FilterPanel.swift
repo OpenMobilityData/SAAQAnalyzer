@@ -213,6 +213,7 @@ struct FilterPanel: View {
             if hasInitiallyLoaded {
                 availableRegions = []
                 availableMRCs = []
+                availableMunicipalities = [] // Clear municipalities when switching modes
             }
 
             // Reload data type specific options when switching between vehicle and license
@@ -248,7 +249,7 @@ struct FilterPanel: View {
             async let years = databaseManager.getAvailableYears(for: configuration.dataEntityType)
             async let regions = databaseManager.getAvailableRegions(for: configuration.dataEntityType)
             async let mrcs = databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
-            async let municipalities = databaseManager.getAvailableMunicipalities()
+            async let municipalities = databaseManager.getAvailableMunicipalities(for: configuration.dataEntityType)
             async let municipalityMapping = databaseManager.getMunicipalityCodeToNameMapping()
 
             // Wait for all to complete
@@ -272,6 +273,7 @@ struct FilterPanel: View {
             availableYears = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
             availableRegions = await databaseManager.getAvailableRegions(for: configuration.dataEntityType)
             availableMRCs = await databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
+            availableMunicipalities = await databaseManager.getAvailableMunicipalities(for: configuration.dataEntityType)
         }
 
         switch configuration.dataEntityType {
@@ -350,7 +352,7 @@ struct FilterPanel: View {
         if availableRegions.isEmpty {
             availableRegions = await databaseManager.getAvailableRegions(for: configuration.dataEntityType)
             availableMRCs = await databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
-            availableMunicipalities = await databaseManager.getAvailableMunicipalities()
+            availableMunicipalities = await databaseManager.getAvailableMunicipalities(for: configuration.dataEntityType)
             municipalityCodeToName = await databaseManager.getMunicipalityCodeToNameMapping()
         }
     }
