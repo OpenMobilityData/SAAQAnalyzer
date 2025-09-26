@@ -196,11 +196,16 @@ struct FilterPanel: View {
         .background(Color(NSColor.controlBackgroundColor))
         .onAppear {
             if !hasInitiallyLoaded {
-                // Check if Option key is held down to bypass cache loading
+                // Check if Option key is held down or environment variable is set to bypass cache loading
                 let optionKeyPressed = NSEvent.modifierFlags.contains(.option)
+                let envBypass = ProcessInfo.processInfo.environment["SAAQ_BYPASS_CACHE"] != nil
 
-                if optionKeyPressed {
-                    print("⚠️ Option key detected - bypassing cache loading for quick startup")
+                if optionKeyPressed || envBypass {
+                    if envBypass {
+                        print("⚠️ Environment variable SAAQ_BYPASS_CACHE detected - bypassing cache loading")
+                    } else {
+                        print("⚠️ Option key detected - bypassing cache loading for quick startup")
+                    }
                     print("📦 You can now import a data package without waiting for cache rebuild")
                     hasInitiallyLoaded = true
                     isLoadingData = false

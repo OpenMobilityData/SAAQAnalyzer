@@ -195,19 +195,22 @@ struct ContentView: View {
             Text(packageAlertMessage)
         }
         .onAppear {
-            // Check for Option key bypass
+            // Check for Option key bypass or environment variable for testing
             let optionKeyPressed = NSEvent.modifierFlags.contains(.option)
+            let envBypass = ProcessInfo.processInfo.environment["SAAQ_BYPASS_CACHE"] != nil
 
-            if optionKeyPressed {
+            if optionKeyPressed || envBypass {
                 // Show alert about bypass mode and skip all initialization
                 Task { @MainActor in
-                    packageAlertMessage = "Cache loading bypassed. First launch setup skipped. You can now import a data package immediately without waiting for cache rebuild."
+                    let bypassMethod = envBypass ? "Environment variable SAAQ_BYPASS_CACHE" : "Option key"
+                    packageAlertMessage = "Cache loading bypassed via \(bypassMethod). First launch setup skipped. You can now import a data package immediately without waiting for cache rebuild."
                     showingPackageAlert = true
                 }
                 // Mark first launch complete to prevent geographic data import
                 if AppSettings.shared.isFirstLaunch {
                     AppSettings.shared.markFirstLaunchComplete()
-                    print("⚠️ Option key bypass: Skipping first launch setup")
+                    let bypassMethod = envBypass ? "Environment variable" : "Option key"
+                    print("⚠️ \(bypassMethod) bypass: Skipping first launch setup")
                 }
             } else if AppSettings.shared.isFirstLaunch {
                 // Import bundled geographic data on first launch

@@ -179,14 +179,22 @@ Import a data package to instantly access all data without processing:
 3. **Automatic Setup**: Database and caches are restored immediately
 4. **Ready to Use**: All data available without hours of processing
 
-#### Quick Import Mode (Option Key Bypass)
-If cache loading is slow on startup:
+#### Quick Import Mode (Cache Bypass)
+If cache loading is slow on startup, use either method to bypass:
 
+**Method 1: Option Key (End Users)**
 1. **Quit the Application** if running
 2. **Hold Option Key** (⌥) while launching SAAQAnalyzer
-3. **Bypass Confirmation**: You'll see "Cache loading bypassed" alert
+3. **Bypass Confirmation**: You'll see "Cache loading bypassed via Option key" alert
 4. **Import Immediately**: Import data package without waiting for cache rebuild
-5. **Use Case**: Helpful for testing or when cache is corrupted
+
+**Method 2: Environment Variable (Developers/Xcode)**
+1. **In Xcode**: Product → Scheme → Edit Scheme → Run → Arguments → Environment Variables
+2. **Add Variable**: Name: `SAAQ_BYPASS_CACHE`, Value: `1`
+3. **Run from Xcode**: Cache loading will be bypassed automatically
+4. **Terminal Launch**: `SAAQ_BYPASS_CACHE=1 open -a SAAQAnalyzer`
+
+**Use Cases**: Testing, development, corrupted cache recovery, quick package imports
 
 ### Data Analysis Workflow
 
@@ -364,7 +372,7 @@ The application automatically handles French character encoding issues:
 - Clear all caches: Preferences → Development → Clear Cache options
 - Restart app to reset database connections and rebuild caches automatically
 - Check available disk space for database growth
-- Use Option key bypass: Hold ⌥ while launching to skip cache loading for immediate import
+- Use cache bypass: Hold ⌥ while launching or set `SAAQ_BYPASS_CACHE=1` environment variable to skip cache loading
 
 **Chart Not Updating**
 - Verify filters are properly selected
