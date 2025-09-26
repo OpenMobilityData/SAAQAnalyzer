@@ -221,34 +221,50 @@ class DataPackageManager: ObservableObject {
     private func gatherPackageStatistics() async -> PackagedDataStats {
         let dbStats = await databaseManager.getDatabaseStats()
 
-        // Create vehicle stats
+        // Get actual cache counts for vehicle data
+        let vehicleMRCs = filterCache.getCachedMRCs(for: .vehicle)
+        let vehicleClassifications = filterCache.getCachedVehicleClassifications()
+        let vehicleMakes = filterCache.getCachedVehicleMakes()
+        let vehicleModels = filterCache.getCachedVehicleModels()
+        let vehicleColors = filterCache.getCachedVehicleColors()
+        let vehicleModelYears = filterCache.getCachedVehicleModelYears()
+
+        // Create vehicle stats with actual cache data
         let vehicleStats = PackagedVehicleStats(
             totalRecords: dbStats.totalVehicleRecords,
             yearRange: dbStats.vehicleYearRange,
             availableYearsCount: dbStats.availableVehicleYearsCount,
             regions: dbStats.regions,
-            mrcs: 0,  // TODO: Get actual MRC count from cache or database
+            mrcs: vehicleMRCs.count,
             municipalities: dbStats.municipalities,
-            classifications: 0, // TODO: Get from cache
-            makes: 0,          // TODO: Get from cache
-            models: 0,         // TODO: Get from cache
-            colors: 0,         // TODO: Get from cache
-            modelYears: 0,     // TODO: Get from cache
+            classifications: vehicleClassifications.count,
+            makes: vehicleMakes.count,
+            models: vehicleModels.count,
+            colors: vehicleColors.count,
+            modelYears: vehicleModelYears.count,
             lastUpdated: dbStats.lastUpdated
         )
 
-        // Create driver stats
+        // Get actual cache counts for license data
+        let licenseMRCs = filterCache.getCachedMRCs(for: .license)
+        let licenseTypes = filterCache.getCachedLicenseTypes()
+        let licenseAgeGroups = filterCache.getCachedLicenseAgeGroups()
+        let licenseGenders = filterCache.getCachedLicenseGenders()
+        let licenseExperienceLevels = filterCache.getCachedLicenseExperienceLevels()
+        let licenseClasses = filterCache.getCachedLicenseClasses()
+
+        // Create driver stats with actual cache data
         let driverStats = PackagedDriverStats(
             totalRecords: dbStats.totalLicenseRecords,
             yearRange: dbStats.licenseYearRange,
             availableYearsCount: dbStats.availableLicenseYearsCount,
             regions: dbStats.regions,
-            mrcs: 0,  // TODO: Get actual MRC count from cache or database
-            licenseTypes: 0,      // TODO: Get from cache
-            ageGroups: 0,         // TODO: Get from cache
-            genders: 0,           // TODO: Get from cache
-            experienceLevels: 0,  // TODO: Get from cache
-            licenseClasses: 0,    // TODO: Get from cache
+            mrcs: licenseMRCs.count,
+            licenseTypes: licenseTypes.count,
+            ageGroups: licenseAgeGroups.count,
+            genders: licenseGenders.count,
+            experienceLevels: licenseExperienceLevels.count,
+            licenseClasses: licenseClasses.count,
             lastUpdated: dbStats.lastUpdated
         )
 
@@ -295,22 +311,47 @@ class DataPackageManager: ObservableObject {
     }
 
     private func exportVehicleCache(to path: URL) async throws {
-        // TODO: Export vehicle-specific cache data
-        // This would serialize the vehicle cache from FilterCache
         let vehicleCacheURL = path.appendingPathComponent("VehicleCache.plist")
 
-        let placeholder = ["placeholder": "Vehicle cache export not yet implemented"]
-        let data = try PropertyListSerialization.data(fromPropertyList: placeholder, format: .xml, options: 0)
+        // Collect all vehicle-specific cache data
+        let vehicleCache: [String: Any] = [
+            "years": filterCache.getCachedYears(for: .vehicle),
+            "regions": filterCache.getCachedRegions(for: .vehicle),
+            "mrcs": filterCache.getCachedMRCs(for: .vehicle),
+            "municipalities": filterCache.getCachedMunicipalities(for: .vehicle),
+            "classifications": filterCache.getCachedVehicleClassifications(),
+            "makes": filterCache.getCachedVehicleMakes(),
+            "models": filterCache.getCachedVehicleModels(),
+            "colors": filterCache.getCachedVehicleColors(),
+            "modelYears": filterCache.getCachedVehicleModelYears(),
+            "municipalityCodeToName": filterCache.getCachedMunicipalityCodeToName()
+        ]
+
+        let data = try PropertyListSerialization.data(fromPropertyList: vehicleCache, format: .xml, options: 0)
         try data.write(to: vehicleCacheURL)
+
+        print("💾 Vehicle cache exported with \((vehicleCache["years"] as? [Int])?.count ?? 0) years, \((vehicleCache["regions"] as? [String])?.count ?? 0) regions")
     }
 
     private func exportDriverCache(to path: URL) async throws {
-        // TODO: Export driver-specific cache data
         let driverCacheURL = path.appendingPathComponent("DriverCache.plist")
 
-        let placeholder = ["placeholder": "Driver cache export not yet implemented"]
-        let data = try PropertyListSerialization.data(fromPropertyList: placeholder, format: .xml, options: 0)
+        // Collect all driver/license-specific cache data
+        let driverCache: [String: Any] = [
+            "years": filterCache.getCachedYears(for: .license),
+            "regions": filterCache.getCachedRegions(for: .license),
+            "mrcs": filterCache.getCachedMRCs(for: .license),
+            "licenseTypes": filterCache.getCachedLicenseTypes(),
+            "ageGroups": filterCache.getCachedLicenseAgeGroups(),
+            "genders": filterCache.getCachedLicenseGenders(),
+            "experienceLevels": filterCache.getCachedLicenseExperienceLevels(),
+            "licenseClasses": filterCache.getCachedLicenseClasses()
+        ]
+
+        let data = try PropertyListSerialization.data(fromPropertyList: driverCache, format: .xml, options: 0)
         try data.write(to: driverCacheURL)
+
+        print("💾 Driver cache exported with \((driverCache["years"] as? [Int])?.count ?? 0) years, \((driverCache["licenseTypes"] as? [String])?.count ?? 0) license types")
     }
 
     private func exportMetadata(to path: URL, stats: PackagedDataStats, options: DataPackageExportOptions) async throws {
@@ -396,7 +437,7 @@ class DataPackageManager: ObservableObject {
         }
 
         // Close current database connection
-        // TODO: Add method to close database connection
+        await databaseManager.closeDatabaseConnection()
 
         // Replace database file
         if FileManager.default.fileExists(atPath: currentDBURL.path) {
@@ -406,23 +447,118 @@ class DataPackageManager: ObservableObject {
         try FileManager.default.copyItem(at: sourceURL, to: currentDBURL)
 
         // Reconnect to database
-        // TODO: Add method to reconnect to database
+        await databaseManager.reconnectDatabase()
+
+        print("📥 Database imported and connection restored")
     }
 
     private func importCacheData(from cachePath: URL) async throws {
-        // TODO: Import and restore cache data
-        print("💾 Importing cache data (not yet implemented)")
+        let vehicleCacheURL = cachePath.appendingPathComponent("VehicleCache.plist")
+        let driverCacheURL = cachePath.appendingPathComponent("DriverCache.plist")
+
+        // Import vehicle cache if it exists
+        if FileManager.default.fileExists(atPath: vehicleCacheURL.path) {
+            try await importVehicleCache(from: vehicleCacheURL)
+        } else {
+            print("⚠️ Vehicle cache file not found in package")
+        }
+
+        // Import driver cache if it exists
+        if FileManager.default.fileExists(atPath: driverCacheURL.path) {
+            try await importDriverCache(from: driverCacheURL)
+        } else {
+            print("⚠️ Driver cache file not found in package")
+        }
+
+        print("💾 Cache data import completed")
+    }
+
+    private func importVehicleCache(from cacheURL: URL) async throws {
+        let data = try Data(contentsOf: cacheURL)
+        guard let cacheDict = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
+            throw DataPackageError.importFailed("Invalid vehicle cache format")
+        }
+
+        // Extract vehicle cache data
+        let years = cacheDict["years"] as? [Int] ?? []
+        let regions = cacheDict["regions"] as? [String] ?? []
+        let mrcs = cacheDict["mrcs"] as? [String] ?? []
+        let municipalities = cacheDict["municipalities"] as? [String] ?? []
+        let classifications = cacheDict["classifications"] as? [String] ?? []
+        let makes = cacheDict["makes"] as? [String] ?? []
+        let models = cacheDict["models"] as? [String] ?? []
+        let colors = cacheDict["colors"] as? [String] ?? []
+        let modelYears = cacheDict["modelYears"] as? [Int] ?? []
+        let municipalityCodeToName = cacheDict["municipalityCodeToName"] as? [String: String] ?? [:]
+
+        // Update the vehicle cache
+        filterCache.updateVehicleCache(
+            years: years,
+            regions: regions,
+            mrcs: mrcs,
+            municipalities: municipalities,
+            classifications: classifications,
+            vehicleMakes: makes,
+            vehicleModels: models,
+            vehicleColors: colors,
+            modelYears: modelYears
+        )
+
+        // Store municipality mapping separately if it exists
+        if !municipalityCodeToName.isEmpty {
+            let userDefaults = UserDefaults.standard
+            if let mappingData = try? JSONEncoder().encode(municipalityCodeToName) {
+                userDefaults.set(mappingData, forKey: "FilterCache.municipalityCodeToName")
+            }
+        }
+
+        print("📥 Vehicle cache imported with \(years.count) years, \(regions.count) regions, \(classifications.count) classifications")
+    }
+
+    private func importDriverCache(from cacheURL: URL) async throws {
+        let data = try Data(contentsOf: cacheURL)
+        guard let cacheDict = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
+            throw DataPackageError.importFailed("Invalid driver cache format")
+        }
+
+        // Extract driver cache data
+        let years = cacheDict["years"] as? [Int] ?? []
+        let regions = cacheDict["regions"] as? [String] ?? []
+        let mrcs = cacheDict["mrcs"] as? [String] ?? []
+        let licenseTypes = cacheDict["licenseTypes"] as? [String] ?? []
+        let ageGroups = cacheDict["ageGroups"] as? [String] ?? []
+        let genders = cacheDict["genders"] as? [String] ?? []
+        let experienceLevels = cacheDict["experienceLevels"] as? [String] ?? []
+        let licenseClasses = cacheDict["licenseClasses"] as? [String] ?? []
+
+        // Update the license cache
+        filterCache.updateLicenseCache(
+            years: years,
+            regions: regions,
+            mrcs: mrcs,
+            licenseTypes: licenseTypes,
+            ageGroups: ageGroups,
+            genders: genders,
+            experienceLevels: experienceLevels,
+            licenseClasses: licenseClasses
+        )
+
+        print("📥 Driver cache imported with \(years.count) years, \(licenseTypes.count) license types, \(ageGroups.count) age groups")
     }
 
     private func updateAppStateAfterImport(packageInfo: DataPackageInfo) async throws {
-        // Clear current cache and refresh from imported database
-        filterCache.clearCache()
-        await databaseManager.refreshFilterCache()
+        // Refresh database stats from the imported database
+        let newDbStats = await databaseManager.getDatabaseStats()
 
-        // Update data version
-        filterCache.updateDataVersion(packageInfo.databaseVersion)
+        // Finalize cache update with imported database stats and version
+        filterCache.finalizeCacheUpdate(
+            municipalityCodeToName: filterCache.getCachedMunicipalityCodeToName(),
+            databaseStats: newDbStats,
+            dataVersion: packageInfo.databaseVersion
+        )
 
-        print("✅ App state updated after import")
+        print("✅ App state updated with imported database stats")
+        print("📊 New database contains \(newDbStats.totalVehicleRecords) vehicle records and \(newDbStats.totalLicenseRecords) license records")
     }
 
     // MARK: - Utility Methods

@@ -723,12 +723,55 @@ struct ExportMenu: View {
 // Add alert modifier for the ExportMenu
 extension ExportMenu {
     func withPackageAlerts() -> some View {
-        self.alert("Data Package Export", isPresented: $showingPackageAlert) {
-            Button("OK") {
-                showingPackageAlert = false
+        self
+            .alert("Data Package Export", isPresented: $showingPackageAlert) {
+                Button("OK") {
+                    showingPackageAlert = false
+                }
+            } message: {
+                Text(packageAlertMessage)
             }
-        } message: {
-            Text(packageAlertMessage)
-        }
+            .overlay {
+                if showingPackageProgress {
+                    ZStack {
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+
+                        VStack(spacing: 20) {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle())
+                                .scaleEffect(1.5)
+
+                            VStack(spacing: 8) {
+                                Text("Exporting Data Package")
+                                    .font(.headline)
+
+                                if !packageManager.operationStatus.isEmpty {
+                                    Text(packageManager.operationStatus)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                if packageManager.operationProgress > 0 {
+                                    ProgressView(value: packageManager.operationProgress)
+                                        .frame(width: 200)
+
+                                    Text("\(Int(packageManager.operationProgress * 100))%")
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Text("Please do not quit the application")
+                                    .font(.caption2)
+                                    .foregroundColor(.orange)
+                            }
+                            .padding(30)
+                            .background(Color(NSColor.controlBackgroundColor))
+                            .cornerRadius(10)
+                            .shadow(radius: 10)
+                        }
+                    }
+                }
+            }
     }
 }

@@ -259,6 +259,30 @@ class DatabaseManager: ObservableObject {
         }
     }
 
+    // MARK: - Database Connection Management
+
+    /// Closes the database connection for import/export operations
+    func closeDatabaseConnection() async {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                self?.closeDatabase()
+                print("🔒 Database connection closed for import/export")
+                continuation.resume()
+            }
+        }
+    }
+
+    /// Reconnects to the database after import/export operations
+    func reconnectDatabase() async {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                self?.openDatabase()
+                self?.createTablesIfNeeded()
+                print("🔓 Database connection reopened after import/export")
+                continuation.resume()
+            }
+        }
+    }
 
     /// Closes database connection
     private func closeDatabase() {
