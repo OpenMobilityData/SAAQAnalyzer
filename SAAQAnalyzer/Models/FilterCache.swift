@@ -342,7 +342,28 @@ class FilterCache {
         let verifyVersion = userDefaults.string(forKey: CacheKeys.dataVersion)
         print("💾 Verification - cached version is now: \(verifyVersion ?? "nil")")
     }
-    
+
+    /// Update all cache versions to match the current database version
+    /// Used when importing data packages to preserve cache data while updating version timestamps
+    func updateAllCacheVersions(to newVersion: String) {
+        print("🔄 Updating all cache versions to: \(newVersion)")
+
+        // Update the main version key
+        userDefaults.set(newVersion, forKey: CacheKeys.dataVersion)
+
+        // Update the timestamp to reflect the version change
+        userDefaults.set(Date(), forKey: CacheKeys.lastUpdated)
+
+        // Force synchronization to ensure all changes are written
+        userDefaults.synchronize()
+
+        print("✅ All cache versions updated to: \(newVersion)")
+
+        // Verify the update
+        let verifyVersion = userDefaults.string(forKey: CacheKeys.dataVersion)
+        print("🔍 Verification - cache version is now: \(verifyVersion ?? "nil")")
+    }
+
     /// Clear the entire cache
     func clearCache() {
         // Shared keys
