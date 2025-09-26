@@ -163,6 +163,10 @@ class DataPackageManager: ObservableObject {
         operationProgress = 0.0
         operationStatus = "Starting import..."
 
+        // Generate a consistent timestamp for both database and cache
+        let importTimestamp = Date()
+        let importVersion = String(Int(importTimestamp.timeIntervalSince1970))
+
         defer {
             Task { @MainActor in
                 isImporting = false
@@ -186,8 +190,8 @@ class DataPackageManager: ObservableObject {
 
             await updateProgress(0.4, "Importing database...")
 
-            // Import database
-            try await importDatabase(from: contentsURL.appendingPathComponent("Database"))
+            // Import database with consistent timestamp
+            try await importDatabase(from: contentsURL.appendingPathComponent("Database"), timestamp: importTimestamp)
 
             await updateProgress(0.7, "Importing cache data...")
 
@@ -196,8 +200,8 @@ class DataPackageManager: ObservableObject {
 
             await updateProgress(0.9, "Updating metadata...")
 
-            // Update app state
-            try await updateAppStateAfterImport(packageInfo: packageInfo)
+            // Update app state with matching version
+            try await updateAppStateAfterImport(packageInfo: packageInfo, dataVersion: importVersion)
 
             await updateProgress(1.0, "Import completed successfully")
 
@@ -425,7 +429,7 @@ class DataPackageManager: ObservableObject {
         print("💾 Creating data backup (not yet implemented)")
     }
 
-    private func importDatabase(from databasePath: URL) async throws {
+    private func importDatabase(from databasePath: URL, timestamp: Date) async throws {
         let sourceURL = databasePath.appendingPathComponent("saaq_data.sqlite")
 
         guard FileManager.default.fileExists(atPath: sourceURL.path) else {
@@ -446,9 +450,9 @@ class DataPackageManager: ObservableObject {
 
         try FileManager.default.copyItem(at: sourceURL, to: currentDBURL)
 
-        // Update the modification date of the imported database to current time
+        // Update the modification date of the imported database to the consistent timestamp
         // This ensures the database version (based on mod date) matches the cache version
-        let attributes = [FileAttributeKey.modificationDate: Date()]
+        let attributes = [FileAttributeKey.modificationDate: timestamp]
         try FileManager.default.setAttributes(attributes, ofItemAtPath: currentDBURL.path)
 
         // Reconnect to database
@@ -551,24 +555,20 @@ class DataPackageManager: ObservableObject {
         print("📥 Driver cache imported with \(years.count) years, \(licenseTypes.count) license types, \(ageGroups.count) age groups")
     }
 
-    private func updateAppStateAfterImport(packageInfo: DataPackageInfo) async throws {
+    private func updateAppStateAfterImport(packageInfo: DataPackageInfo, dataVersion: String) async throws {
         // Refresh database stats from the imported database
         let newDbStats = await databaseManager.getDatabaseStats()
 
-        // Generate a new version timestamp for this import
-        // This ensures the cache version matches what the database manager expects
-        let newDataVersion = String(Int(Date().timeIntervalSince1970))
-
-        // Finalize cache update with imported database stats and new version
+        // Finalize cache update with imported database stats and consistent version
         filterCache.finalizeCacheUpdate(
             municipalityCodeToName: filterCache.getCachedMunicipalityCodeToName(),
             databaseStats: newDbStats,
-            dataVersion: newDataVersion
+            dataVersion: dataVersion
         )
 
         print("✅ App state updated with imported database stats")
         print("📊 New database contains \(newDbStats.totalVehicleRecords) vehicle records and \(newDbStats.totalLicenseRecords) license records")
-        print("📊 Set new data version: \(newDataVersion)")
+        print("📊 Set synchronized data version: \(dataVersion)")
     }
 
     // MARK: - Utility Methods
