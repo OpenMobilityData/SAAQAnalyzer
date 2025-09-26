@@ -556,15 +556,35 @@ class DataPackageManager: ObservableObject {
     }
 
     private func updateAppStateAfterImport(packageInfo: DataPackageInfo, dataVersion: String) async throws {
+        print("🔧 updateAppStateAfterImport called with dataVersion: \(dataVersion)")
+
+        // Check current cache version before update
+        let currentCacheVersion = filterCache.cachedDataVersion
+        print("🔍 Current cache version before sync: \(currentCacheVersion ?? "nil")")
+
+        // Update all cache entries to use the new synchronized version
+        print("🔄 Updating all cache entries to use synchronized version: \(dataVersion)")
+        filterCache.updateAllCacheVersions(to: dataVersion)
+
+        // Verify the update worked
+        let updatedCacheVersion = filterCache.cachedDataVersion
+        print("🔍 Cache version after updateAllCacheVersions: \(updatedCacheVersion ?? "nil")")
+
         // Refresh database stats from the imported database
+        print("📊 Refreshing database stats...")
         let newDbStats = await databaseManager.getDatabaseStats()
 
         // Finalize cache update with imported database stats and consistent version
+        print("🔧 Calling finalizeCacheUpdate with dataVersion: \(dataVersion)")
         filterCache.finalizeCacheUpdate(
             municipalityCodeToName: filterCache.getCachedMunicipalityCodeToName(),
             databaseStats: newDbStats,
             dataVersion: dataVersion
         )
+
+        // Final verification
+        let finalCacheVersion = filterCache.cachedDataVersion
+        print("🔍 Final cache version after finalizeCacheUpdate: \(finalCacheVersion ?? "nil")")
 
         print("✅ App state updated with imported database stats")
         print("📊 New database contains \(newDbStats.totalVehicleRecords) vehicle records and \(newDbStats.totalLicenseRecords) license records")
