@@ -224,7 +224,13 @@ struct FilterPanel: View {
             // Skip reload if we're just replacing existing year data
             if hasInitiallyLoaded {
                 Task {
-                    await refreshIfNeeded()
+                    // If we have no data (likely from bypass), do a full reload
+                    if availableYears.isEmpty && availableRegions.isEmpty {
+                        print("🔄 Full reload needed after cache bypass and import")
+                        await loadAvailableOptions()
+                    } else {
+                        await refreshIfNeeded()
+                    }
                 }
             }
         }

@@ -583,7 +583,14 @@ struct ContentView: View {
                         // Refresh UI after import
                         await databaseManager.refreshFilterCache()
 
-                        packageAlertMessage = "Data package imported successfully!"
+                        // Force full UI refresh after package import
+                        await MainActor.run {
+                            // Clear chart data to force refresh
+                            chartData.removeAll()
+                            selectedFilters = FilterConfiguration()
+                        }
+
+                        packageAlertMessage = "Data package imported successfully! All filters and data are now available."
                         showingPackageAlert = true
                     } catch {
                         packageAlertMessage = "Import failed: \(error.localizedDescription)"
