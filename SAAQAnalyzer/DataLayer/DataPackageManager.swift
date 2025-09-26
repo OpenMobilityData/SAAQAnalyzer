@@ -446,6 +446,11 @@ class DataPackageManager: ObservableObject {
 
         try FileManager.default.copyItem(at: sourceURL, to: currentDBURL)
 
+        // Update the modification date of the imported database to current time
+        // This ensures the database version (based on mod date) matches the cache version
+        let attributes = [FileAttributeKey.modificationDate: Date()]
+        try FileManager.default.setAttributes(attributes, ofItemAtPath: currentDBURL.path)
+
         // Reconnect to database
         await databaseManager.reconnectDatabase()
 
@@ -550,15 +555,20 @@ class DataPackageManager: ObservableObject {
         // Refresh database stats from the imported database
         let newDbStats = await databaseManager.getDatabaseStats()
 
-        // Finalize cache update with imported database stats and version
+        // Generate a new version timestamp for this import
+        // This ensures the cache version matches what the database manager expects
+        let newDataVersion = String(Int(Date().timeIntervalSince1970))
+
+        // Finalize cache update with imported database stats and new version
         filterCache.finalizeCacheUpdate(
             municipalityCodeToName: filterCache.getCachedMunicipalityCodeToName(),
             databaseStats: newDbStats,
-            dataVersion: packageInfo.databaseVersion
+            dataVersion: newDataVersion
         )
 
         print("✅ App state updated with imported database stats")
         print("📊 New database contains \(newDbStats.totalVehicleRecords) vehicle records and \(newDbStats.totalLicenseRecords) license records")
+        print("📊 Set new data version: \(newDataVersion)")
     }
 
     // MARK: - Utility Methods
