@@ -199,10 +199,15 @@ struct ContentView: View {
             let optionKeyPressed = NSEvent.modifierFlags.contains(.option)
 
             if optionKeyPressed {
-                // Show alert about bypass mode
+                // Show alert about bypass mode and skip all initialization
                 Task { @MainActor in
-                    packageAlertMessage = "Cache loading bypassed. You can now import a data package immediately without waiting for cache rebuild."
+                    packageAlertMessage = "Cache loading bypassed. First launch setup skipped. You can now import a data package immediately without waiting for cache rebuild."
                     showingPackageAlert = true
+                }
+                // Mark first launch complete to prevent geographic data import
+                if AppSettings.shared.isFirstLaunch {
+                    AppSettings.shared.markFirstLaunchComplete()
+                    print("⚠️ Option key bypass: Skipping first launch setup")
                 }
             } else if AppSettings.shared.isFirstLaunch {
                 // Import bundled geographic data on first launch
@@ -569,7 +574,7 @@ struct ContentView: View {
 
                 if alert.runModal() == .alertFirstButtonReturn {
                     do {
-                        showingImportProgress = true
+                        // Package manager has its own progress tracking
                         try await packageManager.importDataPackage(from: url)
 
                         // Refresh UI after import
@@ -581,7 +586,6 @@ struct ContentView: View {
                         packageAlertMessage = "Import failed: \(error.localizedDescription)"
                         showingPackageAlert = true
                     }
-                    showingImportProgress = false
                 }
             }
         }
