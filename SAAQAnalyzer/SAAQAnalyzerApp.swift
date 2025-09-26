@@ -195,8 +195,17 @@ struct ContentView: View {
             Text(packageAlertMessage)
         }
         .onAppear {
-            // Import bundled geographic data on first launch
-            if AppSettings.shared.isFirstLaunch {
+            // Check for Option key bypass
+            let optionKeyPressed = NSEvent.modifierFlags.contains(.option)
+
+            if optionKeyPressed {
+                // Show alert about bypass mode
+                Task { @MainActor in
+                    packageAlertMessage = "Cache loading bypassed. You can now import a data package immediately without waiting for cache rebuild."
+                    showingPackageAlert = true
+                }
+            } else if AppSettings.shared.isFirstLaunch {
+                // Import bundled geographic data on first launch
                 Task {
                     await importBundledGeographicDataOnFirstLaunch()
                 }

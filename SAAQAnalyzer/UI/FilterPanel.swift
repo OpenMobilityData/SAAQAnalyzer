@@ -196,7 +196,22 @@ struct FilterPanel: View {
         .background(Color(NSColor.controlBackgroundColor))
         .onAppear {
             if !hasInitiallyLoaded {
-                loadAvailableOptions()
+                // Check if Option key is held down to bypass cache loading
+                let optionKeyPressed = NSEvent.modifierFlags.contains(.option)
+
+                if optionKeyPressed {
+                    print("⚠️ Option key detected - bypassing cache loading for quick startup")
+                    print("📦 You can now import a data package without waiting for cache rebuild")
+                    hasInitiallyLoaded = true
+                    isLoadingData = false
+                    // Set minimal data to prevent UI issues
+                    availableYears = []
+                    availableRegions = []
+                    availableMRCs = []
+                    availableMunicipalities = []
+                } else {
+                    loadAvailableOptions()
+                }
             }
         }
         .onReceive(databaseManager.$dataVersion) { _ in
