@@ -11,6 +11,8 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
 - **SQLite Database**: Efficient storage with WAL mode, indexing, and 64MB cache for optimal performance
 - **Batch Processing**: Handle large datasets (77M+ records) with 50K-record batch processing and parallel workers
 - **Import Progress**: Real-time progress indication with detailed stage tracking and indexing updates
+- **Data Package Export/Import**: Transfer complete databases (39GB+) between machines without re-processing
+- **Cache Preservation**: Export and import filter caches to bypass lengthy rebuild times
 
 ### Advanced Filtering System
 - **Temporal Filters**: Filter by years and model years (vehicle data)
@@ -74,6 +76,7 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
 **Storage Requirements:**
 - Raw CSV files: 15-25GB per complete vehicle dataset
 - SQLite database: 25-40GB with indexes for full datasets
+- Data packages: 39GB+ for complete export (77M+ vehicle + 66M+ driver records)
 - Cache files: 50-100MB (stored in UserDefaults)
 - Temporary files: 5-10GB during large imports
 
@@ -154,6 +157,36 @@ SAAQAnalyzer includes a comprehensive XCTest-based test suite covering:
 2. **Content**: Municipality codes, names, and hierarchical relationships
 3. **Purpose**: Enables proper municipality name display in vehicle data filters
 4. **Note**: Not required for driver data as geographic names are already human-readable
+
+### Data Package Management
+
+#### Exporting Data Packages
+Data packages allow you to transfer complete databases between machines without re-importing CSVs:
+
+1. **Export Package**: Click Export toolbar button → "Export Data Package"
+2. **Choose Location**: Select where to save the `.saaqpackage` file (39GB+ for full datasets)
+3. **Package Contents**:
+   - Complete SQLite database with all records
+   - Vehicle and driver filter caches
+   - Metadata and statistics
+4. **Transfer**: Copy the package file to another machine via external drive or network
+
+#### Importing Data Packages
+Import a data package to instantly access all data without processing:
+
+1. **Import Package**: Click Import toolbar button → "Import Data Package..."
+2. **Select Package**: Choose the `.saaqpackage` file
+3. **Automatic Setup**: Database and caches are restored immediately
+4. **Ready to Use**: All data available without hours of processing
+
+#### Quick Import Mode (Option Key Bypass)
+If cache loading is slow on startup:
+
+1. **Quit the Application** if running
+2. **Hold Option Key** (⌥) while launching SAAQAnalyzer
+3. **Bypass Confirmation**: You'll see "Cache loading bypassed" alert
+4. **Import Immediately**: Import data package without waiting for cache rebuild
+5. **Use Case**: Helpful for testing or when cache is corrupted
 
 ### Data Analysis Workflow
 
@@ -331,6 +364,7 @@ The application automatically handles French character encoding issues:
 - Clear all caches: Preferences → Development → Clear Cache options
 - Restart app to reset database connections and rebuild caches automatically
 - Check available disk space for database growth
+- Use Option key bypass: Hold ⌥ while launching to skip cache loading for immediate import
 
 **Chart Not Updating**
 - Verify filters are properly selected
