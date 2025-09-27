@@ -249,6 +249,10 @@ struct FilterPanel: View {
                 await cleanupInvalidFilterSelections()
             }
         }
+        .onChange(of: databaseManager.dataVersion) { _, _ in
+            print("🔄 Database version changed, refreshing municipality mapping")
+            refreshMunicipalityMapping()
+        }
     }
     
     /// Loads available filter options from database
@@ -424,6 +428,17 @@ struct FilterPanel: View {
             print("🧹 Cleaned up invalid filter selections for \(configuration.dataEntityType)")
             print("   Remaining regions: \(configuration.regions.count)")
             print("   Remaining MRCs: \(configuration.mrcs.count)")
+        }
+    }
+
+    /// Refresh municipality mapping after data package import
+    func refreshMunicipalityMapping() {
+        Task {
+            let newMapping = await databaseManager.getMunicipalityCodeToNameMapping()
+            await MainActor.run {
+                municipalityCodeToName = newMapping
+                print("🗺️ Municipality mapping refreshed: \(newMapping.count) entries")
+            }
         }
     }
 }
