@@ -938,6 +938,27 @@ struct PerformanceSettingsTab: View {
 
             Divider()
 
+            // Database Performance
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Database Performance")
+                    .font(.headline)
+
+                Toggle(isOn: $settings.updateDatabaseStatisticsOnLaunch) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Update Statistics on Launch")
+                            .font(.subheadline)
+                        Text("Runs ANALYZE command for optimal query performance (adds 2-5 minutes to startup)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                DatabaseStatisticsButton()
+                    .padding(.leading, 20)
+            }
+
+            Divider()
+
             // Performance Tips
             VStack(alignment: .leading, spacing: 8) {
                 Text("Performance Tips")
@@ -1156,6 +1177,67 @@ struct ExportSettingsTab: View {
         .padding()
         .padding(.top, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+// MARK: - Database Statistics Button
+
+/// Button to manually update database statistics
+struct DatabaseStatisticsButton: View {
+    @EnvironmentObject var databaseManager: DatabaseManager
+    @State private var isUpdating = false
+    @State private var showAlert = false
+    @State private var alertMessage = ""
+    @State private var isError = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: updateStatistics) {
+                HStack {
+                    if isUpdating {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else {
+                        Image(systemName: "chart.line.uptrend.xyaxis")
+                    }
+                    Text(isUpdating ? "Updating Statistics..." : "Update Statistics Now")
+                }
+                .foregroundColor(isUpdating ? .secondary : .accentColor)
+            }
+            .disabled(isUpdating)
+            .buttonStyle(.borderless)
+
+            Text("Manually update database statistics for optimal query performance")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+        .alert("Database Statistics", isPresented: $showAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(alertMessage)
+        }
+    }
+
+    private func updateStatistics() {
+        isUpdating = true
+        Task {
+            do {
+                try await databaseManager.updateDatabaseStatistics()
+                await MainActor.run {
+                    isUpdating = false
+                    alertMessage = "Database statistics updated successfully. Query performance should be improved."
+                    isError = false
+                    showAlert = true
+                }
+            } catch {
+                await MainActor.run {
+                    isUpdating = false
+                    alertMessage = "Failed to update database statistics: \(error.localizedDescription)"
+                    isError = true
+                    showAlert = true
+                }
+            }
+        }
     }
 }
 

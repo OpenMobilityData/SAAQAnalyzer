@@ -145,15 +145,50 @@ class DatabaseManager: ObservableObject {
     /// Opens SQLite database connection
     private func openDatabase() {
         guard let dbPath = databaseURL?.path else { return }
-        
+
         if sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK {
             print("Successfully opened database at: \(dbPath)")
-            
-            // Enable performance optimizations
+
+            // Enable AGGRESSIVE performance optimizations for M3 Ultra (96GB RAM, 58GB database)
             sqlite3_exec(db, "PRAGMA journal_mode = WAL", nil, nil, nil)
             sqlite3_exec(db, "PRAGMA synchronous = NORMAL", nil, nil, nil)
-            sqlite3_exec(db, "PRAGMA cache_size = -64000", nil, nil, nil)  // 64MB cache
+
+            // Use 8GB cache for 58GB database on 96GB system
+            // Negative value = size in KB, so -8000000 = 8GB
+            sqlite3_exec(db, "PRAGMA cache_size = -8000000", nil, nil, nil)  // 8GB cache
+
+            // Map 32GB of database into memory (1/3 of available RAM, >50% of DB)
+            // This should cover most frequently accessed data
+            sqlite3_exec(db, "PRAGMA mmap_size = 34359738368", nil, nil, nil)  // 32GB mmap
+
+            // Keep temp tables in memory
             sqlite3_exec(db, "PRAGMA temp_store = MEMORY", nil, nil, nil)
+
+            // Use all efficiency cores for sorting (M3 Ultra has 4)
+            sqlite3_exec(db, "PRAGMA threads = 16", nil, nil, nil)  // Use 16 threads
+
+            // Increase page size for better performance with large datasets
+            sqlite3_exec(db, "PRAGMA page_size = 32768", nil, nil, nil)  // 32KB pages
+
+            // Auto-vacuum to keep database compact
+            sqlite3_exec(db, "PRAGMA auto_vacuum = INCREMENTAL", nil, nil, nil)
+
+            // WAL checkpoint threshold - less frequent for performance
+            sqlite3_exec(db, "PRAGMA wal_autocheckpoint = 10000", nil, nil, nil)  // 10K pages
+
+            // Optimize query planner (fast)
+            sqlite3_exec(db, "PRAGMA optimize", nil, nil, nil)
+
+            // Conditionally update statistics based on user preference
+            if AppSettings.shared.updateDatabaseStatisticsOnLaunch {
+                print("🔄 Updating database statistics (ANALYZE) - this may take a few minutes...")
+                let startTime = Date()
+                sqlite3_exec(db, "ANALYZE", nil, nil, nil)
+                let duration = Date().timeIntervalSince(startTime)
+                print("✅ Database statistics updated in \(String(format: "%.1f", duration))s")
+            }
+
+            print("✅ Database AGGRESSIVELY optimized for M3 Ultra: 8GB cache, 32GB mmap, 16 threads")
         } else {
             print("Unable to open database at: \(dbPath)")
             if let errorMessage = sqlite3_errmsg(db) {
@@ -162,6 +197,39 @@ class DatabaseManager: ObservableObject {
         }
     }
     
+    /// Manually update database statistics (ANALYZE command)
+    func updateDatabaseStatistics() async throws {
+        return try await withCheckedThrowingContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(throwing: DatabaseError.notConnected)
+                    return
+                }
+
+                print("🔄 Updating database statistics (ANALYZE) - this may take several minutes...")
+                let startTime = Date()
+
+                let result = sqlite3_exec(db, "ANALYZE", nil, nil, nil)
+                let duration = Date().timeIntervalSince(startTime)
+
+                if result == SQLITE_OK {
+                    print("✅ Database statistics updated successfully in \(String(format: "%.1f", duration))s")
+                    continuation.resume()
+                } else {
+                    if let errorMessage = sqlite3_errmsg(db) {
+                        let error = DatabaseError.queryFailed(String(cString: errorMessage))
+                        print("❌ Failed to update database statistics: \(error)")
+                        continuation.resume(throwing: error)
+                    } else {
+                        let error = DatabaseError.queryFailed("Unknown error during ANALYZE")
+                        print("❌ Failed to update database statistics: \(error)")
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        }
+    }
+
     /// Clears all data from the database
     func clearAllData() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -370,7 +438,7 @@ class DatabaseManager: ObservableObject {
         
         // Create indexes for better query performance
         let createIndexes = [
-            // Vehicle indexes
+            // Vehicle indexes - single column
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year ON vehicles(year);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_classification ON vehicles(classification);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_geo ON vehicles(admin_region, mrc, geo_code);",
@@ -378,35 +446,75 @@ class DatabaseManager: ObservableObject {
             "CREATE INDEX IF NOT EXISTS idx_vehicles_model_year ON vehicles(model_year);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_make ON vehicles(make);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_model ON vehicles(model);",
-            // License indexes
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_color ON vehicles(original_color);",
+
+            // Composite indexes for common filter combinations
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_class ON vehicles(year, classification);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_fuel ON vehicles(year, fuel_type);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_region ON vehicles(year, admin_region);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_municipality ON vehicles(year, geo_code);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_geo_class_year ON vehicles(geo_code, classification, year);",  // Strategic index for municipality queries
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_class_region ON vehicles(year, classification, admin_region);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_fuel_class ON vehicles(year, fuel_type, classification);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_model_year ON vehicles(year, model_year);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_make_model ON vehicles(year, make, model);",
+
+            // License indexes - single column (based on actual table structure)
             "CREATE INDEX IF NOT EXISTS idx_licenses_year ON licenses(year);",
             "CREATE INDEX IF NOT EXISTS idx_licenses_geo ON licenses(admin_region, mrc);",
             "CREATE INDEX IF NOT EXISTS idx_licenses_type ON licenses(license_type);",
             "CREATE INDEX IF NOT EXISTS idx_licenses_age_group ON licenses(age_group);",
             "CREATE INDEX IF NOT EXISTS idx_licenses_gender ON licenses(gender);",
             "CREATE INDEX IF NOT EXISTS idx_licenses_probationary ON licenses(is_probationary);",
+
+            // Composite indexes for common license filter combinations
+            "CREATE INDEX IF NOT EXISTS idx_licenses_year_type ON licenses(year, license_type);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_year_age ON licenses(year, age_group);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_year_gender ON licenses(year, gender);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_year_region ON licenses(year, admin_region);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_year_type_age ON licenses(year, license_type, age_group);",
+
             // Geographic indexes
             "CREATE INDEX IF NOT EXISTS idx_geographic_type ON geographic_entities(type);",
-            "CREATE INDEX IF NOT EXISTS idx_geographic_parent ON geographic_entities(parent_code);"
+            "CREATE INDEX IF NOT EXISTS idx_geographic_parent ON geographic_entities(parent_code);",
+
+            // CACHE PERFORMANCE: Indexes specifically for DISTINCT queries in cache rebuilds
+            // These prevent full table scans during filter cache rebuilds
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_admin_region_distinct ON vehicles(admin_region);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_mrc_distinct ON vehicles(mrc);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_geo_code_distinct ON vehicles(geo_code);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_make_distinct ON vehicles(make);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_model_distinct ON vehicles(model);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_color_distinct ON vehicles(original_color);",
+
+            // License DISTINCT indexes for cache rebuilds
+            "CREATE INDEX IF NOT EXISTS idx_licenses_admin_region_distinct ON licenses(admin_region);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_mrc_distinct ON licenses(mrc);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_experience_distinct ON licenses(experience_global);"
         ]
         
-        dbQueue.async { [weak self] in
-            guard let db = self?.db else { return }
-            
-            // Create tables
-            for query in [createVehiclesTable, createLicensesTable, createGeographicTable, createImportLogTable] {
-                if sqlite3_exec(db, query, nil, nil, nil) != SQLITE_OK {
-                    if let errorMessage = sqlite3_errmsg(db) {
-                        print("Error creating table: \(String(cString: errorMessage))")
-                    }
+        // Create tables and indexes SYNCHRONOUSLY to ensure they exist before cache operations
+        // Create tables
+        for query in [createVehiclesTable, createLicensesTable, createGeographicTable, createImportLogTable] {
+            if sqlite3_exec(db, query, nil, nil, nil) != SQLITE_OK {
+                if let errorMessage = sqlite3_errmsg(db) {
+                    print("Error creating table: \(String(cString: errorMessage))")
                 }
             }
-            
-            // Create indexes
-            for index in createIndexes {
-                sqlite3_exec(db, index, nil, nil, nil)
+        }
+
+        // Create indexes SYNCHRONOUSLY to prevent cache rebuild performance issues
+        print("🔧 Creating database indexes for optimal performance...")
+        let indexStartTime = Date()
+        for (index, indexSQL) in createIndexes.enumerated() {
+            if sqlite3_exec(db, indexSQL, nil, nil, nil) != SQLITE_OK {
+                if let errorMessage = sqlite3_errmsg(db) {
+                    print("⚠️ Warning: Failed to create index \(index + 1): \(String(cString: errorMessage))")
+                }
             }
         }
+        let indexDuration = Date().timeIntervalSince(indexStartTime)
+        print("✅ Created \(createIndexes.count) database indexes in \(String(format: "%.1f", indexDuration))s")
     }
     
     /// Checks if data for a specific year is already imported
@@ -482,6 +590,12 @@ class DatabaseManager: ObservableObject {
 
     /// Generic query method that routes to appropriate data type handler
     func queryData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
+        // Use optimized parallel query for percentage calculations
+        if filters.metricType == .percentage {
+            return try await calculatePercentagePointsParallel(filters: filters)
+        }
+
+        // Regular query for other metric types
         switch filters.dataEntityType {
         case .vehicle:
             return try await queryVehicleData(filters: filters)
@@ -492,6 +606,8 @@ class DatabaseManager: ObservableObject {
 
     /// Queries vehicle data based on filters
     func queryVehicleData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
+        let startTime = Date()
+
         // First, generate the proper series name with municipality name resolution
         let seriesName = await generateSeriesNameAsync(from: filters)
 
@@ -633,7 +749,13 @@ class DatabaseManager: ObservableObject {
                 // Add fuel type filter (only for years 2017+)
                 if !filters.fuelTypes.isEmpty {
                     let placeholders = Array(repeating: "?", count: filters.fuelTypes.count).joined(separator: ",")
-                    query += " AND fuel_type IN (\(placeholders)) AND year >= 2017"
+                    query += " AND fuel_type IN (\(placeholders))"
+
+                    // Smart year filtering: Only apply year >= 2017 if no specific years selected
+                    if filters.years.isEmpty {
+                        query += " AND year >= 2017"
+                    }
+
                     for fuelType in filters.fuelTypes.sorted() {
                         bindValues.append((Int32(bindIndex), fuelType))
                         bindIndex += 1
@@ -730,6 +852,8 @@ class DatabaseManager: ObservableObject {
                 } else {
                     // Create series with the proper name (already resolved)
                     let series = FilteredDataSeries(name: seriesName, filters: filters, points: points)
+                    let duration = Date().timeIntervalSince(startTime)
+                    print("🚀 Vehicle query completed in \(String(format: "%.3f", duration))s - \(points.count) data points")
                     continuation.resume(returning: series)
                 }
             }
@@ -738,6 +862,8 @@ class DatabaseManager: ObservableObject {
 
     /// Queries license data based on filters
     func queryLicenseData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
+        let startTime = Date()
+
         // First, generate the proper series name
         let seriesName = await generateSeriesNameAsync(from: filters)
 
@@ -961,6 +1087,8 @@ class DatabaseManager: ObservableObject {
                 } else {
                     // Create series with the proper name (already resolved)
                     let series = FilteredDataSeries(name: seriesName, filters: filters, points: points)
+                    let duration = Date().timeIntervalSince(startTime)
+                    print("🚀 License query completed in \(String(format: "%.3f", duration))s - \(points.count) data points")
                     continuation.resume(returning: series)
                 }
             }
@@ -1010,6 +1138,420 @@ class DatabaseManager: ObservableObject {
         }
 
         return percentagePoints
+    }
+
+    /// Optimized parallel calculation of percentage points - queries both numerator and baseline concurrently
+    private func calculatePercentagePointsParallel(
+        filters: FilterConfiguration
+    ) async throws -> FilteredDataSeries {
+        guard filters.metricType == .percentage,
+              let baselineFilters = filters.percentageBaseFilters else {
+            throw DatabaseError.queryFailed("Invalid percentage configuration")
+        }
+
+        let startTime = Date()
+
+        // Execute numerator and baseline queries in parallel using async let
+        async let numeratorTask = queryDataRaw(filters: filters)
+        async let baselineTask = queryDataRaw(filters: baselineFilters.toFilterConfiguration())
+
+        // Wait for both queries to complete concurrently
+        let (numeratorPoints, baselinePoints) = try await (numeratorTask, baselineTask)
+
+        let queryTime = Date().timeIntervalSince(startTime)
+        print("⚡ Parallel percentage queries completed in \(String(format: "%.3f", queryTime))s")
+
+        // Create baseline lookup dictionary
+        let baselineLookup = Dictionary(
+            uniqueKeysWithValues: baselinePoints.map { ($0.year, $0.value) }
+        )
+
+        // Calculate percentages
+        var percentagePoints: [TimeSeriesPoint] = []
+        for numeratorPoint in numeratorPoints {
+            let year = numeratorPoint.year
+            let numerator = numeratorPoint.value
+
+            if let baseline = baselineLookup[year], baseline > 0 {
+                let percentage = (numerator / baseline) * 100.0
+                percentagePoints.append(
+                    TimeSeriesPoint(year: year, value: percentage, label: numeratorPoint.label)
+                )
+            } else {
+                // No baseline data for this year, or baseline is zero
+                percentagePoints.append(
+                    TimeSeriesPoint(year: year, value: 0.0, label: numeratorPoint.label)
+                )
+            }
+        }
+
+        // Generate series name
+        let seriesName = await generateSeriesNameAsync(from: filters)
+
+        return FilteredDataSeries(name: seriesName, filters: filters, points: percentagePoints)
+    }
+
+    /// Raw query method that returns just the data points without creating a FilteredDataSeries
+    private func queryDataRaw(filters: FilterConfiguration) async throws -> [TimeSeriesPoint] {
+        switch filters.dataEntityType {
+        case .vehicle:
+            return try await queryVehicleDataRaw(filters: filters)
+        case .license:
+            return try await queryLicenseDataRaw(filters: filters)
+        }
+    }
+
+    /// Raw vehicle data query that returns just points without series wrapper
+    private func queryVehicleDataRaw(filters: FilterConfiguration) async throws -> [TimeSeriesPoint] {
+        let startTime = Date()
+
+        return try await withCheckedThrowingContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(throwing: DatabaseError.notConnected)
+                    return
+                }
+
+                // Build dynamic query based on filters and metric type
+                var query: String
+
+                // Build SELECT clause based on metric type
+                switch filters.metricType {
+                case .count, .percentage:  // Percentage uses count for numerator
+                    query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+
+                case .sum:
+                    if filters.metricField == .vehicleAge {
+                        query = "SELECT year, SUM(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
+                    } else if let column = filters.metricField.databaseColumn {
+                        query = "SELECT year, SUM(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
+                    } else {
+                        query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                    }
+
+                case .average:
+                    if filters.metricField == .vehicleAge {
+                        query = "SELECT year, AVG(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
+                    } else if let column = filters.metricField.databaseColumn {
+                        query = "SELECT year, AVG(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
+                    } else {
+                        query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                    }
+                }
+
+                // Build WHERE clause from filters
+                var bindIndex = 1
+                var bindValues: [(Int32, Any)] = []
+
+                // Add all filter conditions (years, regions, classifications, etc.)
+                query += self?.buildVehicleWhereClause(filters: filters, bindIndex: &bindIndex, bindValues: &bindValues) ?? ""
+
+                // Add GROUP BY and ORDER BY
+                query += " GROUP BY year ORDER BY year"
+
+                // Prepare and execute statement
+                var stmt: OpaquePointer?
+                defer { sqlite3_finalize(stmt) }
+
+                guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
+                    if let errorMessage = sqlite3_errmsg(db) {
+                        continuation.resume(throwing: DatabaseError.queryFailed(String(cString: errorMessage)))
+                    } else {
+                        continuation.resume(throwing: DatabaseError.queryFailed("Unknown error"))
+                    }
+                    return
+                }
+
+                // Bind values
+                for (index, value) in bindValues {
+                    switch value {
+                    case let intValue as Int:
+                        sqlite3_bind_int(stmt, index, Int32(intValue))
+                    case let stringValue as String:
+                        sqlite3_bind_text(stmt, index, stringValue, -1, SQLITE_TRANSIENT)
+                    default:
+                        break
+                    }
+                }
+
+                // Execute query and collect results
+                var points: [TimeSeriesPoint] = []
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let year = Int(sqlite3_column_int(stmt, 0))
+                    let value = sqlite3_column_double(stmt, 1)
+                    points.append(TimeSeriesPoint(year: year, value: value, label: nil))
+                }
+
+                let duration = Date().timeIntervalSince(startTime)
+                print("📊 Raw vehicle query completed in \(String(format: "%.3f", duration))s - \(points.count) data points")
+                continuation.resume(returning: points)
+            }
+        }
+    }
+
+    /// Raw license data query that returns just points without series wrapper
+    private func queryLicenseDataRaw(filters: FilterConfiguration) async throws -> [TimeSeriesPoint] {
+        return try await withCheckedThrowingContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(throwing: DatabaseError.notConnected)
+                    return
+                }
+
+                // Build dynamic query - simpler for licenses (count only for now)
+                var query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
+
+                // Build WHERE clause from filters
+                var bindIndex = 1
+                var bindValues: [(Int32, Any)] = []
+
+                query += self?.buildLicenseWhereClause(filters: filters, bindIndex: &bindIndex, bindValues: &bindValues) ?? ""
+
+                // Add GROUP BY and ORDER BY
+                query += " GROUP BY year ORDER BY year"
+
+                // Prepare and execute statement
+                var stmt: OpaquePointer?
+                defer { sqlite3_finalize(stmt) }
+
+                guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
+                    if let errorMessage = sqlite3_errmsg(db) {
+                        continuation.resume(throwing: DatabaseError.queryFailed(String(cString: errorMessage)))
+                    } else {
+                        continuation.resume(throwing: DatabaseError.queryFailed("Unknown error"))
+                    }
+                    return
+                }
+
+                // Bind values
+                for (index, value) in bindValues {
+                    switch value {
+                    case let intValue as Int:
+                        sqlite3_bind_int(stmt, index, Int32(intValue))
+                    case let stringValue as String:
+                        sqlite3_bind_text(stmt, index, stringValue, -1, SQLITE_TRANSIENT)
+                    default:
+                        break
+                    }
+                }
+
+                // Execute query and collect results
+                var points: [TimeSeriesPoint] = []
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let year = Int(sqlite3_column_int(stmt, 0))
+                    let value = sqlite3_column_double(stmt, 1)
+                    points.append(TimeSeriesPoint(year: year, value: value, label: nil))
+                }
+
+                continuation.resume(returning: points)
+            }
+        }
+    }
+
+    /// Helper method to build WHERE clause for vehicle queries
+    private func buildVehicleWhereClause(filters: FilterConfiguration, bindIndex: inout Int, bindValues: inout [(Int32, Any)]) -> String {
+        var whereClause = ""
+
+        // Add year filter
+        if !filters.years.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.years.count).joined(separator: ",")
+            whereClause += " AND year IN (\(placeholders))"
+            for year in filters.years.sorted() {
+                bindValues.append((Int32(bindIndex), year))
+                bindIndex += 1
+            }
+        }
+
+        // Add region filter
+        if !filters.regions.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.regions.count).joined(separator: ",")
+            whereClause += " AND admin_region IN (\(placeholders))"
+            for region in filters.regions.sorted() {
+                bindValues.append((Int32(bindIndex), region))
+                bindIndex += 1
+            }
+        }
+
+        // Add MRC filter
+        if !filters.mrcs.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.mrcs.count).joined(separator: ",")
+            whereClause += " AND mrc IN (\(placeholders))"
+            for mrc in filters.mrcs.sorted() {
+                bindValues.append((Int32(bindIndex), mrc))
+                bindIndex += 1
+            }
+        }
+
+        // Add municipality filter
+        if !filters.municipalities.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.municipalities.count).joined(separator: ",")
+            whereClause += " AND geo_code IN (\(placeholders))"
+            for municipality in filters.municipalities.sorted() {
+                bindValues.append((Int32(bindIndex), municipality))
+                bindIndex += 1
+            }
+        }
+
+        // Add vehicle classification filter
+        if !filters.vehicleClassifications.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.vehicleClassifications.count).joined(separator: ",")
+            whereClause += " AND classification IN (\(placeholders))"
+            for classification in filters.vehicleClassifications.sorted() {
+                bindValues.append((Int32(bindIndex), classification))
+                bindIndex += 1
+            }
+        }
+
+        // Add fuel type filter (only for years 2017+)
+        if !filters.fuelTypes.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.fuelTypes.count).joined(separator: ",")
+            whereClause += " AND fuel_type IN (\(placeholders))"
+
+            // Smart year filtering: Only apply year >= 2017 if no specific years selected
+            if filters.years.isEmpty {
+                whereClause += " AND year >= 2017"
+            }
+
+            for fuelType in filters.fuelTypes.sorted() {
+                bindValues.append((Int32(bindIndex), fuelType))
+                bindIndex += 1
+            }
+        }
+
+        // Add age range filter
+        if !filters.ageRanges.isEmpty {
+            var ageConditions: [String] = []
+            for ageRange in filters.ageRanges {
+                if let maxAge = ageRange.maxAge {
+                    // Age range with both min and max
+                    ageConditions.append("(year - model_year >= ? AND year - model_year <= ?)")
+                    bindValues.append((Int32(bindIndex), ageRange.minAge))
+                    bindIndex += 1
+                    bindValues.append((Int32(bindIndex), maxAge))
+                    bindIndex += 1
+                } else {
+                    // Age range with only minimum (no upper limit)
+                    ageConditions.append("(year - model_year >= ?)")
+                    bindValues.append((Int32(bindIndex), ageRange.minAge))
+                    bindIndex += 1
+                }
+            }
+            if !ageConditions.isEmpty {
+                whereClause += " AND (\(ageConditions.joined(separator: " OR ")))"
+            }
+        }
+
+        // Add vehicle make filter
+        if !filters.vehicleMakes.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.vehicleMakes.count).joined(separator: ",")
+            whereClause += " AND make IN (\(placeholders))"
+            for make in filters.vehicleMakes.sorted() {
+                bindValues.append((Int32(bindIndex), make))
+                bindIndex += 1
+            }
+        }
+
+        // Add vehicle model filter
+        if !filters.vehicleModels.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.vehicleModels.count).joined(separator: ",")
+            whereClause += " AND model IN (\(placeholders))"
+            for model in filters.vehicleModels.sorted() {
+                bindValues.append((Int32(bindIndex), model))
+                bindIndex += 1
+            }
+        }
+
+        // Add vehicle color filter
+        if !filters.vehicleColors.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.vehicleColors.count).joined(separator: ",")
+            whereClause += " AND original_color IN (\(placeholders))"
+            for color in filters.vehicleColors.sorted() {
+                bindValues.append((Int32(bindIndex), color))
+                bindIndex += 1
+            }
+        }
+
+        // Add model year filter
+        if !filters.modelYears.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.modelYears.count).joined(separator: ",")
+            whereClause += " AND model_year IN (\(placeholders))"
+            for year in filters.modelYears.sorted() {
+                bindValues.append((Int32(bindIndex), year))
+                bindIndex += 1
+            }
+        }
+
+        return whereClause
+    }
+
+    /// Helper method to build WHERE clause for license queries
+    private func buildLicenseWhereClause(filters: FilterConfiguration, bindIndex: inout Int, bindValues: inout [(Int32, Any)]) -> String {
+        var whereClause = ""
+
+        // Add year filter
+        if !filters.years.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.years.count).joined(separator: ",")
+            whereClause += " AND year IN (\(placeholders))"
+            for year in filters.years.sorted() {
+                bindValues.append((Int32(bindIndex), year))
+                bindIndex += 1
+            }
+        }
+
+        // Add region filter
+        if !filters.regions.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.regions.count).joined(separator: ",")
+            whereClause += " AND admin_region IN (\(placeholders))"
+            for region in filters.regions.sorted() {
+                bindValues.append((Int32(bindIndex), region))
+                bindIndex += 1
+            }
+        }
+
+        // Add MRC filter
+        if !filters.mrcs.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.mrcs.count).joined(separator: ",")
+            whereClause += " AND mrc IN (\(placeholders))"
+            for mrc in filters.mrcs.sorted() {
+                bindValues.append((Int32(bindIndex), mrc))
+                bindIndex += 1
+            }
+        }
+
+        // Add license-specific filters
+        if !filters.licenseTypes.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.licenseTypes.count).joined(separator: ",")
+            whereClause += " AND license_type IN (\(placeholders))"
+            for licenseType in filters.licenseTypes.sorted() {
+                bindValues.append((Int32(bindIndex), licenseType))
+                bindIndex += 1
+            }
+        }
+
+        if !filters.ageGroups.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.ageGroups.count).joined(separator: ",")
+            whereClause += " AND age_group IN (\(placeholders))"
+            for ageGroup in filters.ageGroups.sorted() {
+                bindValues.append((Int32(bindIndex), ageGroup))
+                bindIndex += 1
+            }
+        }
+
+        if !filters.genders.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.genders.count).joined(separator: ",")
+            whereClause += " AND gender IN (\(placeholders))"
+            for gender in filters.genders.sorted() {
+                bindValues.append((Int32(bindIndex), gender))
+                bindIndex += 1
+            }
+        }
+
+        // Note: experienceLevels and licenseClasses use multiple boolean columns in database
+        // These are handled by specialized query logic elsewhere, not simple WHERE clauses
+        // The database has columns like has_driver_license_1234, experience_1234, etc.
+        // that get transformed by app logic into single filter categories
+
+        return whereClause
     }
 
     /// Generates a descriptive name for a data series based on filters (async version with municipality name lookup)
@@ -1188,6 +1730,15 @@ class DatabaseManager: ObservableObject {
 
         if !baseFilters.regions.isEmpty {
             baseComponents.append("[Region: \(baseFilters.regions.joined(separator: " OR "))]")
+        } else if !baseFilters.mrcs.isEmpty {
+            baseComponents.append("[MRC: \(baseFilters.mrcs.joined(separator: " OR "))]")
+        } else if !baseFilters.municipalities.isEmpty {
+            // Convert municipality codes to names for display
+            let codeToName = await getMunicipalityCodeToNameMapping()
+            let municipalityNames = baseFilters.municipalities.compactMap { code in
+                codeToName[code] ?? code  // Fallback to code if name not found
+            }
+            baseComponents.append("[Municipality: \(municipalityNames.joined(separator: " OR "))]")
         }
 
         if !baseFilters.vehicleMakes.isEmpty {
@@ -1666,14 +2217,25 @@ class DatabaseManager: ObservableObject {
                 let indexStartTime = Date()
                 
                 if totalRecords < 50_000_000 {
-                    print("🔧 Rebuilding indexes after bulk import...")
-                    
-                    // Rebuild indexes for query performance
+                    print("🔧 Rebuilding indexes with optimized composite indexes...")
+
+                    // Rebuild indexes for query performance - single column
                     sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_year ON vehicles(year)", nil, nil, nil)
                     sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_classification ON vehicles(classification)", nil, nil, nil)
                     sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_geo ON vehicles(admin_region, mrc, geo_code)", nil, nil, nil)
                     sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_fuel ON vehicles(fuel_type)", nil, nil, nil)
                     sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_model_year ON vehicles(model_year)", nil, nil, nil)
+
+                    // Add composite indexes for common filter combinations
+                    sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_year_class ON vehicles(year, classification)", nil, nil, nil)
+                    sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_year_fuel ON vehicles(year, fuel_type)", nil, nil, nil)
+                    sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_year_region ON vehicles(year, admin_region)", nil, nil, nil)
+                    sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_year_municipality ON vehicles(year, geo_code)", nil, nil, nil)
+                    sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_geo_class_year ON vehicles(geo_code, classification, year)", nil, nil, nil)
+
+                    // Update query planner statistics after index creation
+                    print("📊 Updating query planner statistics...")
+                    sqlite3_exec(db, "ANALYZE vehicles", nil, nil, nil)
                 } else {
                     print("🔧 Optimizing indexes (incremental mode)...")
                     

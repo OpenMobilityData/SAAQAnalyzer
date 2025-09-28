@@ -78,6 +78,15 @@ class AppSettings: ObservableObject {
             UserDefaults.standard.set(maxThreadCount, forKey: "maxThreadCount")
         }
     }
+
+    // MARK: - Database Performance Settings
+
+    /// Whether to update database statistics (ANALYZE) on launch
+    @Published var updateDatabaseStatisticsOnLaunch: Bool {
+        didSet {
+            UserDefaults.standard.set(updateDatabaseStatisticsOnLaunch, forKey: "updateDatabaseStatisticsOnLaunch")
+        }
+    }
     
     // MARK: - Computed Properties
     
@@ -117,6 +126,9 @@ class AppSettings: ObservableObject {
         self.useAdaptiveThreadCount = UserDefaults.standard.object(forKey: "useAdaptiveThreadCount") as? Bool ?? true
         self.manualThreadCount = UserDefaults.standard.object(forKey: "manualThreadCount") as? Int ?? 8
         self.maxThreadCount = UserDefaults.standard.object(forKey: "maxThreadCount") as? Int ?? min(16, ProcessInfo.processInfo.activeProcessorCount)
+
+        // Load database performance settings (off by default to avoid launch delays)
+        self.updateDatabaseStatisticsOnLaunch = UserDefaults.standard.object(forKey: "updateDatabaseStatisticsOnLaunch") as? Bool ?? false
     }
     
     /// Calculates optimal thread count based on system characteristics and workload
@@ -159,5 +171,8 @@ class AppSettings: ObservableObject {
         useAdaptiveThreadCount = true
         manualThreadCount = 8
         maxThreadCount = min(16, systemProcessorCount)
+
+        // Reset database performance settings
+        updateDatabaseStatisticsOnLaunch = false
     }
 }
