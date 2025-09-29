@@ -83,6 +83,15 @@ The CSV importer handles French characters by trying multiple encodings (UTF-8, 
 - 64MB cache size for database operations
 - Batch processing for large imports
 
+### Query Performance & Transparency System
+- **Deterministic Index Analysis**: Uses `EXPLAIN QUERY PLAN` to analyze query performance before execution
+- **Real-time Progress Indicators**: `SeriesQueryProgressView` shows query patterns and index usage status
+- **Smart Performance Detection**: Detects table scans, temp B-trees, and other performance issues
+- **Educational UI**: Progress views explain why queries are slow (limited indexing vs. optimized)
+- **Console Transparency**: Detailed execution plan output for debugging and optimization
+- **Query Pattern Generation**: `generateQueryPattern()` creates human-readable query descriptions
+- **Performance Classification**: Automatic categorization from "Excellent" (sub-second) to "Slow" (25s+)
+
 ### Testing Framework
 - XCTest framework with basic test structure in place
 - Tests located in `SAAQAnalyzerTests/`

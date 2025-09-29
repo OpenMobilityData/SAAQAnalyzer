@@ -197,6 +197,204 @@ class DatabaseManager: ObservableObject {
         }
     }
     
+    /// Analyze query execution plan to determine index usage
+    private func analyzeQueryPlan(for query: String, bindValues: [(Int32, Any)]) -> String? {
+        guard let db = db else { return nil }
+
+        let explainQuery = "EXPLAIN QUERY PLAN \(query)"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_prepare_v2(db, explainQuery, -1, &stmt, nil) == SQLITE_OK else {
+            return nil
+        }
+
+        // Bind the same values as the original query
+        for (index, value) in bindValues {
+            switch value {
+            case let intValue as Int:
+                sqlite3_bind_int(stmt, index, Int32(intValue))
+            case let stringValue as String:
+                sqlite3_bind_text(stmt, index, stringValue, -1, SQLITE_TRANSIENT)
+            default:
+                break
+            }
+        }
+
+        var indexUsed: String?
+        var hasScan = false
+        var planDetails: [String] = []
+
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let detailPtr = sqlite3_column_text(stmt, 3) {
+                let detail = String(cString: detailPtr)
+                planDetails.append(detail)
+
+                // Look for problematic patterns that indicate slow performance
+                if detail.contains("SCAN") || detail.contains("USE TEMP B-TREE") || detail.contains("SEARCH TABLE") {
+                    hasScan = true
+                }
+
+                // Look for index usage patterns in the query plan
+                if detail.contains("USING INDEX") {
+                    // Extract index name from patterns like "USING INDEX idx_name"
+                    let components = detail.components(separatedBy: " ")
+                    if let usingIndex = components.firstIndex(of: "INDEX"),
+                       usingIndex + 1 < components.count {
+                        indexUsed = components[usingIndex + 1]
+                    }
+                } else if detail.contains("USING COVERING INDEX") {
+                    // Extract covering index name
+                    let components = detail.components(separatedBy: " ")
+                    if let coveringIndex = components.firstIndex(of: "INDEX"),
+                       coveringIndex + 1 < components.count {
+                        indexUsed = components[coveringIndex + 1]
+                    }
+                }
+            }
+        }
+
+        // Debug output for the full execution plan
+        print("🔍 Execution plan details:")
+        for (i, detail) in planDetails.enumerated() {
+            print("   \(i): \(detail)")
+        }
+
+        // If we detect scans or expensive operations, this is likely to be slow
+        // even if an index is nominally "used"
+        if hasScan {
+            print("🔍 Warning: Query plan contains SCAN/SEARCH operations - likely slow")
+            return nil // Report as no effective index
+        }
+
+        return indexUsed
+    }
+
+    /// Get performance classification for query time
+    private func getPerformanceClassification(time: TimeInterval) -> (emoji: String, description: String) {
+        switch time {
+        case 0..<1.0:
+            return ("⚡", "Excellent")
+        case 1.0..<5.0:
+            return ("🚀", "Very Good")
+        case 5.0..<20.0:
+            return ("✅", "Good")
+        case 20.0..<60.0:
+            return ("⏳", "Acceptable")
+        default:
+            return ("🐌", "Slow")
+        }
+    }
+
+    /// Enhanced query output with index usage and performance classification
+    private func printEnhancedQueryResult(
+        queryType: String,
+        executionTime: TimeInterval,
+        dataPoints: Int,
+        query: String,
+        bindValues: [(Int32, Any)]
+    ) {
+        // Get performance classification
+        let performance = getPerformanceClassification(time: executionTime)
+
+        // Analyze query plan for index usage
+        let indexUsed = analyzeQueryPlan(for: query, bindValues: bindValues)
+
+        // Print enhanced output
+        print("\(performance.emoji) \(queryType) query completed in \(String(format: "%.3f", executionTime))s - \(dataPoints) data points")
+
+        if let index = indexUsed {
+            print("   └─ Used index: \(index) ✓")
+        } else {
+            print("   └─ No index used (table scan)")
+        }
+
+        print("   └─ Performance: \(performance.description)")
+    }
+
+    /// Analyzes if a query will use an index without executing it
+    func analyzeQueryIndexUsage(filters: FilterConfiguration) async -> Bool {
+        return await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let self = self, let db = self.db else {
+                    continuation.resume(returning: false)
+                    return
+                }
+
+                // Build the same query that would be executed
+                let (query, bindValues) = self.buildQueryForFilters(filters)
+
+                print("🔍 Index analysis - Query: \(query)")
+                print("🔍 Index analysis - Bind values: \(bindValues)")
+
+                // Analyze if it will use an index
+                let indexUsed = self.analyzeQueryPlan(for: query, bindValues: bindValues)
+
+                if let index = indexUsed {
+                    print("🔍 Index analysis - Found index: \(index)")
+                } else {
+                    print("🔍 Index analysis - No index found (table scan)")
+                }
+
+                continuation.resume(returning: indexUsed != nil)
+            }
+        }
+    }
+
+    /// Builds query and bind values for given filters (used for analysis)
+    private func buildQueryForFilters(_ filters: FilterConfiguration) -> (String, [(Int32, Any)]) {
+        var query = ""
+        var bindValues: [(Int32, Any)] = []
+        var bindIndex: Int32 = 1
+
+        switch filters.dataEntityType {
+        case .vehicle:
+            query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+        case .license:
+            query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
+        }
+
+        // Add filter conditions (simplified version of the actual query building logic)
+        if !filters.years.isEmpty {
+            let placeholders = filters.years.map { _ in "?" }.joined(separator: ", ")
+            query += " AND year IN (\(placeholders))"
+            for year in filters.years {
+                bindValues.append((bindIndex, year))
+                bindIndex += 1
+            }
+        }
+
+        if !filters.regions.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.regions.count).joined(separator: ",")
+            query += " AND region IN (\(placeholders))"
+            for region in filters.regions.sorted() {
+                bindValues.append((bindIndex, region))
+                bindIndex += 1
+            }
+        }
+
+        if !filters.mrcs.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.mrcs.count).joined(separator: ",")
+            query += " AND mrc IN (\(placeholders))"
+            for mrc in filters.mrcs.sorted() {
+                bindValues.append((bindIndex, mrc))
+                bindIndex += 1
+            }
+        }
+
+        if !filters.vehicleClassifications.isEmpty && filters.dataEntityType == .vehicle {
+            let placeholders = Array(repeating: "?", count: filters.vehicleClassifications.count).joined(separator: ",")
+            query += " AND classification IN (\(placeholders))"
+            for classification in filters.vehicleClassifications.sorted() {
+                bindValues.append((bindIndex, classification))
+                bindIndex += 1
+            }
+        }
+
+        query += " GROUP BY year ORDER BY year"
+        return (query, bindValues)
+    }
+
     /// Manually update database statistics (ANALYZE command)
     func updateDatabaseStatistics() async throws {
         return try await withCheckedThrowingContinuation { continuation in
@@ -862,7 +1060,11 @@ class DatabaseManager: ObservableObject {
                     // Create series with the proper name (already resolved)
                     let series = FilteredDataSeries(name: seriesName, filters: filters, points: points)
                     let duration = Date().timeIntervalSince(startTime)
-                    print("🚀 Vehicle query completed in \(String(format: "%.3f", duration))s - \(points.count) data points")
+
+                    // Use simplified output for main query (raw query provides detailed info)
+                    let performance = self?.getPerformanceClassification(time: duration) ?? ("📊", "Unknown")
+                    print("\(performance.0) Vehicle query completed in \(String(format: "%.3f", duration))s - \(points.count) data points")
+
                     continuation.resume(returning: series)
                 }
             }
@@ -1097,7 +1299,11 @@ class DatabaseManager: ObservableObject {
                     // Create series with the proper name (already resolved)
                     let series = FilteredDataSeries(name: seriesName, filters: filters, points: points)
                     let duration = Date().timeIntervalSince(startTime)
-                    print("🚀 License query completed in \(String(format: "%.3f", duration))s - \(points.count) data points")
+
+                    // Use simplified output for main query (raw query provides detailed info)
+                    let performance = self?.getPerformanceClassification(time: duration) ?? ("📊", "Unknown")
+                    print("\(performance.0) License query completed in \(String(format: "%.3f", duration))s - \(points.count) data points")
+
                     continuation.resume(returning: series)
                 }
             }
@@ -1292,7 +1498,13 @@ class DatabaseManager: ObservableObject {
                 }
 
                 let duration = Date().timeIntervalSince(startTime)
-                print("📊 Raw vehicle query completed in \(String(format: "%.3f", duration))s - \(points.count) data points")
+                self?.printEnhancedQueryResult(
+                    queryType: "Vehicle",
+                    executionTime: duration,
+                    dataPoints: points.count,
+                    query: query,
+                    bindValues: bindValues
+                )
                 continuation.resume(returning: points)
             }
         }
@@ -1355,7 +1567,13 @@ class DatabaseManager: ObservableObject {
                 }
 
                 let duration = Date().timeIntervalSince(startTime)
-                print("📊 Raw license query completed in \(String(format: "%.3f", duration))s - \(points.count) data points")
+                self?.printEnhancedQueryResult(
+                    queryType: "License",
+                    executionTime: duration,
+                    dataPoints: points.count,
+                    query: query,
+                    bindValues: bindValues
+                )
                 continuation.resume(returning: points)
             }
         }

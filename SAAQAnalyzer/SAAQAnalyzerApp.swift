@@ -33,6 +33,11 @@ struct ContentView: View {
     @State private var showingImportProgress = false
     @State private var isAddingSeries = false
 
+    // Series query progress state
+    @State private var currentQueryPattern: String?
+    @State private var currentQueryIsIndexed: Bool?
+    @State private var queryStartTime: Date?
+
     // Import handling state
     @State private var showingDuplicateYearAlert = false
     @State private var duplicateYearToReplace: Int?
@@ -152,8 +157,12 @@ struct ContentView: View {
                     Color.black.opacity(0.2)
                         .ignoresSafeArea()
                     
-                    SeriesQueryProgressView()
-                        .frame(maxWidth: 400)
+                    SeriesQueryProgressView(
+                        queryPattern: currentQueryPattern,
+                        isIndexed: currentQueryIsIndexed,
+                        dataType: "vehicle registrations"
+                    )
+                    .frame(maxWidth: 400)
                         .transition(.scale.combined(with: .opacity))
                 }
             }
@@ -269,10 +278,17 @@ struct ContentView: View {
     /// Adds a new data series based on current filter configuration
     private func addNewSeries() {
         Task {
+            let queryPattern = generateQueryPattern(from: selectedFilters)
+
+            // Analyze actual index usage deterministically
+            let actualIndexUsage = await databaseManager.analyzeQueryIndexUsage(filters: selectedFilters)
+
             await MainActor.run {
+                currentQueryPattern = queryPattern
+                currentQueryIsIndexed = actualIndexUsage
                 isAddingSeries = true
             }
-            
+
             do {
                 let series = try await databaseManager.queryData(
                     filters: selectedFilters
@@ -282,16 +298,108 @@ struct ContentView: View {
                     series.color = Color.forSeriesIndex(chartData.count)
                     chartData.append(series)
                     isAddingSeries = false
+                    currentQueryPattern = nil
+                    currentQueryIsIndexed = nil
                 }
             } catch {
                 await MainActor.run {
                     isAddingSeries = false
+                    currentQueryPattern = nil
+                    currentQueryIsIndexed = nil
                 }
                 print("Error adding series: \(error)")
             }
         }
     }
     
+
+    /// Generates a descriptive query pattern from filter configuration
+    private func generateQueryPattern(from filters: FilterConfiguration) -> String {
+        var components: [String] = []
+
+        // Data type
+        components.append(filters.dataEntityType.rawValue.capitalized)
+
+        // Years
+        if !filters.years.isEmpty {
+            let yearList = filters.years.sorted()
+            if yearList.count <= 3 {
+                components.append("Years: \(yearList.map(String.init).joined(separator: ", "))")
+            } else {
+                components.append("Years: \(yearList.first!)–\(yearList.last!) (\(yearList.count) years)")
+            }
+        }
+
+        // Geography (show actual values for better transparency)
+        if !filters.regions.isEmpty {
+            let regionList = Array(filters.regions).sorted()
+            if regionList.count <= 2 {
+                components.append("Regions: \(regionList.joined(separator: ", "))")
+            } else {
+                components.append("Regions: \(regionList.prefix(2).joined(separator: ", "))... (\(regionList.count) total)")
+            }
+        } else if !filters.mrcs.isEmpty {
+            let mrcList = Array(filters.mrcs).sorted()
+            if mrcList.count <= 2 {
+                components.append("MRCs: \(mrcList.joined(separator: ", "))")
+            } else {
+                components.append("MRCs: \(mrcList.prefix(2).joined(separator: ", "))... (\(mrcList.count) total)")
+            }
+        } else if !filters.municipalities.isEmpty {
+            let municipalityList = Array(filters.municipalities).sorted()
+            if municipalityList.count <= 2 {
+                components.append("Municipalities: \(municipalityList.joined(separator: ", "))")
+            } else {
+                components.append("Municipalities: \(municipalityList.prefix(2).joined(separator: ", "))... (\(municipalityList.count) total)")
+            }
+        }
+
+        // Vehicle-specific filters (show actual values)
+        if filters.dataEntityType == .vehicle {
+            if !filters.vehicleClassifications.isEmpty {
+                let classificationList = Array(filters.vehicleClassifications).sorted()
+                if classificationList.count <= 2 {
+                    components.append("Classifications: \(classificationList.joined(separator: ", "))")
+                } else {
+                    components.append("Classifications: \(classificationList.prefix(2).joined(separator: ", "))... (\(classificationList.count) total)")
+                }
+            }
+            if !filters.fuelTypes.isEmpty {
+                let fuelList = Array(filters.fuelTypes).sorted()
+                if fuelList.count <= 2 {
+                    components.append("Fuel: \(fuelList.joined(separator: ", "))")
+                } else {
+                    components.append("Fuel: \(fuelList.prefix(2).joined(separator: ", "))... (\(fuelList.count) total)")
+                }
+            }
+            if !filters.ageRanges.isEmpty {
+                components.append("Age ranges: \(filters.ageRanges.count)")
+            }
+        }
+
+        // License-specific filters (show actual values)
+        if filters.dataEntityType == .license {
+            if !filters.licenseTypes.isEmpty {
+                let licenseList = Array(filters.licenseTypes).sorted()
+                if licenseList.count <= 2 {
+                    components.append("License types: \(licenseList.joined(separator: ", "))")
+                } else {
+                    components.append("License types: \(licenseList.prefix(2).joined(separator: ", "))... (\(licenseList.count) total)")
+                }
+            }
+            if !filters.ageGroups.isEmpty {
+                let ageList = Array(filters.ageGroups).sorted()
+                if ageList.count <= 2 {
+                    components.append("Age groups: \(ageList.joined(separator: ", "))")
+                } else {
+                    components.append("Age groups: \(ageList.prefix(2).joined(separator: ", "))... (\(ageList.count) total)")
+                }
+            }
+        }
+
+        return components.joined(separator: " • ")
+    }
+
     /// Imports geographic data from d001 file
     private func importGeographicData() {
         Task { @MainActor in
@@ -1246,24 +1354,62 @@ struct DatabaseStatisticsButton: View {
 /// Progress indicator for database queries when adding series
 struct SeriesQueryProgressView: View {
     @State private var animationOffset: CGFloat = 0
-    
+
+    // Query information for enhanced feedback
+    let queryPattern: String?
+    let isIndexed: Bool?
+    let dataType: String
+
+    init(queryPattern: String? = nil, isIndexed: Bool? = nil, dataType: String = "data") {
+        self.queryPattern = queryPattern
+        self.isIndexed = isIndexed
+        self.dataType = dataType
+    }
+
     var body: some View {
         VStack(spacing: 16) {
             // Progress animation
             VStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
+                // Icon based on index status
+                Image(systemName: iconName)
                     .font(.title)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(iconColor)
                     .symbolEffect(.pulse, isActive: true)
-                
-                Text("Querying Database")
+
+                Text(titleText)
                     .font(.headline)
                     .fontWeight(.semibold)
-                
-                Text("Analyzing vehicle data with your filter criteria...")
+
+                Text(subtitleText)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
+
+                // Query pattern information
+                if let pattern = queryPattern {
+                    Text("Query: \(pattern)")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal)
+                        .padding(.vertical, 4)
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(4)
+                }
+
+                // Index status information
+                if let indexed = isIndexed {
+                    HStack(spacing: 4) {
+                        Image(systemName: indexed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundColor(indexed ? .green : .orange)
+                        Text(indexed ? "Using optimized index" : "Limited indexing - may take longer")
+                            .font(.caption2)
+                            .foregroundColor(indexed ? .green : .orange)
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 2)
+                    .background((indexed ? Color.green : Color.orange).opacity(0.1))
+                    .cornerRadius(4)
+                }
             }
             
             // Animated progress bar
@@ -1308,6 +1454,40 @@ struct SeriesQueryProgressView: View {
         .background(Color(NSColor.controlBackgroundColor))
         .cornerRadius(12)
         .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
+    }
+
+    // MARK: - Computed Properties
+
+    private var iconName: String {
+        if let indexed = isIndexed {
+            return indexed ? "magnifyingglass" : "clock.arrow.circlepath"
+        }
+        return "magnifyingglass"
+    }
+
+    private var iconColor: Color {
+        if let indexed = isIndexed {
+            return indexed ? .accentColor : .orange
+        }
+        return .accentColor
+    }
+
+    private var titleText: String {
+        if let indexed = isIndexed, !indexed {
+            return "Non-Indexed Query in Progress"
+        }
+        return "Querying Database"
+    }
+
+    private var subtitleText: String {
+        if let indexed = isIndexed {
+            if indexed {
+                return "Analyzing \(dataType) with optimized indexes..."
+            } else {
+                return "Query requires table scan due to limited indexing - this may take several minutes..."
+            }
+        }
+        return "Analyzing \(dataType) with your filter criteria..."
     }
 }
 

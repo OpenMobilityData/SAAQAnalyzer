@@ -24,6 +24,16 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
 - **Cached Performance**: Smart caching system for instant filter option loading with persistent versioning
 - **Mode-Specific Options**: Filter lists show only values present in the currently selected data type
 
+### Query Performance & Transparency
+- **Deterministic Index Analysis**: Real-time analysis of SQLite execution plans before query execution
+- **Progress Indicators**: Transparent progress views showing actual query patterns and expected performance
+- **Query Pattern Display**: Shows exact filter combinations being queried (e.g., "Vehicle • MRCs: Montréal • Classifications: PAU")
+- **Index Usage Detection**: Automatically detects whether queries will use optimized indexes or require table scans
+- **Performance Classification**: Queries categorized as "Using optimized index" or "Limited indexing - may take longer"
+- **Console Transparency**: Detailed execution plan output with performance metrics (time, data points, index usage)
+- **Smart Predictions**: Uses `EXPLAIN QUERY PLAN` to accurately predict query performance before execution
+- **Educational Feedback**: Clear explanations of why queries are slow (missing indexes, temp B-trees, etc.)
+
 ### Flexible Chart System
 - **Multiple Chart Types**: Line charts, bar charts, and area charts using native Charts framework
 - **Dynamic Y-Axis Metrics**:
