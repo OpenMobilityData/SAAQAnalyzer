@@ -1,7 +1,6 @@
 import SwiftUI
 import Charts
 import UniformTypeIdentifiers
-import AppKit
 
 /// Main chart view for displaying time series data
 struct ChartView: View {
@@ -14,7 +13,14 @@ struct ChartView: View {
     @State private var includeZero = true
     @State private var chartType: ChartType = .line
     @State private var chartRefreshTrigger = false
-    
+
+    // File export states
+    @State private var showingCurrentViewExporter = false
+    @State private var showingPublicationExporter = false
+    @State private var showingCSVExporter = false
+    @State private var exportData: Data?
+    @State private var exportFileName = ""
+
     enum ChartType: String, CaseIterable {
         case line = "Line"
         case bar = "Bar"
@@ -64,6 +70,27 @@ struct ChartView: View {
             }
         }
         .background(Color(NSColor.controlBackgroundColor))
+        .withFileExporters(
+            showingCurrentViewExporter: $showingCurrentViewExporter,
+            showingPublicationExporter: $showingPublicationExporter,
+            showingCSVExporter: $showingCSVExporter,
+            exportData: exportData,
+            exportFileName: exportFileName,
+            onResult: handleExportResult
+        )
+    }
+
+    /// Handle export result
+    private func handleExportResult(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let url):
+            print("✅ File exported to: \(url.path)")
+        case .failure(let error):
+            print("❌ Export error: \(error)")
+        }
+        // Clear export data after handling
+        exportData = nil
+        exportFileName = ""
     }
     
     /// Chart toolbar with display options
@@ -109,7 +136,12 @@ struct ChartView: View {
                 includeZero: includeZero,
                 chartType: chartType,
                 showLegend: showLegend,
-                chartContent: chartContent
+                chartContent: chartContent,
+                showingCurrentViewExporter: $showingCurrentViewExporter,
+                showingPublicationExporter: $showingPublicationExporter,
+                showingCSVExporter: $showingCSVExporter,
+                exportData: $exportData,
+                exportFileName: $exportFileName
             )
         }
         .padding(.horizontal)
@@ -462,6 +494,14 @@ struct ExportButton: View {
     let chartType: ChartView.ChartType
     let showLegend: Bool
     let chartContent: AnyView
+
+    // Export state bindings
+    @Binding var showingCurrentViewExporter: Bool
+    @Binding var showingPublicationExporter: Bool
+    @Binding var showingCSVExporter: Bool
+    @Binding var exportData: Data?
+    @Binding var exportFileName: String
+
     @State private var showExportOptions = false
     
     var body: some View {
@@ -501,11 +541,6 @@ struct ExportButton: View {
     
     /// Export current view exactly as displayed in UI
     private func exportCurrentViewAsPNG() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png]
-        panel.nameFieldStringValue = "saaq_chart_view_\(Date().timeIntervalSince1970).png"
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
 
             // Force a specific dark background that matches the UI
             let darkBackground = Color(red: 0.1, green: 0.1, blue: 0.1) // Dark gray like in the UI
@@ -570,30 +605,20 @@ struct ExportButton: View {
                 if let tiffData = finalImage.tiffRepresentation,
                    let bitmapRep = NSBitmapImageRep(data: tiffData),
                    let pngData = bitmapRep.representation(using: .png, properties: [:]) {
-                    do {
-                        try pngData.write(to: url)
-                        print("✅ Current view exported to: \(url.path)")
-                    } catch {
-                        print("❌ Error writing PNG file: \(error)")
-                    }
+                    // Prepare data for export
+                    self.exportData = pngData
+                    self.exportFileName = "saaq_chart_view_\(Date().timeIntervalSince1970).png"
+                    self.showingCurrentViewExporter = true
                 } else {
                     print("❌ Error converting to PNG")
                 }
             } else {
                 print("❌ Error rendering current view to image")
             }
-        }
     }
 
     /// Export chart formatted for publication
     private func exportForPublicationAsPNG() {
-        // Create a save panel
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png]
-        panel.nameFieldStringValue = "saaq_chart_\(Date().timeIntervalSince1970).png"
-
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
 
             // Build the chart content separately to avoid compiler timeout
             let chartContent: AnyView
@@ -697,13 +722,10 @@ struct ExportButton: View {
                        let bitmapRep = NSBitmapImageRep(data: tiffData),
                        let pngData = bitmapRep.representation(using: .png, properties: [:]) {
 
-                        do {
-                            try pngData.write(to: url)
-                            print("✅ PNG exported successfully to: \(url.path)")
-                            print("📊 Chart rendered with \(dataSeries.count) data series")
-                        } catch {
-                            print("❌ Error writing PNG file: \(error)")
-                        }
+                        // Prepare data for export
+                        self.exportData = pngData
+                        self.exportFileName = "saaq_chart_\(Date().timeIntervalSince1970).png"
+                        self.showingPublicationExporter = true
                     } else {
                         print("❌ Error converting image to PNG format")
                     }
@@ -746,28 +768,18 @@ struct ExportButton: View {
                    let bitmapRep = NSBitmapImageRep(data: tiffData),
                    let pngData = bitmapRep.representation(using: .png, properties: [:]) {
 
-                    do {
-                        try pngData.write(to: url)
-                        print("✅ PNG exported to: \(url.path)")
-                        print("📄 Note: Placeholder image created (requires macOS 13+ for full chart rendering)")
-                    } catch {
-                        print("❌ Error writing PNG file: \(error)")
-                    }
+                    // Prepare data for export
+                    self.exportData = pngData
+                    self.exportFileName = "saaq_chart_\(Date().timeIntervalSince1970).png"
+                    self.showingPublicationExporter = true
                 } else {
                     print("❌ Error converting image to PNG format")
                 }
             }
-        }
     }
     
     /// Export data series as CSV
     private func exportAsCSV() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.commaSeparatedText]
-        panel.nameFieldStringValue = "saaq_data_\(Date().timeIntervalSince1970).csv"
-        
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
             
             // Create CSV content
             var csvContent = "Series,Year,Value\n"
@@ -778,13 +790,73 @@ struct ExportButton: View {
                 }
             }
             
-            // Write to file
-            do {
-                try csvContent.write(to: url, atomically: true, encoding: .utf8)
-                print("CSV exported to: \(url)")
-            } catch {
-                print("Error exporting CSV: \(error)")
+            // Prepare data for export
+            if let data = csvContent.data(using: .utf8) {
+                self.exportData = data
+                self.exportFileName = "saaq_data_\(Date().timeIntervalSince1970).csv"
+                self.showingCSVExporter = true
+            } else {
+                print("❌ Error converting CSV to data")
             }
-        }
+    }
+}
+
+// MARK: - Exportable Document
+
+/// Document wrapper for file export
+struct ExportableDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.png, .commaSeparatedText] }
+
+    var data: Data
+
+    init(data: Data) {
+        self.data = data
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        data = Data()
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}
+
+// MARK: - View Extension for File Exporters
+
+extension View {
+    func withFileExporters(
+        showingCurrentViewExporter: Binding<Bool>,
+        showingPublicationExporter: Binding<Bool>,
+        showingCSVExporter: Binding<Bool>,
+        exportData: Data?,
+        exportFileName: String,
+        onResult: @escaping (Result<URL, Error>) -> Void
+    ) -> some View {
+        self
+            .fileExporter(
+                isPresented: showingCurrentViewExporter,
+                document: ExportableDocument(data: exportData ?? Data()),
+                contentType: .png,
+                defaultFilename: exportFileName
+            ) { result in
+                onResult(result)
+            }
+            .fileExporter(
+                isPresented: showingPublicationExporter,
+                document: ExportableDocument(data: exportData ?? Data()),
+                contentType: .png,
+                defaultFilename: exportFileName
+            ) { result in
+                onResult(result)
+            }
+            .fileExporter(
+                isPresented: showingCSVExporter,
+                document: ExportableDocument(data: exportData ?? Data()),
+                contentType: .commaSeparatedText,
+                defaultFilename: exportFileName
+            ) { result in
+                onResult(result)
+            }
     }
 }

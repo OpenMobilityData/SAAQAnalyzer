@@ -40,6 +40,7 @@ struct ContentView: View {
 
     // Import handling state
     @State private var showingDuplicateYearAlert = false
+    @State private var showingClearDataAlert = false
     @State private var duplicateYearToReplace: Int?
     @State private var pendingImportURLs: [URL] = []
     @State private var currentImportIndex = 0
@@ -49,123 +50,352 @@ struct ContentView: View {
     @State private var showingPackageAlert = false
     @State private var packageAlertMessage = ""
 
+    // SwiftUI file dialog states
+    @State private var showingGeographicFileImporter = false
+    @State private var showingVehicleFileImporter = false
+    @State private var showingLicenseFileImporter = false
+    @State private var showingPackageFileImporter = false
+    @State private var showingPackageExporter = false
+    @State private var showingPackageImporter = false
+    @State private var showingDatabaseLocationPicker = false
+    @State private var showingGeographicDataFileImporter = false
+
+    // Confirmation dialog states
+    @State private var showingClearDataConfirmation = false
+    @State private var showingPackageImportConfirmation = false
+    @State private var pendingPackageURL: URL?
+
+    // MARK: - SwiftUI File Dialog Handlers
+
+    /// Handle geographic file import result
+    private func handleGeographicFileImport(_ result: Result<[URL], Error>) {
+        Task {
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                do {
+                    let importer = GeographicDataImporter(databaseManager: databaseManager)
+                    try await importer.importD001File(at: url)
+                    print("Geographic data imported successfully")
+                } catch {
+                    print("Error importing geographic data: \(error)")
+                }
+            case .failure(let error):
+                print("File selection error: \(error)")
+            }
+        }
+    }
+
+    /// Handle geographic data file import result (for development)
+    private func handleGeographicDataFileImport(_ result: Result<[URL], Error>) {
+        Task {
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                do {
+                    let importer = GeographicDataImporter(databaseManager: databaseManager)
+                    try await importer.importD001File(at: url)
+                    print("Geographic data imported successfully from: \(url.lastPathComponent)")
+                } catch {
+                    print("Error importing geographic data: \(error)")
+                }
+            case .failure(let error):
+                print("File selection error: \(error)")
+            }
+        }
+    }
+
+    /// Handle vehicle file import result
+    private func handleVehicleFileImport(_ result: Result<[URL], Error>) {
+        Task { @MainActor in
+            switch result {
+            case .success(let urls):
+                guard !urls.isEmpty else { return }
+                await importMultipleFiles(urls)
+            case .failure(let error):
+                print("File selection error: \(error)")
+            }
+        }
+    }
+
+    /// Handle license file import result
+    private func handleLicenseFileImport(_ result: Result<[URL], Error>) {
+        Task { @MainActor in
+            switch result {
+            case .success(let urls):
+                guard !urls.isEmpty else { return }
+                await importMultipleLicenseFiles(urls)
+            case .failure(let error):
+                print("File selection error: \(error)")
+            }
+        }
+    }
+
+    /// Handle data package import result
+    private func handlePackageImport(_ result: Result<[URL], Error>) {
+        Task { @MainActor in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+
+                // Validate package first
+                let validationResult = await packageManager.validateDataPackage(at: url)
+
+                if validationResult != .valid {
+                    packageAlertMessage = validationResult.errorMessage
+                    showingPackageAlert = true
+                    return
+                }
+
+                // Show confirmation dialog
+                pendingPackageURL = url
+                showingPackageImportConfirmation = true
+
+            case .failure(let error):
+                print("File selection error: \(error)")
+            }
+        }
+    }
+
+    /// Perform clear all data action
+    private func performClearAllData() {
+        Task {
+            do {
+                try await databaseManager.clearAllData()
+                await MainActor.run {
+                    chartData.removeAll()
+                    selectedSeries = nil
+                }
+                print("✅ All data cleared successfully")
+            } catch {
+                print("❌ Error clearing data: \(error)")
+            }
+        }
+    }
+
+    /// Perform data package import action
+    private func performPackageImport(_ url: URL) {
+        Task { @MainActor in
+            do {
+                try await packageManager.importDataPackage(from: url)
+
+                // Reset UI state
+                chartData.removeAll()
+                selectedSeries = nil
+
+                packageAlertMessage = "Data package imported successfully!"
+                showingPackageAlert = true
+
+                print("✅ Data package imported successfully")
+
+            } catch {
+                packageAlertMessage = "Failed to import data package: \(error.localizedDescription)"
+                showingPackageAlert = true
+                print("❌ Error importing data package: \(error)")
+            }
+
+            pendingPackageURL = nil
+        }
+    }
 
     var body: some View {
-        NavigationSplitView {
-            // Left panel: Filter tree
-            FilterPanel(configuration: $selectedFilters)
-                .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 400)
-        } content: {
-            // Center panel: Chart display
-            ChartView(dataSeries: $chartData, selectedSeries: $selectedSeries)
-                .navigationSplitViewColumnWidth(min: 500, ideal: 700)
-        } detail: {
-            // Right panel: Data inspector
-            DataInspectorView(series: selectedSeries)
-                .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 400)
-        }
-        .toolbar {
-            // Left side: Mode selection and series creation (after app name)
-            ToolbarItemGroup(placement: .principal) {
-                // Data type selector
-                Menu {
-                    ForEach(DataEntityType.allCases, id: \.self) { dataType in
-                        Button {
-                            selectedFilters.dataEntityType = dataType
-                        } label: {
-                            Label(dataType.description, systemImage: dataType == .vehicle ? "car" : "person.crop.circle")
-                        }
+        mainContent
+            .fileImporter(
+                isPresented: $showingGeographicFileImporter,
+                allowedContentTypes: [.plainText],
+                allowsMultipleSelection: false
+            ) { result in
+                handleGeographicFileImport(result)
+            }
+            .fileImporter(
+                isPresented: $showingVehicleFileImporter,
+                allowedContentTypes: [.commaSeparatedText],
+                allowsMultipleSelection: true
+            ) { result in
+                handleVehicleFileImport(result)
+            }
+            .fileImporter(
+                isPresented: $showingLicenseFileImporter,
+                allowedContentTypes: [.commaSeparatedText],
+                allowsMultipleSelection: true
+            ) { result in
+                handleLicenseFileImport(result)
+            }
+            .fileImporter(
+                isPresented: $showingPackageFileImporter,
+                allowedContentTypes: [.saaqPackage],
+                allowsMultipleSelection: false
+            ) { result in
+                handlePackageImport(result)
+            }
+            .fileImporter(
+                isPresented: $showingPackageImporter,
+                allowedContentTypes: [.saaqPackage],
+                allowsMultipleSelection: false
+            ) { result in
+                handlePackageImport(result)
+            }
+            .fileImporter(
+                isPresented: $showingGeographicDataFileImporter,
+                allowedContentTypes: [.plainText],
+                allowsMultipleSelection: false
+            ) { result in
+                handleGeographicDataFileImport(result)
+            }
+            .fileExporter(
+                isPresented: $showingPackageExporter,
+                document: DataPackageDocument(),
+                contentType: .saaqPackage,
+                defaultFilename: "SAAQData_\(Date().formatted(date: .abbreviated, time: .omitted)).saaqpackage"
+            ) { result in
+                handlePackageExportResult(result)
+            }
+            .confirmationDialog("Clear All Data?", isPresented: $showingClearDataConfirmation) {
+                Button("Clear All Data", role: .destructive) {
+                    performClearAllData()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This will delete all imported vehicle and geographic data. This cannot be undone.")
+            }
+            .confirmationDialog("Import Data Package?", isPresented: $showingPackageImportConfirmation) {
+                Button("Import", role: .destructive) {
+                    if let url = pendingPackageURL {
+                        performPackageImport(url)
                     }
-                } label: {
-                    Label(selectedFilters.dataEntityType.description,
-                          systemImage: selectedFilters.dataEntityType == .vehicle ? "car" : "person.crop.circle")
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingPackageURL = nil
+                }
+            } message: {
+                Text("This will replace your current database and caches. This operation cannot be undone.")
+            }
+    }
+
+    private var leftPanel: some View {
+        // Left panel: Filter tree
+        FilterPanel(configuration: $selectedFilters)
+            .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 400)
+    }
+
+    private var centerPanel: some View {
+        // Center panel: Chart display
+        ChartView(dataSeries: $chartData, selectedSeries: $selectedSeries)
+            .navigationSplitViewColumnWidth(min: 500, ideal: 700)
+    }
+
+    private var rightPanel: some View {
+        // Right panel: Data inspector
+        DataInspectorView(series: selectedSeries)
+            .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 400)
+    }
+
+    private var splitView: some View {
+        NavigationSplitView {
+            leftPanel
+        } content: {
+            centerPanel
+        } detail: {
+            rightPanel
+        }
+    }
+
+    private var principalToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .principal) {
+            // Data type selector
+            Menu {
+                ForEach(DataEntityType.allCases, id: \.self) { dataType in
+                    Button {
+                        selectedFilters.dataEntityType = dataType
+                    } label: {
+                        Label(dataType.description, systemImage: dataType == .vehicle ? "car" : "person.crop.circle")
+                    }
+                }
+            } label: {
+                Label(selectedFilters.dataEntityType.description,
+                      systemImage: selectedFilters.dataEntityType == .vehicle ? "car" : "person.crop.circle")
+            }
+
+            // Create Series button
+            Button {
+                refreshChartData()
+            } label: {
+                if isAddingSeries {
+                    Label("Adding Series...", systemImage: "arrow.triangle.2.circlepath")
+                        .symbolEffect(.rotate, isActive: isAddingSeries)
+                } else {
+                    Label("Add Series", systemImage: "plus.circle")
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isAddingSeries)
+        }
+    }
+
+    private var primaryActionToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            // Import menu
+            Menu {
+                Label("CSV Files", systemImage: "doc.text")
+                    .font(.caption)
+                Button("Import Vehicle Data Files...") {
+                    importVehicleFiles()
+                }
+                Button("Import License Data Files...") {
+                    importLicenseFiles()
                 }
 
                 Divider()
 
-                // Add series button
-                Button {
-                    addNewSeries()
-                } label: {
-                    if isAddingSeries {
-                        Label("Adding Series...", systemImage: "arrow.triangle.2.circlepath")
-                            .symbolEffect(.rotate, isActive: isAddingSeries)
-                    } else {
-                        Label("Add Series", systemImage: "plus.circle")
-                    }
+                Label("Data Package", systemImage: "shippingbox")
+                    .font(.caption)
+                Button("Import Data Package...") {
+                    showingPackageFileImporter = true
                 }
-                .disabled(isAddingSeries)
+
+                Divider()
+
+                Button("Clear All Data", role: .destructive) {
+                    clearAllData()
+                }
+                Divider()
+                Button("Debug: Show Database Contents") {
+                    showDatabaseContents()
+                }
+            } label: {
+                Label("Import", systemImage: "square.and.arrow.down")
             }
 
-            // Right side: Import and export
-            ToolbarItemGroup(placement: .primaryAction) {
-                // Import menu
-                Menu {
-                    Label("CSV Files", systemImage: "doc.text")
-                        .font(.caption)
-                    Button("Import Vehicle CSV...") {
-                        importVehicleData()
-                    }
-                    Button("Import Driver CSV...") {
-                        importLicenseData()
-                    }
-
-                    Divider()
-
-                    Label("Data Package", systemImage: "shippingbox")
-                        .font(.caption)
-                    Button("Import Data Package...") {
-                        importDataPackage()
-                    }
-
-                    Divider()
-
-                    Button("Clear All Data", role: .destructive) {
-                        clearAllData()
-                    }
-                    Divider()
-                    Button("Debug: Show Database Contents") {
-                        showDatabaseContents()
-                    }
-                } label: {
-                    Label("Import", systemImage: "square.and.arrow.down")
+            // Export button
+            Menu {
+                Button("Export Chart as PNG...") {
+                    // This would be handled by ChartView's export functionality
+                    print("Export chart - use ChartView export buttons")
                 }
+                .disabled(chartData.isEmpty)
 
-                // Export button
-                ExportMenu(chartData: chartData)
-                    .withPackageAlerts()
+                Button("Export Data as CSV...") {
+                    // This would be handled by DataInspector's export functionality
+                    print("Export data - use DataInspector export buttons")
+                }
+                .disabled(chartData.isEmpty)
 
-                // Settings are available via macOS Settings menu automatically
+                Divider()
+
+                Button("Export Data Package...") {
+                    showingPackageExporter = true
+                }
+            } label: {
+                Label("Export", systemImage: "square.and.arrow.up")
             }
         }
-        .overlay(alignment: .center) {
-            // Import progress overlay
-            if showingImportProgress {
-                ZStack {
-                    Color.black.opacity(0.3)
-                        .ignoresSafeArea()
-                    
-                    ImportProgressView(progressManager: progressManager)
-                        .frame(maxWidth: 600)
-                        .transition(.scale.combined(with: .opacity))
-                }
-            }
-            
-            // Series query progress overlay
-            if isAddingSeries {
-                ZStack {
-                    Color.black.opacity(0.2)
-                        .ignoresSafeArea()
-                    
-                    SeriesQueryProgressView(
-                        queryPattern: currentQueryPattern,
-                        isIndexed: currentQueryIsIndexed,
-                        dataType: "vehicle registrations"
-                    )
-                    .frame(maxWidth: 400)
-                        .transition(.scale.combined(with: .opacity))
-                }
-            }
+    }
+
+    private var mainContent: some View {
+        splitView
+        .toolbar {
+            principalToolbar
+            primaryActionToolbar
         }
         .onChange(of: progressManager.isImporting) { _, isImporting in
             withAnimation(.spring()) {
@@ -182,7 +412,7 @@ struct ContentView: View {
                 }
             }
         }
-        .alert("Year \(duplicateYearToReplace?.formatted(.number.grouping(.never)) ?? "Unknown") Already Exists", isPresented: $showingDuplicateYearAlert) {
+        .alert("Year \\(duplicateYearToReplace?.formatted(.number.grouping(.never)) ?? \"Unknown\") Already Exists", isPresented: $showingDuplicateYearAlert) {
             Button("Replace Existing Data", role: .destructive) {
                 Task {
                     await handleDuplicateYearReplace(replace: true)
@@ -194,89 +424,47 @@ struct ContentView: View {
                 }
             }
         } message: {
-            Text("Data for year \(duplicateYearToReplace?.formatted(.number.grouping(.never)) ?? "Unknown") has already been imported. Do you want to replace the existing data with the new import?")
+            Text("This will replace your current database and caches. This operation cannot be undone.")
         }
-        .alert("Data Package Import", isPresented: $showingPackageAlert) {
-            Button("OK") {
-                showingPackageAlert = false
-            }
-        } message: {
-            Text(packageAlertMessage)
-        }
-        .onAppear {
-            // Check for Option key bypass or environment variable for testing
-            let optionKeyPressed = NSEvent.modifierFlags.contains(.option)
-            let envBypass = ProcessInfo.processInfo.environment["SAAQ_BYPASS_CACHE"] != nil
-
-            if optionKeyPressed || envBypass {
-                // Show alert about bypass mode and skip all initialization
-                Task { @MainActor in
-                    let bypassMethod = envBypass ? "Environment variable SAAQ_BYPASS_CACHE" : "Option key"
-                    packageAlertMessage = "Cache loading bypassed via \(bypassMethod). First launch setup skipped. You can now import a data package immediately without waiting for cache rebuild."
-                    showingPackageAlert = true
-                }
-                // Mark first launch complete to prevent geographic data import
-                if AppSettings.shared.isFirstLaunch {
-                    AppSettings.shared.markFirstLaunchComplete()
-                    let bypassMethod = envBypass ? "Environment variable" : "Option key"
-                    print("⚠️ \(bypassMethod) bypass: Skipping first launch setup")
-                }
-            } else if AppSettings.shared.isFirstLaunch {
-                // Import bundled geographic data on first launch
+        .alert("Clear All Data", isPresented: $showingClearDataAlert) {
+            Button("Clear All Data", role: .destructive) {
                 Task {
-                    await importBundledGeographicDataOnFirstLaunch()
-                }
-            }
-        }
-    }
-
-    /// Imports bundled geographic data on first launch
-    private func importBundledGeographicDataOnFirstLaunch() async {
-        do {
-            print("🚀 First launch detected - importing bundled geographic data...")
-            let importer = GeographicDataImporter(databaseManager: databaseManager)
-            try await importer.importBundledGeographicData()
-
-            // Mark first launch as complete
-            await MainActor.run {
-                AppSettings.shared.markFirstLaunchComplete()
-            }
-
-            print("✅ First launch setup completed")
-        } catch {
-            print("❌ Error importing bundled geographic data: \(error.localizedDescription)")
-            // Don't mark first launch complete if import failed, so it will retry next time
-        }
-    }
-
-    /// Clears all data from the database
-    private func clearAllData() {
-        let alert = NSAlert()
-        alert.messageText = "Clear All Data?"
-        alert.informativeText = "This will delete all imported vehicle and geographic data. This cannot be undone."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Clear")
-        alert.addButton(withTitle: "Cancel")
-        
-        if alert.runModal() == .alertFirstButtonReturn {
-            Task {
-                do {
-                    try await databaseManager.clearAllData()
-                    await MainActor.run {
+                    do {
+                        try await databaseManager.clearAllData()
                         chartData.removeAll()
-                        selectedFilters = FilterConfiguration()
+                        selectedSeries = nil
+                        print("✅ All data cleared successfully")
+                    } catch {
+                        print("❌ Error clearing data: \(error)")
                     }
-                    print("All data cleared successfully")
-                } catch {
-                    print("Error clearing data: \(error)")
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will permanently delete all imported data. This action cannot be undone.")
+        }
+        .overlay(alignment: .center) {
+            // Series query progress overlay
+            if isAddingSeries {
+                ZStack {
+                    Color.black.opacity(0.2)
+                        .ignoresSafeArea()
+
+                    SeriesQueryProgressView(
+                        queryPattern: currentQueryPattern,
+                        isIndexed: currentQueryIsIndexed,
+                        dataType: selectedFilters.dataEntityType == .vehicle ? "vehicle registrations" : "license holders"
+                    )
+                    .frame(maxWidth: 400)
+                        .transition(.scale.combined(with: .opacity))
                 }
             }
         }
     }
 
+    // MARK: - Helper Functions
 
-    /// Adds a new data series based on current filter configuration
-    private func addNewSeries() {
+    private func refreshChartData() {
         Task {
             let queryPattern = generateQueryPattern(from: selectedFilters)
 
@@ -290,13 +478,13 @@ struct ContentView: View {
             }
 
             do {
-                let series = try await databaseManager.queryData(
-                    filters: selectedFilters
-                )
+                let newSeries = try await databaseManager.queryVehicleData(filters: selectedFilters)
+
                 await MainActor.run {
                     // Assign unique color based on series index
-                    series.color = Color.forSeriesIndex(chartData.count)
-                    chartData.append(series)
+                    newSeries.color = Color.forSeriesIndex(chartData.count)
+                    chartData.append(newSeries)
+                    selectedSeries = newSeries
                     isAddingSeries = false
                     currentQueryPattern = nil
                     currentQueryIsIndexed = nil
@@ -307,13 +495,11 @@ struct ContentView: View {
                     currentQueryPattern = nil
                     currentQueryIsIndexed = nil
                 }
-                print("Error adding series: \(error)")
+                print("❌ Error creating chart series: \(error)")
             }
         }
     }
-    
 
-    /// Generates a descriptive query pattern from filter configuration
     private func generateQueryPattern(from filters: FilterConfiguration) -> String {
         var components: [String] = []
 
@@ -400,124 +586,130 @@ struct ContentView: View {
         return components.joined(separator: " • ")
     }
 
-    /// Imports geographic data from d001 file
-    private func importGeographicData() {
-        Task { @MainActor in
-            let panel = NSOpenPanel()
-            panel.allowedContentTypes = [.plainText]
-            panel.message = "Select d001_min.txt file"
-            
-            panel.begin { response in
-                guard response == .OK, let url = panel.url else { return }
-                
-                Task {
-                    do {
-                        let importer = GeographicDataImporter(databaseManager: databaseManager)
-                        try await importer.importD001File(at: url)
-                        print("Geographic data imported successfully")
-                    } catch {
-                        print("Error importing geographic data: \(error)")
-                    }
-                }
-            }
-        }
+    private func importVehicleFiles() {
+        showingVehicleFileImporter = true
     }
-    
-    /// Imports vehicle data from CSV file(s)
-    private func importVehicleData() {
-        Task { @MainActor in
-            let panel = NSOpenPanel()
-            panel.allowedContentTypes = [.commaSeparatedText]
-            panel.allowsMultipleSelection = true
-            panel.message = "Select vehicle CSV file(s) - multiple files will be imported sequentially"
-            
-            panel.begin { response in
-                guard response == .OK, !panel.urls.isEmpty else { return }
-                
-                Task {
-                    await self.importMultipleFiles(panel.urls)
-                }
-            }
+
+    private func importLicenseFiles() {
+        showingLicenseFileImporter = true
+    }
+
+    private func clearAllData() {
+        showingClearDataAlert = true
+    }
+
+    private func showDatabaseContents() {
+        Task {
+            let stats = await databaseManager.getDatabaseStats()
+            print("📊 Database Statistics:")
+            print("   Vehicle Records: \(stats.totalVehicleRecords)")
+            print("   License Records: \(stats.totalLicenseRecords)")
+            print("   Vehicle Years: \(stats.vehicleYearRange)")
+            print("   License Years: \(stats.licenseYearRange)")
+            print("   Database size: \(formatFileSize(stats.fileSizeBytes))")
         }
     }
 
-    /// Imports license data from CSV file(s)
-    private func importLicenseData() {
-        Task { @MainActor in
-            let panel = NSOpenPanel()
-            panel.allowedContentTypes = [.commaSeparatedText]
-            panel.allowsMultipleSelection = true
-            panel.message = "Select license CSV file(s) - multiple files will be imported sequentially"
-
-            panel.begin { response in
-                guard response == .OK, !panel.urls.isEmpty else { return }
-
-                Task {
-                    await self.importMultipleLicenseFiles(panel.urls)
-                }
-            }
+    private func handleDuplicateYearReplace(replace: Bool) async {
+        if replace, let year = duplicateYearToReplace {
+            print("🔄 Replacing data for year \(year)")
+            // Continue with import for the duplicate year
+            await processNextVehicleImport()
+        } else {
+            print("❌ Import cancelled for duplicate year")
+            // Reset import state
+            await progressManager.reset()
+            currentImportIndex = 0
+            pendingImportURLs = []
         }
+
+        // Reset the duplicate year state
+        duplicateYearToReplace = nil
+        showingDuplicateYearAlert = false
     }
 
-    /// Imports multiple license files sequentially
+    private func importMultipleFiles(_ urls: [URL]) async {
+        pendingImportURLs = urls
+        currentImportIndex = 0
+        await processNextVehicleImport()
+    }
+
     private func importMultipleLicenseFiles(_ urls: [URL]) async {
         pendingImportURLs = urls
         currentImportIndex = 0
-        currentImportType = .license
         await processNextLicenseImport()
     }
 
-    /// Processes the next license import in the queue
-    private func processNextLicenseImport() async {
+    private func processNextVehicleImport() async {
         guard currentImportIndex < pendingImportURLs.count else {
-            // All imports completed
-            print("🎉 Batch license import completed!")
+            // All files processed
             await progressManager.reset()
-            pendingImportURLs = []
             currentImportIndex = 0
+            pendingImportURLs = []
             return
         }
 
         let url = pendingImportURLs[currentImportIndex]
         let filename = url.lastPathComponent
-        let yearPattern = /(\d{4})/
+        let yearString = String(filename.prefix(4))
 
-        guard let match = filename.firstMatch(of: yearPattern),
-              let year = Int(match.1) else {
+        guard let year = Int(yearString) else {
+            print("❌ Could not extract year from filename: \(filename)")
+            currentImportIndex += 1
+            await processNextVehicleImport()
+            return
+        }
+
+        // Check for duplicates
+        let yearExists = await databaseManager.isYearImported(year)
+        if yearExists {
+            duplicateYearToReplace = year
+            showingDuplicateYearAlert = true
+            return
+        }
+
+        await performVehicleImport(url: url, year: year)
+    }
+
+    private func processNextLicenseImport() async {
+        guard currentImportIndex < pendingImportURLs.count else {
+            await progressManager.reset()
+            currentImportIndex = 0
+            pendingImportURLs = []
+            return
+        }
+
+        let url = pendingImportURLs[currentImportIndex]
+        let filename = url.lastPathComponent
+        let yearString = String(filename.prefix(4))
+
+        guard let year = Int(yearString) else {
             print("❌ Could not extract year from filename: \(filename)")
             currentImportIndex += 1
             await processNextLicenseImport()
             return
         }
 
-        print("📁 Importing license file \(currentImportIndex + 1)/\(pendingImportURLs.count): \(filename)")
-
-        // Show progress immediately while checking for duplicates
-        await MainActor.run {
-            showingImportProgress = true
-        }
-        await progressManager.startImport()
-        await progressManager.updateToReading()
-
-        // Check if license year already exists
-        if await databaseManager.isLicenseYearImported(year) {
-            // Temporarily hide progress for alert
-            await MainActor.run {
-                showingImportProgress = false
-                duplicateYearToReplace = year
-                showingDuplicateYearAlert = true
-            }
-        } else {
-            // Proceed with license import directly
-            await performLicenseImport(url: url, year: year)
-        }
+        await performLicenseImport(url: url, year: year)
     }
 
-    /// Performs the actual license import
+    private func performVehicleImport(url: URL, year: Int) async {
+        do {
+            let importer = CSVImporter(databaseManager: databaseManager, progressManager: progressManager)
+            let result = try await importer.importFile(at: url, year: year, dataType: .vehicle, skipDuplicateCheck: false)
+            print("✅ Import completed: \(result.successCount) records imported for year \(year)")
+        } catch {
+            await progressManager.reset()
+            print("❌ Error importing vehicle data: \(error)")
+        }
+
+        currentImportIndex += 1
+        await processNextVehicleImport()
+    }
+
     private func performLicenseImport(url: URL, year: Int) async {
         do {
             let importer = CSVImporter(databaseManager: databaseManager, progressManager: progressManager)
-            // Use the generic import method with license type
             let result = try await importer.importFile(at: url, year: year, dataType: .license, skipDuplicateCheck: true)
             print("✅ License import completed: \(result.successCount) records imported for year \(year)")
         } catch {
@@ -529,823 +721,47 @@ struct ContentView: View {
         await processNextLicenseImport()
     }
 
-    /// Imports multiple vehicle files sequentially
-    private func importMultipleFiles(_ urls: [URL]) async {
-        pendingImportURLs = urls
-        currentImportIndex = 0
-        currentImportType = .vehicle
-        await processNextImport()
-    }
-    
-    /// Processes the next import in the queue
-    private func processNextImport() async {
-        guard currentImportIndex < pendingImportURLs.count else {
-            // All imports completed
-            print("🎉 Batch import completed!")
-            await progressManager.reset()
-            pendingImportURLs = []
-            currentImportIndex = 0
-            return
-        }
-        
-        let url = pendingImportURLs[currentImportIndex]
-        let filename = url.lastPathComponent
-        let yearPattern = /(\d{4})/
-        
-        guard let match = filename.firstMatch(of: yearPattern),
-              let year = Int(match.1) else {
-            print("❌ Could not extract year from filename: \(filename)")
-            currentImportIndex += 1
-            await processNextImport()
-            return
-        }
-        
-        print("📁 Importing file \(currentImportIndex + 1)/\(pendingImportURLs.count): \(filename)")
-        
-        // Show progress immediately while checking for duplicates
-        await MainActor.run {
-            showingImportProgress = true
-        }
-        await progressManager.startImport()
-        await progressManager.updateToReading()
-        
-        // Check if year already exists
-        if await databaseManager.isYearImported(year) {
-            // Temporarily hide progress for alert
-            await MainActor.run {
-                showingImportProgress = false
-                duplicateYearToReplace = year
-                showingDuplicateYearAlert = true
-            }
-        } else {
-            // Proceed with import directly
-            await performImport(url: url, year: year)
-        }
-    }
-    
-    /// Handles the user's choice for duplicate year
-    private func handleDuplicateYearReplace(replace: Bool) async {
-        guard let year = duplicateYearToReplace,
-              currentImportIndex < pendingImportURLs.count else { return }
-        
-        let url = pendingImportURLs[currentImportIndex]
-        
-        if replace {
-            // Show progress immediately
-            await MainActor.run {
-                showingImportProgress = true
-            }
-            
-            // Update progress to show we're deleting
-            await progressManager.updateToReading()
-            
-            print("🗑️ Deleting existing data for year \(year)...")
-            do {
-                try await databaseManager.clearYearData(year)
-                print("✅ Existing data for year \(year) deleted successfully")
-
-                // Call the appropriate import method based on current import type
-                if currentImportType == .license {
-                    await performLicenseImport(url: url, year: year)
-                } else {
-                    await performImport(url: url, year: year)
-                }
-            } catch {
-                print("❌ Error deleting data for year \(year): \(error)")
-                await progressManager.reset()
-                currentImportIndex += 1
-
-                // Call the appropriate process method based on import type
-                if currentImportType == .license {
-                    await processNextLicenseImport()
-                } else {
-                    await processNextImport()
-                }
-            }
-        } else {
-            print("⏹️ Import cancelled by user for year \(year)")
-            await progressManager.reset()
-            currentImportIndex += 1
-
-            // Call the appropriate process method based on import type
-            if currentImportType == .license {
-                await processNextLicenseImport()
-            } else {
-                await processNextImport()
-            }
-        }
-        
-        duplicateYearToReplace = nil
-    }
-    
-    /// Performs the actual import (with duplicate check already handled by UI)
-    private func performImport(url: URL, year: Int) async {
-        do {
-            let importer = CSVImporter(databaseManager: databaseManager, progressManager: progressManager)
-            // Skip duplicate check since we've already handled it in the UI layer
-            let result = try await importer.importVehicleFile(at: url, year: year, skipDuplicateCheck: true)
-            print("✅ Import completed: \(result.successCount) records imported for year \(year)")
-        } catch {
-            await progressManager.reset()
-            print("❌ Error importing: \(error)")
-        }
-        
-        currentImportIndex += 1
-        await processNextImport()
-    }
-    
-    // MARK: - Data Package Operations
-
-    /// Imports a data package file
-    private func importDataPackage() {
-        Task { @MainActor in
-            let panel = NSOpenPanel()
-            panel.allowedContentTypes = [.saaqPackage]
-            panel.allowsMultipleSelection = false
-            panel.message = "Select a SAAQ data package to import"
-            panel.prompt = "Import Package"
-
-            if panel.runModal() == .OK, let url = panel.url {
-                // Validate package first
-                let validationResult = await packageManager.validateDataPackage(at: url)
-
-                if validationResult != .valid {
-                    packageAlertMessage = validationResult.errorMessage
-                    showingPackageAlert = true
-                    return
-                }
-
-                // Confirm import with user
-                let alert = NSAlert()
-                alert.messageText = "Import Data Package?"
-                alert.informativeText = "This will replace your current database and caches. This operation cannot be undone."
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "Import")
-                alert.addButton(withTitle: "Cancel")
-
-                if alert.runModal() == .alertFirstButtonReturn {
-                    do {
-                        // Package manager has its own progress tracking
-                        try await packageManager.importDataPackage(from: url)
-
-                        // Refresh UI after import
-                        await databaseManager.refreshFilterCache()
-
-                        // Force full UI refresh after package import
-                        await MainActor.run {
-                            // Clear chart data to force refresh
-                            chartData.removeAll()
-                            selectedFilters = FilterConfiguration()
-                        }
-
-                        packageAlertMessage = "Data package imported successfully! All filters and data are now available."
-                        showingPackageAlert = true
-                    } catch {
-                        packageAlertMessage = "Import failed: \(error.localizedDescription)"
-                        showingPackageAlert = true
-                    }
-                }
-            }
-        }
-    }
-
-
-    /// Shows database contents for debugging
-    private func showDatabaseContents() {
-        Task {
-            await databaseManager.debugShowContents()
-        }
-    }
-}
-
-/// Settings view for database and import preferences
-struct SettingsView: View {
-    @EnvironmentObject var databaseManager: DatabaseManager
-    @StateObject private var settings = AppSettings.shared
-    @AppStorage("defaultImportPath") var defaultImportPath = ""
-
-    var body: some View {
-        TabView {
-            // General tab
-            GeneralSettingsTab(databaseManager: databaseManager, defaultImportPath: $defaultImportPath)
-                .tabItem {
-                    Label("General", systemImage: "gear")
-                }
-
-            // Performance tab
-            PerformanceSettingsTab(settings: settings)
-                .tabItem {
-                    Label("Performance", systemImage: "speedometer")
-                }
-
-            // Export tab
-            ExportSettingsTab(settings: settings)
-                .tabItem {
-                    Label("Export", systemImage: "square.and.arrow.up")
-                }
-        }
-        .frame(width: 500, height: 790)
-    }
-}
-
-// MARK: - General Settings Tab
-
-struct GeneralSettingsTab: View {
-    let databaseManager: DatabaseManager
-    @Binding var defaultImportPath: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Database Section
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Database")
-                    .font(.headline)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Database Location:")
-                        Spacer()
-                        Text(databaseManager.databaseURL?.path ?? "Not set")
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-
-                    Button("Change Database Location...") {
-                        changeDatabaseLocation()
-                    }
-                    .buttonStyle(.bordered)
-
-                    HStack {
-                        Text("Default Import Path:")
-                        TextField("Path", text: $defaultImportPath)
-                    }
-                }
-                .padding(12)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(8)
-            }
-
-            Divider()
-
-            // Database Summary Section
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Database Summary")
-                    .font(.headline)
-
-                DatabaseSummaryView(databaseManager: databaseManager)
-                    .padding(12)
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(8)
-            }
-
-            Divider()
-
-            // Filter Cache Section
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Filter Cache")
-                    .font(.headline)
-
-                Text("Filter options (regions, vehicle types, etc.) are cached to improve app startup time. The cache is automatically refreshed when new data is imported.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                // Cache Status
-                VStack(alignment: .leading, spacing: 8) {
-                    let cacheInfo = databaseManager.filterCacheInfo
-
-                    HStack {
-                        Text("Cache Status:")
-                        Spacer()
-                        Text(cacheInfo.hasCache ? "Active" : "Empty")
-                            .fontWeight(.medium)
-                            .foregroundColor(cacheInfo.hasCache ? .green : .orange)
-                    }
-
-                    if let lastUpdated = cacheInfo.lastUpdated {
-                        HStack {
-                            Text("Last Updated:")
-                            Spacer()
-                            Text(lastUpdated, style: .relative)
-                                .fontWeight(.medium)
-                        }
-                    }
-
-                    if cacheInfo.hasCache {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Cached Items:")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-
-                            LazyVGrid(columns: [
-                                GridItem(.flexible(), alignment: .leading),
-                                GridItem(.flexible(), alignment: .leading)
-                            ], alignment: .leading, spacing: 2) {
-                                Text("• \(cacheInfo.itemCounts.years) years")
-                                Text("• \(cacheInfo.itemCounts.regions) regions")
-                                Text("• \(cacheInfo.itemCounts.mrcs) MRCs")
-                                Text("• \(cacheInfo.itemCounts.classifications) vehicle types")
-                                Text("• \(cacheInfo.itemCounts.vehicleMakes) vehicle makes")
-                                Text("• \(cacheInfo.itemCounts.vehicleModels) vehicle models")
-                                Text("• \(cacheInfo.itemCounts.modelYears) model years")
-                                Text("") // Empty cell to balance the grid
-                            }
-                            .font(.caption2)
-                        }
-                    }
-                }
-                .padding(12)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(8)
-
-                // Cache Actions
-                HStack {
-                    Button("Refresh Cache") {
-                        Task {
-                            await databaseManager.refreshFilterCache()
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .help("Force refresh filter cache from database")
-
-                    Button("Clear Cache") {
-                        databaseManager.clearFilterCache()
-                    }
-                    .buttonStyle(.bordered)
-                    .help("Clear ALL cached filter options (vehicle AND license data - will reload everything from database)")
-
-                    Spacer()
-                }
-            }
-
-            Divider()
-
-            // Development Section
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Development")
-                    .font(.headline)
-
-                Text("Advanced tools for development and exceptional circumstances.")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Button("Import Geographic Data File...") {
-                    importGeographicDataFile()
-                }
-                .buttonStyle(.bordered)
-                .help("Import a custom d001_min.txt file for development purposes")
-
-                Button("Clear License Cache") {
-                    FilterCache().clearLicenseCache()
-                }
-                .buttonStyle(.bordered)
-                .help("Clear ONLY license data cache (preserves vehicle cache - use for testing license-specific fixes)")
-            }
-
-            Spacer()
-        }
-        .padding(.horizontal)
-        .padding(.top, 32)
-        .padding(.bottom)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private func changeDatabaseLocation() {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "saaq_data.sqlite"
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
-                databaseManager.setDatabaseLocation(url)
-            }
-        }
-    }
-
-    private func importGeographicDataFile() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.plainText]
-        panel.message = "Select d001_min.txt file"
-
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-
+    private func handlePackageExportResult(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let url):
             Task {
                 do {
-                    let importer = GeographicDataImporter(databaseManager: databaseManager)
-                    try await importer.importD001File(at: url)
-                    print("Geographic data imported successfully from: \(url.lastPathComponent)")
+                    let options = DataPackageExportOptions.complete
+                    try await packageManager.exportDataPackage(to: url, options: options)
+                    packageAlertMessage = "Data package exported successfully to: \(url.lastPathComponent)"
+                    showingPackageAlert = true
                 } catch {
-                    print("Error importing geographic data: \(error)")
+                    packageAlertMessage = "Export failed: \(error.localizedDescription)"
+                    showingPackageAlert = true
                 }
             }
+        case .failure(let error):
+            packageAlertMessage = "Export cancelled: \(error.localizedDescription)"
+            showingPackageAlert = true
         }
+    }
+
+    private func formatFileSize(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useBytes, .useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 }
 
-// MARK: - Performance Settings Tab
+// MARK: - Data Package Document
 
-struct PerformanceSettingsTab: View {
-    @ObservedObject var settings: AppSettings
+/// Document wrapper for data package export
+struct DataPackageDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.saaqPackage] }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // System Information
-            VStack(alignment: .leading, spacing: 12) {
-                Text("System Information")
-                    .font(.headline)
+    init() {}
 
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Total CPU Cores:")
-                        Spacer()
-                        Text("\(settings.systemProcessorCount)")
-                            .fontWeight(.medium)
-                    }
+    init(configuration: ReadConfiguration) throws {}
 
-                    HStack {
-                        Text("Estimated Performance Cores:")
-                        Spacer()
-                        Text("\(settings.estimatedPerformanceCores)")
-                            .fontWeight(.medium)
-                    }
-                }
-                .padding(12)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(8)
-            }
-
-            Divider()
-
-            // Thread Configuration
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Thread Configuration")
-                    .font(.headline)
-
-                // Adaptive vs Manual toggle
-                Toggle(isOn: $settings.useAdaptiveThreadCount) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Adaptive Thread Count")
-                            .font(.subheadline)
-                        Text("Automatically optimize based on file size and system")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                if settings.useAdaptiveThreadCount {
-                    // Adaptive settings
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Maximum Threads:")
-                            Spacer()
-                            Text("\(settings.maxThreadCount)")
-                                .fontWeight(.medium)
-                        }
-
-                        Slider(
-                            value: Binding(
-                                get: { Double(settings.maxThreadCount) },
-                                set: { settings.maxThreadCount = Int($0) }
-                            ),
-                            in: 1...Double(settings.systemProcessorCount),
-                            step: 1
-                        )
-
-                        Text("Adaptive calculation preview:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        adaptivePreviewGrid
-                    }
-                    .padding(.leading, 20)
-                } else {
-                    // Manual settings
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Thread Count:")
-                            Spacer()
-                            Text("\(settings.manualThreadCount)")
-                                .fontWeight(.medium)
-                        }
-
-                        Slider(
-                            value: Binding(
-                                get: { Double(settings.manualThreadCount) },
-                                set: { settings.manualThreadCount = Int($0) }
-                            ),
-                            in: 1...Double(settings.systemProcessorCount),
-                            step: 1
-                        )
-
-                        Text("Fixed thread count for all imports")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.leading, 20)
-                }
-            }
-
-            Divider()
-
-            // Database Performance
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Database Performance")
-                    .font(.headline)
-
-                Toggle(isOn: $settings.updateDatabaseStatisticsOnLaunch) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Update Statistics on Launch")
-                            .font(.subheadline)
-                        Text("Runs ANALYZE command for optimal query performance (adds 2-5 minutes to startup)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                DatabaseStatisticsButton()
-                    .padding(.leading, 20)
-            }
-
-            Divider()
-
-            // Performance Tips
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Performance Tips")
-                    .font(.headline)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    performanceTip(
-                        icon: "cpu",
-                        title: "CPU Usage",
-                        description: "More threads = faster imports, but may slow other apps"
-                    )
-
-                    performanceTip(
-                        icon: "memorychip",
-                        title: "Memory Usage",
-                        description: "Each thread uses ~200MB during import"
-                    )
-
-                    performanceTip(
-                        icon: "chart.line.uptrend.xyaxis",
-                        title: "Adaptive Mode",
-                        description: "Recommended for varying file sizes and system loads"
-                    )
-                }
-            }
-
-            Spacer()
-        }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    /// Preview grid showing adaptive thread counts for different file sizes
-    private var adaptivePreviewGrid: some View {
-        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
-            GridRow {
-                Text("File Size")
-                    .font(.caption2)
-                    .fontWeight(.medium)
-                Text("Threads")
-                    .font(.caption2)
-                    .fontWeight(.medium)
-            }
-            .foregroundColor(.secondary)
-
-            ForEach([
-                (name: "Small (100K)", count: 100_000),
-                (name: "Medium (1M)", count: 1_000_000),
-                (name: "Large (5M)", count: 5_000_000),
-                (name: "Very Large (10M)", count: 10_000_000)
-            ], id: \.name) { sample in
-                GridRow {
-                    Text(sample.name)
-                        .font(.caption2)
-                    Text("\(settings.getOptimalThreadCount(for: sample.count))")
-                        .font(.caption2)
-                        .fontWeight(.medium)
-                }
-            }
-        }
-        .padding(8)
-        .background(Color.gray.opacity(0.05))
-        .cornerRadius(6)
-    }
-
-    /// Individual performance tip row
-    private func performanceTip(icon: String, title: String, description: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: icon)
-                .foregroundColor(.blue)
-                .frame(width: 16)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.caption)
-                    .fontWeight(.medium)
-                Text(description)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-            }
-        }
-    }
-}
-
-// MARK: - Export Settings Tab
-
-struct ExportSettingsTab: View {
-    @ObservedObject var settings: AppSettings
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Export Appearance
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Export Appearance")
-                    .font(.headline)
-
-                VStack(alignment: .leading, spacing: 12) {
-                    // Background Luminosity
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Background Luminosity:")
-                            Spacer()
-                            Text(String(format: "%.0f%%", settings.exportBackgroundLuminosity * 100))
-                                .fontWeight(.medium)
-                        }
-
-                        Slider(
-                            value: $settings.exportBackgroundLuminosity,
-                            in: 0.0...1.0,
-                            step: 0.05
-                        )
-
-                        Text("0% = black, 100% = white")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Divider()
-
-                    // Line Thickness
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text("Line Thickness:")
-                            Spacer()
-                            Text(String(format: "%.1f pt", settings.exportLineThickness))
-                                .fontWeight(.medium)
-                        }
-
-                        Slider(
-                            value: $settings.exportLineThickness,
-                            in: 1.0...12.0,
-                            step: 0.5
-                        )
-
-                        Text("Thickness of chart lines and borders")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Divider()
-
-                    // Bold Axis Labels
-                    Toggle(isOn: $settings.exportBoldAxisLabels) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Bold Axis Labels")
-                                .font(.subheadline)
-                            Text("Use bold font weight for axis labels")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-
-                    Divider()
-
-                    // Include Legend
-                    Toggle(isOn: $settings.exportIncludeLegend) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Include Legend")
-                                .font(.subheadline)
-                            Text("Show legend when multiple series are present")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-                .padding(12)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(8)
-            }
-
-            Divider()
-
-            // Export Quality
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Export Quality")
-                    .font(.headline)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Scale Factor:")
-                        Spacer()
-                        Text("\(settings.exportScaleFactor, specifier: "%.1f")x")
-                            .fontWeight(.medium)
-                    }
-
-                    Slider(
-                        value: $settings.exportScaleFactor,
-                        in: 1.0...4.0,
-                        step: 0.5
-                    )
-
-                    Text("Higher values produce sharper images at larger file sizes")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    // Quality examples
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Examples:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text("• 1.0x = Standard definition")
-                            .font(.caption2)
-                        Text("• 2.0x = High definition (recommended)")
-                            .font(.caption2)
-                        Text("• 3.0x = Ultra high definition")
-                            .font(.caption2)
-                    }
-                }
-                .padding(12)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(8)
-            }
-
-            Spacer()
-        }
-        .padding()
-        .padding(.top, 8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-// MARK: - Database Statistics Button
-
-/// Button to manually update database statistics
-struct DatabaseStatisticsButton: View {
-    @EnvironmentObject var databaseManager: DatabaseManager
-    @State private var isUpdating = false
-    @State private var showAlert = false
-    @State private var alertMessage = ""
-    @State private var isError = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button(action: updateStatistics) {
-                HStack {
-                    if isUpdating {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    } else {
-                        Image(systemName: "chart.line.uptrend.xyaxis")
-                    }
-                    Text(isUpdating ? "Updating Statistics..." : "Update Statistics Now")
-                }
-                .foregroundColor(isUpdating ? .secondary : .accentColor)
-            }
-            .disabled(isUpdating)
-            .buttonStyle(.borderless)
-
-            Text("Manually update database statistics for optimal query performance")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-        .alert("Database Statistics", isPresented: $showAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(alertMessage)
-        }
-    }
-
-    private func updateStatistics() {
-        isUpdating = true
-        Task {
-            do {
-                try await databaseManager.updateDatabaseStatistics()
-                await MainActor.run {
-                    isUpdating = false
-                    alertMessage = "Database statistics updated successfully. Query performance should be improved."
-                    isError = false
-                    showAlert = true
-                }
-            } catch {
-                await MainActor.run {
-                    isUpdating = false
-                    alertMessage = "Failed to update database statistics: \(error.localizedDescription)"
-                    isError = true
-                    showAlert = true
-                }
-            }
-        }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        // Return empty file wrapper - actual export is handled in the result handler
+        return FileWrapper(regularFileWithContents: Data())
     }
 }
 
@@ -1411,7 +827,7 @@ struct SeriesQueryProgressView: View {
                     .cornerRadius(4)
                 }
             }
-            
+
             // Animated progress bar
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
@@ -1419,7 +835,7 @@ struct SeriesQueryProgressView: View {
                     RoundedRectangle(cornerRadius: 3)
                         .fill(Color.gray.opacity(0.2))
                         .frame(height: 6)
-                    
+
                     // Animated shimmer effect
                     RoundedRectangle(cornerRadius: 3)
                         .fill(
@@ -1491,122 +907,57 @@ struct SeriesQueryProgressView: View {
     }
 }
 
-// MARK: - Database Summary View
+// MARK: - Settings View
 
-struct DatabaseSummaryView: View {
-    let databaseManager: DatabaseManager
+struct SettingsView: View {
+    @StateObject private var databaseManager = DatabaseManager.shared
     @State private var cachedStats: CachedDatabaseStats?
-    @State private var isLoading = false
+    @State private var isLoading = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if isLoading {
-                HStack {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                    Text("Loading database statistics...")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            } else if let stats = cachedStats {
-                // Vehicle data section
-                if stats.totalVehicleRecords > 0 {
+        Form {
+            Section("Database Statistics") {
+                if isLoading {
                     HStack {
-                        Text("Vehicle Records:")
-                        Spacer()
-                        Text("\(stats.totalVehicleRecords.formatted())")
-                            .fontWeight(.medium)
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text("Loading statistics...")
+                            .foregroundColor(.secondary)
                     }
-                    HStack {
-                        Text("Vehicle Years:")
-                        Spacer()
-                        Text(stats.vehicleYearRange)
-                            .fontWeight(.medium)
+                } else if let stats = cachedStats {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Vehicle Records: \(stats.totalVehicleRecords.formatted())")
+                        Text("License Records: \(stats.totalLicenseRecords.formatted())")
+                        Text("Vehicle Years: \(stats.vehicleYearRange)")
+                        Text("License Years: \(stats.licenseYearRange)")
+                        Text("Municipalities: \(stats.municipalities)")
+                        Text("Regions: \(stats.regions)")
+                        Text("Database Size: \(formatFileSize(stats.fileSizeBytes))")
+                        Text("Last Updated: \(stats.lastUpdated.formatted())")
                     }
-                }
-
-                // License data section
-                if stats.totalLicenseRecords > 0 {
-                    HStack {
-                        Text("License Records:")
-                        Spacer()
-                        Text("\(stats.totalLicenseRecords.formatted())")
-                            .fontWeight(.medium)
-                    }
-                    HStack {
-                        Text("License Years:")
-                        Spacer()
-                        Text(stats.licenseYearRange)
-                            .fontWeight(.medium)
-                    }
-                }
-
-                // Combined totals
-                HStack {
-                    Text("Combined Total:")
-                    Spacer()
-                    Text("\(stats.totalRecords.formatted())")
-                        .fontWeight(.medium)
-                        .foregroundColor(.primary)
-                }
-
-
-
-                HStack {
-                    Text("Geographic Coverage:")
-                    Spacer()
-                    Text("\(stats.regions) regions, \(stats.municipalities) municipalities")
-                        .fontWeight(.medium)
-                }
-
-                HStack {
-                    Text("Database Size:")
-                    Spacer()
-                    Text(formatFileSize(stats.fileSizeBytes))
-                        .fontWeight(.medium)
-                }
-
-                HStack {
-                    Text("Last Updated:")
-                    Spacer()
-                    Text(stats.lastUpdated, style: .date)
-                        .fontWeight(.medium)
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Database statistics not available")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("Import data and refresh cache to see statistics")
-                        .font(.caption2)
+                    .font(.system(.body, design: .monospaced))
+                } else {
+                    Text("Unable to load statistics")
                         .foregroundColor(.secondary)
                 }
             }
         }
-        .font(.caption)
-        .onAppear {
-            loadCachedStats()
+        .frame(width: 400, height: 300)
+        .task {
+            await loadStats()
         }
     }
 
-    private func loadCachedStats() {
-        // Try to get stats from cache first
-        if let cached = FilterCache().getCachedDatabaseStats() {
-            cachedStats = cached
-        } else {
-            // If no cached stats available, load them asynchronously
-            Task {
-                await MainActor.run {
-                    isLoading = true
-                }
+    private func loadStats() async {
+        await MainActor.run {
+            isLoading = true
+        }
 
-                let stats = await databaseManager.getDatabaseStats()
+        let stats = await databaseManager.getDatabaseStats()
 
-                await MainActor.run {
-                    cachedStats = stats
-                    isLoading = false
-                }
-            }
+        await MainActor.run {
+            cachedStats = stats
+            isLoading = false
         }
     }
 
@@ -1615,5 +966,20 @@ struct DatabaseSummaryView: View {
         formatter.allowedUnits = [.useBytes, .useKB, .useMB, .useGB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
+    }
+}
+
+// MARK: - SwiftUI Preview
+
+#Preview {
+    PreviewContainer()
+}
+
+// Preview wrapper for the main content
+private struct PreviewContainer: View {
+    var body: some View {
+        Text("SAAQAnalyzer")
+            .font(.title)
+            .padding()
     }
 }

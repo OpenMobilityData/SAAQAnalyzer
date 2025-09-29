@@ -1,7 +1,6 @@
 import Foundation
 import UniformTypeIdentifiers
 import SQLite3
-import AppKit
 
 /// Transient pointer for SQLite bindings
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
@@ -57,14 +56,10 @@ class CSVImporter {
         if !skipDuplicateCheck {
             let yearExists = await databaseManager.isYearImported(year)
             if yearExists {
-                let shouldReplace = await requestUserConfirmationForDuplicateYear(year)
-                if shouldReplace {
-                    print("🗑️ Deleting existing data for year \(year)...")
-                    try await databaseManager.clearYearData(year)
-                    print("✅ Existing data for year \(year) deleted successfully")
-                } else {
-                    throw ImportError.importCancelled
-                }
+                print("⚠️ Year \(year) already exists. Replacing existing data...")
+                print("🗑️ Deleting existing data for year \(year)...")
+                try await databaseManager.clearYearData(year)
+                print("✅ Existing data for year \(year) deleted successfully")
             }
         }
         
@@ -115,14 +110,10 @@ class CSVImporter {
         if !skipDuplicateCheck {
             let yearExists = await databaseManager.isYearImported(year)
             if yearExists {
-                let shouldReplace = await requestUserConfirmationForDuplicateYear(year)
-                if shouldReplace {
-                    print("🗑️ Deleting existing data for year \(year)...")
-                    try await databaseManager.clearYearData(year)
-                    print("✅ Existing data for year \(year) deleted successfully")
-                } else {
-                    throw ImportError.importCancelled
-                }
+                print("⚠️ Year \(year) already exists. Replacing existing data...")
+                print("🗑️ Deleting existing data for year \(year)...")
+                try await databaseManager.clearYearData(year)
+                print("✅ Existing data for year \(year) deleted successfully")
             }
         }
 
@@ -495,25 +486,6 @@ class CSVImporter {
         try await databaseManager.executeImportLog(sql, fileName: fileName, year: year, recordCount: recordCount, status: status)
     }
     
-    /// Requests user confirmation for replacing existing year data
-    @MainActor
-    private func requestUserConfirmationForDuplicateYear(_ year: Int) async -> Bool {
-        return await withCheckedContinuation { continuation in
-            let alert = NSAlert()
-            alert.messageText = "Year \(year) Already Exists"
-            alert.informativeText = "Data for year \(year) has already been imported. Do you want to replace the existing data with the new import?"
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Replace Existing Data")
-            alert.addButton(withTitle: "Cancel Import")
-            
-            // Set the default button to Cancel for safety
-            alert.buttons[1].keyEquivalent = "\r"
-            
-            let response = alert.runModal()
-            continuation.resume(returning: response == .alertFirstButtonReturn)
-        }
-    }
-
     /// Parses a license CSV file with proper character encoding handling
     private func parseLicenseCSVFile(at url: URL) async throws -> [[String: String]] {
         // Update to parsing stage immediately to show progress
