@@ -474,6 +474,15 @@ class DatabaseManager: ObservableObject {
             "CREATE INDEX IF NOT EXISTS idx_licenses_year_region ON licenses(year, admin_region);",
             "CREATE INDEX IF NOT EXISTS idx_licenses_year_type_age ON licenses(year, license_type, age_group);",
 
+            // STRATEGIC LICENSE INDEXES: Match vehicle query performance patterns
+            // These mirror the strategic vehicle index (geo_code, classification, year) for license data
+            "CREATE INDEX IF NOT EXISTS idx_licenses_mrc_type_year ON licenses(mrc, license_type, year);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_region_type_year ON licenses(admin_region, license_type, year);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_mrc_age_year ON licenses(mrc, age_group, year);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_region_age_year ON licenses(admin_region, age_group, year);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_type_gender_year ON licenses(license_type, gender, year);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_experience_type_year ON licenses(experience_global, license_type, year);",
+
             // Geographic indexes
             "CREATE INDEX IF NOT EXISTS idx_geographic_type ON geographic_entities(type);",
             "CREATE INDEX IF NOT EXISTS idx_geographic_parent ON geographic_entities(parent_code);",
@@ -1291,6 +1300,8 @@ class DatabaseManager: ObservableObject {
 
     /// Raw license data query that returns just points without series wrapper
     private func queryLicenseDataRaw(filters: FilterConfiguration) async throws -> [TimeSeriesPoint] {
+        let startTime = Date()
+
         return try await withCheckedThrowingContinuation { continuation in
             dbQueue.async { [weak self] in
                 guard let db = self?.db else {
@@ -1343,6 +1354,8 @@ class DatabaseManager: ObservableObject {
                     points.append(TimeSeriesPoint(year: year, value: value, label: nil))
                 }
 
+                let duration = Date().timeIntervalSince(startTime)
+                print("📊 Raw license query completed in \(String(format: "%.3f", duration))s - \(points.count) data points")
                 continuation.resume(returning: points)
             }
         }
