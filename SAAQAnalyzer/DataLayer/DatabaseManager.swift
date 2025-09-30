@@ -15,7 +15,13 @@ class DatabaseManager: ObservableObject {
     
     /// Filter cache manager
     private let filterCache = FilterCache()
-    
+
+    /// Schema migration manager
+    private(set) var schemaManager: SchemaManager?
+
+    /// Optimized query manager
+    private(set) var optimizedQueryManager: OptimizedQueryManager?
+
     /// SQLite database handle
     internal var db: OpaquePointer?
     
@@ -189,6 +195,10 @@ class DatabaseManager: ObservableObject {
             }
 
             print("✅ Database AGGRESSIVELY optimized for M3 Ultra: 8GB cache, 32GB mmap, 16 threads")
+
+            // Initialize schema and optimization managers
+            schemaManager = SchemaManager(databaseManager: self)
+            optimizedQueryManager = OptimizedQueryManager(databaseManager: self)
         } else {
             print("Unable to open database at: \(dbPath)")
             if let errorMessage = sqlite3_errmsg(db) {

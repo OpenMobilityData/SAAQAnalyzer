@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import SQLite3
 
 // MARK: - Vehicle Registration Models
 
@@ -155,6 +156,685 @@ struct DriverLicense: Codable {
     let experience5: String                 // EXPERIENCE_5
     let experience6ABCE: String             // EXPERIENCE_6ABCE
     let experienceGlobal: String            // EXPERIENCE_GLOBALE
+}
+
+// MARK: - Categorical Enumeration Models
+
+/// Base protocol for categorical enumeration
+protocol CategoricalEnum: Codable, Hashable {
+    var id: Int { get }
+    var displayValue: String { get }
+}
+
+/// Year enumeration (12 values)
+struct YearEnum: CategoricalEnum {
+    let id: Int  // TINYINT
+    let year: Int
+
+    var displayValue: String { String(year) }
+}
+
+/// Vehicle classification enumeration (30 values)
+struct ClassificationEnum: CategoricalEnum {
+    let id: Int  // TINYINT
+    let code: String      // PAU, CMC, etc.
+    let description: String
+
+    var displayValue: String { code }
+}
+
+/// Vehicle make enumeration (418 values)
+struct MakeEnum: CategoricalEnum {
+    let id: Int  // SMALLINT
+    let name: String
+
+    var displayValue: String { name }
+}
+
+/// Vehicle model enumeration (9,923 values)
+struct ModelEnum: CategoricalEnum {
+    let id: Int  // SMALLINT
+    let name: String
+    let makeId: Int
+
+    var displayValue: String { name }
+}
+
+/// Model year enumeration (120 values)
+struct ModelYearEnum: CategoricalEnum {
+    let id: Int  // SMALLINT
+    let year: Int
+
+    var displayValue: String { String(year) }
+}
+
+/// Cylinder count enumeration (9 values)
+struct CylinderCountEnum: CategoricalEnum {
+    let id: Int  // TINYINT
+    let count: Int
+
+    var displayValue: String { String(count) }
+}
+
+/// Axle count enumeration (6 values)
+struct AxleCountEnum: CategoricalEnum {
+    let id: Int  // TINYINT
+    let count: Int
+
+    var displayValue: String { String(count) }
+}
+
+/// Vehicle color enumeration (21 values)
+struct ColorEnum: CategoricalEnum {
+    let id: Int  // TINYINT
+    let name: String
+
+    var displayValue: String { name }
+}
+
+/// Fuel type enumeration (13 values)
+struct FuelTypeEnum: CategoricalEnum {
+    let id: Int  // TINYINT
+    let code: String      // E, D, L, H, etc.
+    let description: String
+
+    var displayValue: String { description }
+}
+
+/// Administrative region enumeration (18/35 values)
+struct AdminRegionEnum: CategoricalEnum {
+    let id: Int  // TINYINT
+    let code: String
+    let name: String
+
+    var displayValue: String { name }
+}
+
+/// MRC enumeration (106 values)
+struct MRCEnum: CategoricalEnum {
+    let id: Int  // SMALLINT
+    let code: String
+    let name: String
+
+    var displayValue: String { name }
+}
+
+/// Municipality enumeration (129 values)
+struct MunicipalityEnum: CategoricalEnum {
+    let id: Int  // SMALLINT
+    let code: String
+    let name: String
+
+    var displayValue: String { name }
+}
+
+/// Age group enumeration (8 values)
+struct AgeGroupEnum: CategoricalEnum {
+    let id: Int  // TINYINT
+    let range: String     // "16-19", "20-24", etc.
+
+    var displayValue: String { range }
+}
+
+/// Gender enumeration (2 values)
+struct GenderEnum: CategoricalEnum {
+    let id: Int  // TINYINT
+    let code: String      // M, F
+    let description: String
+
+    var displayValue: String { description }
+}
+
+/// License type enumeration (3 values)
+struct LicenseTypeEnum: CategoricalEnum {
+    let id: Int  // TINYINT
+    let typeName: String
+    let description: String
+
+    var displayValue: String { description }
+}
+
+/// Optimized vehicle registration with enumerated categorical data
+struct OptimizedVehicleRegistration: Codable {
+    // Core identifiers
+    let yearId: Int                    // TINYINT → year enum
+    let vehicleSequence: String        // Keep as-is for uniqueness constraint
+
+    // Categorical enums (significant storage reduction)
+    let classificationId: Int          // TINYINT → 30 classifications
+    let makeId: Int                   // SMALLINT → 418 makes
+    let modelId: Int                  // SMALLINT → 9,923 models
+    let modelYearId: Int?             // SMALLINT → 120 model years
+    let cylinderCountId: Int?         // TINYINT → 9 cylinder counts
+    let axleCountId: Int?             // TINYINT → 6 axle counts
+    let originalColorId: Int?         // TINYINT → 21 colors
+    let fuelTypeId: Int?              // TINYINT → 13 fuel types
+    let adminRegionId: Int            // TINYINT → 18/35 regions
+    let mrcId: Int                    // SMALLINT → 106 MRCs
+    let municipalityId: Int           // SMALLINT → 129 municipalities
+
+    // Optimized numeric data
+    let netMass: Int?                 // SMALLINT instead of REAL (kg)
+    let displacement: Int?            // SMALLINT instead of REAL (cm³)
+
+    /// Get actual year value
+    func getYear(from yearEnum: YearEnum) -> Int {
+        return yearEnum.year
+    }
+
+    /// Calculate vehicle age for a given year
+    func age(in year: Int, modelYear: Int?) -> Int? {
+        guard let modelYear = modelYear else { return nil }
+        return year - modelYear
+    }
+}
+
+/// Optimized driver license with enumerated categorical data
+struct OptimizedDriverLicense: Codable {
+    // Core identifiers
+    let yearId: Int                    // TINYINT → year enum
+    let licenseSequence: String        // Keep as-is for uniqueness constraint
+
+    // Categorical enums
+    let ageGroupId: Int               // TINYINT → 8 age groups
+    let genderId: Int                 // TINYINT → 2 genders
+    let mrcId: Int                    // SMALLINT → 106 MRCs
+    let adminRegionId: Int            // TINYINT → 35 regions
+    let licenseTypeId: Int            // TINYINT → license types
+
+    // Boolean flags (remain as-is, very efficient)
+    let hasLearnerPermit123: Bool
+    let hasLearnerPermit5: Bool
+    let hasLearnerPermit6A6R: Bool
+    let hasDriverLicense1234: Bool
+    let hasDriverLicense5: Bool
+    let hasDriverLicense6ABCE: Bool
+    let hasDriverLicense6D: Bool
+    let hasDriverLicense8: Bool
+    let isProbationary: Bool
+
+    // Experience fields (could be enumerated if patterns emerge)
+    let experience1234: String
+    let experience5: String
+    let experience6ABCE: String
+    let experienceGlobal: String
+}
+
+/// Categorical lookup cache for UI performance
+class CategoricalLookupCache: ObservableObject {
+    // Cached enumerations for fast UI lookups (all O(1) access)
+    private var years: [Int: YearEnum] = [:]
+    private var classifications: [Int: ClassificationEnum] = [:]
+    private var makes: [Int: MakeEnum] = [:]
+    private var models: [Int: ModelEnum] = [:]
+    private var modelYears: [Int: ModelYearEnum] = [:]
+    internal var cylinderCounts: [Int: CylinderCountEnum] = [:]
+    internal var axleCounts: [Int: AxleCountEnum] = [:]
+    private var colors: [Int: ColorEnum] = [:]
+    private var fuelTypes: [Int: FuelTypeEnum] = [:]
+    private var adminRegions: [Int: AdminRegionEnum] = [:]
+    private var mrcs: [Int: MRCEnum] = [:]
+    private var municipalities: [Int: MunicipalityEnum] = [:]
+    private var ageGroups: [Int: AgeGroupEnum] = [:]
+    private var genders: [Int: GenderEnum] = [:]
+
+    // Reverse lookups for string → ID conversion (critical for query optimization)
+    internal var yearsByValue: [Int: Int] = [:]  // year → id
+    private var classificationsByCode: [String: Int] = [:]  // code → id
+    private var makesByName: [String: Int] = [:]  // name → id
+    private var modelsByName: [String: Int] = [:]  // name → id (note: models may have duplicates across makes)
+    private var fuelTypesByCode: [String: Int] = [:]  // code → id
+    private var regionsByCode: [String: Int] = [:]  // code → id
+    private var mrcsByCode: [String: Int] = [:]  // code → id
+    private var municipalitiesByCode: [String: Int] = [:]  // code → id
+    private var ageGroupsByRange: [String: Int] = [:]  // range → id
+    private var gendersByCode: [String: Int] = [:]  // code → id
+
+    @Published var isLoaded = false
+    @Published var loadingProgress: Double = 0.0
+
+    /// Initialize cache from database - critical for UI responsiveness
+    func loadCache(from databaseManager: DatabaseManager) async throws {
+        print("🔄 Loading categorical lookup cache...")
+
+        await MainActor.run { loadingProgress = 0.0 }
+
+        try await loadYears(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.1 }
+
+        try await loadClassifications(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.2 }
+
+        try await loadMakes(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.3 }
+
+        try await loadModels(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.4 }
+
+        try await loadModelYears(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.5 }
+
+        try await loadCylinderCounts(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.6 }
+
+        try await loadColors(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.7 }
+
+        try await loadFuelTypes(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.8 }
+
+        try await loadGeographicData(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.9 }
+
+        try await loadLicenseData(from: databaseManager)
+        await MainActor.run {
+            loadingProgress = 1.0
+            isLoaded = true
+        }
+
+        print("✅ Categorical lookup cache loaded with \(getTotalCacheSize()) entries")
+    }
+
+    // MARK: - Cache Loading Methods
+
+    private func loadYears(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, year FROM year_enum ORDER BY year;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let year = Int(sqlite3_column_int(stmt, 1))
+
+                    let yearEnum = YearEnum(id: id, year: year)
+                    years[id] = yearEnum
+                    yearsByValue[year] = id
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load years: \(error)"))
+            }
+        }
+    }
+
+    private func loadClassifications(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, code, description FROM classification_enum ORDER BY code;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let description = String(cString: sqlite3_column_text(stmt, 2))
+
+                    let classificationEnum = ClassificationEnum(id: id, code: code, description: description)
+                    classifications[id] = classificationEnum
+                    classificationsByCode[code] = id
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load classifications: \(error)"))
+            }
+        }
+    }
+
+    private func loadMakes(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, name FROM make_enum ORDER BY name;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let name = String(cString: sqlite3_column_text(stmt, 1))
+
+                    let makeEnum = MakeEnum(id: id, name: name)
+                    makes[id] = makeEnum
+                    makesByName[name] = id
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load makes: \(error)"))
+            }
+        }
+    }
+
+    private func loadModels(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, name, make_id FROM model_enum ORDER BY name;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let name = String(cString: sqlite3_column_text(stmt, 1))
+                    let makeId = Int(sqlite3_column_int(stmt, 2))
+
+                    let modelEnum = ModelEnum(id: id, name: name, makeId: makeId)
+                    models[id] = modelEnum
+                    // Note: models can have duplicates across makes, so we store by make+model
+                    if let make = makes[makeId] {
+                        modelsByName["\(make.name)|\(name)"] = id
+                    }
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load models: \(error)"))
+            }
+        }
+    }
+
+    private func loadModelYears(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, year FROM model_year_enum ORDER BY year;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let year = Int(sqlite3_column_int(stmt, 1))
+
+                    let modelYearEnum = ModelYearEnum(id: id, year: year)
+                    modelYears[id] = modelYearEnum
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load model years: \(error)"))
+            }
+        }
+    }
+
+    private func loadCylinderCounts(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, count FROM cylinder_count_enum ORDER BY count;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let count = Int(sqlite3_column_int(stmt, 1))
+
+                    let cylinderEnum = CylinderCountEnum(id: id, count: count)
+                    cylinderCounts[id] = cylinderEnum
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load cylinder counts: \(error)"))
+            }
+        }
+    }
+
+    private func loadColors(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, name FROM color_enum ORDER BY name;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let name = String(cString: sqlite3_column_text(stmt, 1))
+
+                    let colorEnum = ColorEnum(id: id, name: name)
+                    colors[id] = colorEnum
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load colors: \(error)"))
+            }
+        }
+    }
+
+    private func loadFuelTypes(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, code, description FROM fuel_type_enum ORDER BY code;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let description = String(cString: sqlite3_column_text(stmt, 2))
+
+                    let fuelTypeEnum = FuelTypeEnum(id: id, code: code, description: description)
+                    fuelTypes[id] = fuelTypeEnum
+                    fuelTypesByCode[code] = id
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load fuel types: \(error)"))
+            }
+        }
+    }
+
+    private func loadGeographicData(from databaseManager: DatabaseManager) async throws {
+        // Load admin regions
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            // Load admin regions
+            let regionSQL = "SELECT id, code, name FROM admin_region_enum ORDER BY name;"
+            if sqlite3_prepare_v2(db, regionSQL, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let name = String(cString: sqlite3_column_text(stmt, 2))
+
+                    let regionEnum = AdminRegionEnum(id: id, code: code, name: name)
+                    adminRegions[id] = regionEnum
+                    regionsByCode[code] = id
+                }
+            }
+            sqlite3_finalize(stmt)
+            stmt = nil
+
+            // Load MRCs
+            let mrcSQL = "SELECT id, code, name FROM mrc_enum ORDER BY name;"
+            if sqlite3_prepare_v2(db, mrcSQL, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let name = String(cString: sqlite3_column_text(stmt, 2))
+
+                    let mrcEnum = MRCEnum(id: id, code: code, name: name)
+                    mrcs[id] = mrcEnum
+                    mrcsByCode[code] = id
+                }
+            }
+            sqlite3_finalize(stmt)
+            stmt = nil
+
+            // Load municipalities
+            let municipalitySQL = "SELECT id, code, name FROM municipality_enum ORDER BY name;"
+            if sqlite3_prepare_v2(db, municipalitySQL, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let name = String(cString: sqlite3_column_text(stmt, 2))
+
+                    let municipalityEnum = MunicipalityEnum(id: id, code: code, name: name)
+                    municipalities[id] = municipalityEnum
+                    municipalitiesByCode[code] = id
+                }
+            }
+
+            continuation.resume()
+        }
+    }
+
+    private func loadLicenseData(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            // Load age groups
+            let ageSQL = "SELECT id, range_text FROM age_group_enum ORDER BY id;"
+            if sqlite3_prepare_v2(db, ageSQL, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let range = String(cString: sqlite3_column_text(stmt, 1))
+
+                    let ageGroupEnum = AgeGroupEnum(id: id, range: range)
+                    ageGroups[id] = ageGroupEnum
+                    ageGroupsByRange[range] = id
+                }
+            }
+            sqlite3_finalize(stmt)
+            stmt = nil
+
+            // Load genders
+            let genderSQL = "SELECT id, code, description FROM gender_enum ORDER BY code;"
+            if sqlite3_prepare_v2(db, genderSQL, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let description = String(cString: sqlite3_column_text(stmt, 2))
+
+                    let genderEnum = GenderEnum(id: id, code: code, description: description)
+                    genders[id] = genderEnum
+                    gendersByCode[code] = id
+                }
+            }
+
+            continuation.resume()
+        }
+    }
+
+    // MARK: - Lookup Methods
+
+    /// Get display value for any categorical enum ID
+    func getDisplayValue(for id: Int, type: any CategoricalEnum.Type) -> String? {
+        switch type {
+        case is YearEnum.Type:
+            return years[id]?.displayValue
+        case is ClassificationEnum.Type:
+            return classifications[id]?.displayValue
+        case is MakeEnum.Type:
+            return makes[id]?.displayValue
+        case is ModelEnum.Type:
+            return models[id]?.displayValue
+        case is FuelTypeEnum.Type:
+            return fuelTypes[id]?.displayValue
+        case is AdminRegionEnum.Type:
+            return adminRegions[id]?.displayValue
+        case is MRCEnum.Type:
+            return mrcs[id]?.displayValue
+        case is MunicipalityEnum.Type:
+            return municipalities[id]?.displayValue
+        case is AgeGroupEnum.Type:
+            return ageGroups[id]?.displayValue
+        case is GenderEnum.Type:
+            return genders[id]?.displayValue
+        default:
+            return nil
+        }
+    }
+
+    /// Get enumeration ID for string value (critical for query performance)
+    func getEnumId(for value: String, type: any CategoricalEnum.Type) -> Int? {
+        switch type {
+        case is ClassificationEnum.Type:
+            return classificationsByCode[value]
+        case is MakeEnum.Type:
+            return makesByName[value]
+        case is FuelTypeEnum.Type:
+            return fuelTypesByCode[value]
+        case is AdminRegionEnum.Type:
+            return regionsByCode[value]
+        case is MRCEnum.Type:
+            return mrcsByCode[value]
+        case is MunicipalityEnum.Type:
+            return municipalitiesByCode[value]
+        case is AgeGroupEnum.Type:
+            return ageGroupsByRange[value]
+        case is GenderEnum.Type:
+            return gendersByCode[value]
+        default:
+            return nil
+        }
+    }
+
+    /// Get year enum ID (special case for frequently used lookups)
+    func getYearId(for year: Int) -> Int? {
+        return yearsByValue[year]
+    }
+
+    /// Get model ID for make+model combination
+    func getModelId(for model: String, make: String) -> Int? {
+        return modelsByName["\(make)|\(model)"]
+    }
+
+    // MARK: - Cache Statistics
+
+    func getTotalCacheSize() -> Int {
+        return years.count + classifications.count + makes.count + models.count +
+               modelYears.count + cylinderCounts.count + colors.count + fuelTypes.count +
+               adminRegions.count + mrcs.count + municipalities.count + ageGroups.count + genders.count
+    }
+
+    func getCacheStatistics() -> String {
+        return """
+        Categorical Cache Statistics:
+        - Years: \(years.count)
+        - Classifications: \(classifications.count)
+        - Makes: \(makes.count)
+        - Models: \(models.count)
+        - Model Years: \(modelYears.count)
+        - Fuel Types: \(fuelTypes.count)
+        - Regions: \(adminRegions.count)
+        - MRCs: \(mrcs.count)
+        - Municipalities: \(municipalities.count)
+        - Age Groups: \(ageGroups.count)
+        - Genders: \(genders.count)
+        Total: \(getTotalCacheSize()) cached entries
+        """
+    }
 }
 
 /// Driver's license types
