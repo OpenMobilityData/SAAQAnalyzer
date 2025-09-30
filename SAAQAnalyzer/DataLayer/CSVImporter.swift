@@ -92,10 +92,13 @@ class CSVImporter {
         print("   • Database Import: \(String(format: "%.1f", importTime))s (\(String(format: "%.1f", importTime/totalTime*100))%)")
         print("   • Total Time: \(String(format: "%.1f", totalTime))s")
         print("   • Records/second: \(String(format: "%.0f", Double(result.totalRecords)/totalTime))")
-        
-        // Complete progress tracking
-        await progressManager?.completeImport(recordsImported: result.successCount)
-        
+
+        // Complete progress tracking (only if not part of batch import)
+        let isBatchInProgress = await progressManager?.isBatchImport ?? false
+        if !isBatchInProgress {
+            await progressManager?.completeImport(recordsImported: result.successCount)
+        }
+
         return result
     }
 
@@ -147,8 +150,11 @@ class CSVImporter {
         print("   • Total Time: \(String(format: "%.1f", totalTime))s")
         print("   • Records/second: \(String(format: "%.0f", Double(result.totalRecords)/totalTime))")
 
-        // Complete progress tracking
-        await progressManager?.completeImport(recordsImported: result.successCount)
+        // Complete progress tracking (only if not part of batch import)
+        let isBatchInProgress = await progressManager?.isBatchImport ?? false
+        if !isBatchInProgress {
+            await progressManager?.completeImport(recordsImported: result.successCount)
+        }
 
         return result
     }
