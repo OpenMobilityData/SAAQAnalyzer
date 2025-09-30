@@ -7,10 +7,13 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
 ### Data Import & Management
 - **Dual Data Types**: Support for both vehicle and driver data with unified workflow
 - **CSV Import**: Import CSV files with automatic encoding detection for French characters
+- **Integer-Based Optimization**: Categorical data stored as integer foreign keys for 50-70% storage reduction and faster queries
+- **Enumeration Tables**: On-the-fly population of lookup tables during import for instant string-to-ID mapping
 - **Data Type Switching**: Seamless switching between vehicle and driver data analysis modes
-- **SQLite Database**: Efficient storage with WAL mode, indexing, and 64MB cache for optimal performance
-- **Batch Processing**: Handle large datasets (77M+ records) with 50K-record batch processing and parallel workers
-- **Import Progress**: Real-time progress indication with detailed stage tracking and indexing updates
+- **SQLite Database**: Efficient storage with WAL mode, strategic indexing, and optimized cache for performance
+- **Batch Processing**: Handle large datasets (77M+ records) with intelligent batch processing and parallel workers
+- **Batch Import Progress**: Comprehensive multi-file import tracking with file-by-file progress, "Preparing import..." instant feedback, and total elapsed time reporting
+- **Smart Caching**: Single cache refresh at end of batch (not per-file) for optimal performance
 - **Data Package Export/Import**: Transfer complete databases (39GB+) between machines without re-processing
 - **Cache Preservation**: Export and import filter caches to bypass lengthy rebuild times
 

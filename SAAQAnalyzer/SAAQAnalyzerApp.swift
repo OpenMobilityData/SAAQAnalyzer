@@ -926,7 +926,8 @@ struct ContentView: View {
     private func performVehicleImport(url: URL, year: Int) async {
         do {
             let importer = CSVImporter(databaseManager: databaseManager, progressManager: progressManager)
-            let result = try await importer.importFile(at: url, year: year, dataType: .vehicle, skipDuplicateCheck: false)
+            // Skip duplicate check during batch imports - we already checked at batch level
+            let result = try await importer.importFile(at: url, year: year, dataType: .vehicle, skipDuplicateCheck: true)
             print("✅ Import completed: \(result.successCount) records imported for year \(year)")
         } catch {
             await progressManager.reset()
@@ -940,6 +941,7 @@ struct ContentView: View {
     private func performLicenseImport(url: URL, year: Int) async {
         do {
             let importer = CSVImporter(databaseManager: databaseManager, progressManager: progressManager)
+            // Skip duplicate check during batch imports - we already checked at batch level
             let result = try await importer.importFile(at: url, year: year, dataType: .license, skipDuplicateCheck: true)
             print("✅ License import completed: \(result.successCount) records imported for year \(year)")
         } catch {

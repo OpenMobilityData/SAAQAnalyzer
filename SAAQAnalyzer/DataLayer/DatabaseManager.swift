@@ -639,23 +639,14 @@ class DatabaseManager: ObservableObject {
                 year INTEGER NOT NULL,
                 vehicle_sequence TEXT NOT NULL,
 
-                -- Original string columns (kept for reference and debugging)
-                classification TEXT NOT NULL,
-                vehicle_type TEXT,
-                make TEXT,
-                model TEXT,
+                -- Numeric data columns (not categorical)
                 model_year INTEGER,
                 net_mass REAL,
                 cylinder_count INTEGER,
                 displacement REAL,
                 max_axles INTEGER,
-                original_color TEXT,
-                fuel_type TEXT,
-                admin_region TEXT NOT NULL,
-                mrc TEXT NOT NULL,
-                geo_code TEXT NOT NULL,
 
-                -- Integer foreign key columns for optimized queries (TINYINT 1-byte)
+                -- Integer foreign key columns (TINYINT 1-byte)
                 year_id INTEGER,
                 classification_id INTEGER,
                 cylinder_count_id INTEGER,
@@ -685,13 +676,6 @@ class DatabaseManager: ObservableObject {
                 year INTEGER NOT NULL,
                 license_sequence TEXT NOT NULL,
 
-                -- Original string columns (kept for reference and debugging)
-                age_group TEXT NOT NULL,
-                gender TEXT NOT NULL,
-                mrc TEXT NOT NULL,
-                admin_region TEXT NOT NULL,
-                license_type TEXT NOT NULL,
-
                 -- License class boolean columns
                 has_learner_permit_123 INTEGER NOT NULL DEFAULT 0,
                 has_learner_permit_5 INTEGER NOT NULL DEFAULT 0,
@@ -709,7 +693,7 @@ class DatabaseManager: ObservableObject {
                 experience_6abce TEXT,
                 experience_global TEXT,
 
-                -- Integer foreign key columns for optimized queries (TINYINT 1-byte)
+                -- Integer foreign key columns (TINYINT 1-byte)
                 year_id INTEGER,
                 age_group_id INTEGER,
                 gender_id INTEGER,
@@ -3993,15 +3977,13 @@ class DatabaseManager: ObservableObject {
                 
                 let insertSQL = """
                     INSERT OR REPLACE INTO vehicles (
-                        year, vehicle_sequence, classification, vehicle_type,
-                        make, model, model_year, net_mass, cylinder_count,
-                        displacement, max_axles, original_color, fuel_type,
-                        admin_region, mrc, geo_code,
+                        year, vehicle_sequence, model_year, net_mass, cylinder_count,
+                        displacement, max_axles,
                         year_id, classification_id, make_id, model_id, model_year_id,
                         cylinder_count_id, axle_count_id, original_color_id, fuel_type_id,
                         admin_region_id, mrc_id, municipality_id,
                         net_mass_int, displacement_int
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """
                 
                 var stmt: OpaquePointer?
@@ -4286,61 +4268,54 @@ class DatabaseManager: ObservableObject {
                 print("Starting batch import: \(records.count) records for year \(year)")
 
                 for record in records {
-                    // Bind original string columns (positions 1-16)
+                    // Extract values from CSV (keep for enum population)
+                    let classification = record["CLAS"] ?? "UNK"
+                    let make = record["MARQ_VEH"]
+                    let model = record["MODEL_VEH"]
+                    let color = record["COUL_ORIG"]
+                    let fuelType = record["TYP_CARBU"]
+                    let adminRegion = record["REG_ADM"] ?? "Unknown Region"
+                    let mrc = record["MRC"] ?? "Unknown MRC"
+                    let geoCode = record["CG_FIXE"] ?? "00000"
+                    let cylinderCount = record["NB_CYL"]
+                    let maxAxles = record["NB_ESIEU_MAX"]
+                    let netMass = record["MASSE_NETTE"]
+                    let displacement = record["CYL_VEH"]
+
+                    // Bind non-categorical columns (positions 1-7)
                     sqlite3_bind_int(stmt, 1, Int32(year))
                     importer.bindRequiredTextToStatement(stmt, 2, record["NOSEQ_VEH"], defaultValue: "\(year)_UNKNOWN")
-                    let classification = record["CLAS"] ?? "UNK"
-                    importer.bindRequiredTextToStatement(stmt, 3, record["CLAS"], defaultValue: "UNK")
-                    importer.bindTextToStatement(stmt, 4, record["TYP_VEH_CATEG_USA"])
-                    let make = record["MARQ_VEH"]
-                    importer.bindTextToStatement(stmt, 5, make)
-                    let model = record["MODEL_VEH"]
-                    importer.bindTextToStatement(stmt, 6, model)
 
                     let modelYear: Int32?
                     if let modelYearStr = record["ANNEE_MOD"], let year = Int32(modelYearStr) {
-                        sqlite3_bind_int(stmt, 7, year)
+                        sqlite3_bind_int(stmt, 3, year)
                         modelYear = year
                     } else {
-                        sqlite3_bind_null(stmt, 7)
+                        sqlite3_bind_null(stmt, 3)
                         modelYear = nil
                     }
 
-                    let netMass = record["MASSE_NETTE"]
-                    importer.bindDoubleToStatement(stmt, 8, netMass)
-                    let cylinderCount = record["NB_CYL"]
-                    importer.bindIntToStatement(stmt, 9, cylinderCount)
-                    let displacement = record["CYL_VEH"]
-                    importer.bindDoubleToStatement(stmt, 10, displacement)
-                    let maxAxles = record["NB_ESIEU_MAX"]
-                    importer.bindIntToStatement(stmt, 11, maxAxles)
-                    let color = record["COUL_ORIG"]
-                    importer.bindTextToStatement(stmt, 12, color)
-                    let fuelType = record["TYP_CARBU"]
-                    importer.bindTextToStatement(stmt, 13, fuelType)
-                    let adminRegion = record["REG_ADM"] ?? "Unknown Region"
-                    importer.bindRequiredTextToStatement(stmt, 14, record["REG_ADM"], defaultValue: "Unknown Region")
-                    let mrc = record["MRC"] ?? "Unknown MRC"
-                    importer.bindRequiredTextToStatement(stmt, 15, record["MRC"], defaultValue: "Unknown MRC")
-                    let geoCode = record["CG_FIXE"] ?? "00000"
-                    importer.bindRequiredTextToStatement(stmt, 16, record["CG_FIXE"], defaultValue: "00000")
+                    importer.bindDoubleToStatement(stmt, 4, netMass)
+                    importer.bindIntToStatement(stmt, 5, cylinderCount)
+                    importer.bindDoubleToStatement(stmt, 6, displacement)
+                    importer.bindIntToStatement(stmt, 7, maxAxles)
 
-                    // Bind integer ID columns (positions 17-30)
+                    // Bind integer ID columns (positions 8-21)
                     // year_id
                     if let yearId = getOrCreateIntEnumId(table: "year_enum", column: "year", value: year, cache: &yearEnumCache) {
-                        sqlite3_bind_int(stmt, 17, Int32(yearId))
-                    } else { sqlite3_bind_null(stmt, 17) }
+                        sqlite3_bind_int(stmt, 8, Int32(yearId))
+                    } else { sqlite3_bind_null(stmt, 8) }
 
                     // classification_id (lookup human-readable description from VehicleClassification enum)
                     let classDescription = VehicleClassification(rawValue: classification)?.description ?? classification
                     if let classId = getOrCreateClassificationEnumId(code: classification, description: classDescription, cache: &classificationEnumCache) {
-                        sqlite3_bind_int(stmt, 18, Int32(classId))
-                    } else { sqlite3_bind_null(stmt, 18) }
+                        sqlite3_bind_int(stmt, 9, Int32(classId))
+                    } else { sqlite3_bind_null(stmt, 9) }
 
                     // make_id
                     if let makeStr = make, !makeStr.isEmpty, let makeId = getOrCreateEnumId(table: "make_enum", column: "name", value: makeStr, cache: &makeEnumCache) {
-                        sqlite3_bind_int(stmt, 19, Int32(makeId))
-                    } else { sqlite3_bind_null(stmt, 19) }
+                        sqlite3_bind_int(stmt, 10, Int32(makeId))
+                    } else { sqlite3_bind_null(stmt, 10) }
 
                     // model_id (requires make_id)
                     if let makeStr = make, !makeStr.isEmpty, let modelStr = model, !modelStr.isEmpty,
@@ -4367,9 +4342,9 @@ class DatabaseManager: ObservableObject {
                                 if sqlite3_step(modelSelectStmt) == SQLITE_ROW {
                                     let modelId = Int(sqlite3_column_int(modelSelectStmt, 0))
                                     modelEnumCache[modelKey] = modelId
-                                    sqlite3_bind_int(stmt, 20, Int32(modelId))
+                                    sqlite3_bind_int(stmt, 11, Int32(modelId))
                                 } else {
-                                    sqlite3_bind_null(stmt, 20)
+                                    sqlite3_bind_null(stmt, 11)
                                 }
                             } else {
                                 sqlite3_bind_null(stmt, 20)
@@ -4379,61 +4354,61 @@ class DatabaseManager: ObservableObject {
 
                     // model_year_id
                     if let myear = modelYear, let modelYearId = getOrCreateIntEnumId(table: "model_year_enum", column: "year", value: Int(myear), cache: &modelYearEnumCache) {
-                        sqlite3_bind_int(stmt, 21, Int32(modelYearId))
-                    } else { sqlite3_bind_null(stmt, 21) }
+                        sqlite3_bind_int(stmt, 12, Int32(modelYearId))
+                    } else { sqlite3_bind_null(stmt, 12) }
 
                     // cylinder_count_id
                     if let cylStr = cylinderCount, let cylInt = Int(cylStr), let cylId = getOrCreateIntEnumId(table: "cylinder_count_enum", column: "count", value: cylInt, cache: &cylinderCountEnumCache) {
-                        sqlite3_bind_int(stmt, 22, Int32(cylId))
-                    } else { sqlite3_bind_null(stmt, 22) }
+                        sqlite3_bind_int(stmt, 13, Int32(cylId))
+                    } else { sqlite3_bind_null(stmt, 13) }
 
                     // axle_count_id
                     if let axleStr = maxAxles, let axleInt = Int(axleStr), let axleId = getOrCreateIntEnumId(table: "axle_count_enum", column: "count", value: axleInt, cache: &axleCountEnumCache) {
-                        sqlite3_bind_int(stmt, 23, Int32(axleId))
-                    } else { sqlite3_bind_null(stmt, 23) }
+                        sqlite3_bind_int(stmt, 14, Int32(axleId))
+                    } else { sqlite3_bind_null(stmt, 14) }
 
                     // original_color_id
                     if let colorStr = color, !colorStr.isEmpty, let colorId = getOrCreateEnumId(table: "color_enum", column: "name", value: colorStr, cache: &colorEnumCache) {
-                        sqlite3_bind_int(stmt, 24, Int32(colorId))
-                    } else { sqlite3_bind_null(stmt, 24) }
+                        sqlite3_bind_int(stmt, 15, Int32(colorId))
+                    } else { sqlite3_bind_null(stmt, 15) }
 
                     // fuel_type_id (lookup human-readable description from FuelType enum)
                     if let fuelStr = fuelType, !fuelStr.isEmpty {
                         let fuelDescription = FuelType(rawValue: fuelStr)?.description ?? fuelStr
                         if let fuelId = getOrCreateFuelTypeEnumId(code: fuelStr, description: fuelDescription, cache: &fuelTypeEnumCache) {
-                            sqlite3_bind_int(stmt, 25, Int32(fuelId))
+                            sqlite3_bind_int(stmt, 16, Int32(fuelId))
                         } else {
-                            sqlite3_bind_null(stmt, 25)
+                            sqlite3_bind_null(stmt, 16)
                         }
-                    } else { sqlite3_bind_null(stmt, 25) }
+                    } else { sqlite3_bind_null(stmt, 16) }
 
                     // admin_region_id - extract name and code from "Region Name (08)" → ("Region Name", "08")
                     if let (regionName, regionCode) = extractNameAndCode(from: adminRegion),
                        let regionId = getOrCreateGeoEnumId(table: "admin_region_enum", name: regionName, code: regionCode, cache: &adminRegionEnumCache) {
-                        sqlite3_bind_int(stmt, 26, Int32(regionId))
-                    } else { sqlite3_bind_null(stmt, 26) }
+                        sqlite3_bind_int(stmt, 17, Int32(regionId))
+                    } else { sqlite3_bind_null(stmt, 17) }
 
                     // mrc_id - extract name and code from "MRC Name (66 )" → ("MRC Name", "66")
                     if let (mrcName, mrcCode) = extractNameAndCode(from: mrc),
                        let mrcId = getOrCreateGeoEnumId(table: "mrc_enum", name: mrcName, code: mrcCode, cache: &mrcEnumCache) {
-                        sqlite3_bind_int(stmt, 27, Int32(mrcId))
-                    } else { sqlite3_bind_null(stmt, 27) }
+                        sqlite3_bind_int(stmt, 18, Int32(mrcId))
+                    } else { sqlite3_bind_null(stmt, 18) }
 
                     // municipality_id - lookup name from geographic_entities, fallback to code
                     let muniName = municipalityNameCache[geoCode] ?? geoCode
                     if let muniId = getOrCreateGeoEnumId(table: "municipality_enum", name: muniName, code: geoCode, cache: &municipalityEnumCache) {
-                        sqlite3_bind_int(stmt, 28, Int32(muniId))
-                    } else { sqlite3_bind_null(stmt, 28) }
+                        sqlite3_bind_int(stmt, 19, Int32(muniId))
+                    } else { sqlite3_bind_null(stmt, 19) }
 
                     // net_mass_int (convert REAL to INTEGER)
                     if let massStr = netMass, let massDouble = Double(massStr) {
-                        sqlite3_bind_int(stmt, 29, Int32(round(massDouble)))
-                    } else { sqlite3_bind_null(stmt, 29) }
+                        sqlite3_bind_int(stmt, 20, Int32(round(massDouble)))
+                    } else { sqlite3_bind_null(stmt, 20) }
 
                     // displacement_int (convert REAL to INTEGER)
                     if let dispStr = displacement, let dispDouble = Double(dispStr) {
-                        sqlite3_bind_int(stmt, 30, Int32(round(dispDouble)))
-                    } else { sqlite3_bind_null(stmt, 30) }
+                        sqlite3_bind_int(stmt, 21, Int32(round(dispDouble)))
+                    } else { sqlite3_bind_null(stmt, 21) }
 
                     if sqlite3_step(stmt) == SQLITE_DONE {
                         successCount += 1
