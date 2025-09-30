@@ -64,9 +64,12 @@ enum VehicleClassification: String, CaseIterable {
     // Off-road use
     case hau = "HAU"  // Automobile ou camion léger (hors route)
     case hcy = "HCY"  // Cyclomoteur (hors route)
-    
-    // Additional classifications
-    case hmn = "HMN"  // Unknown/Other classification
+    case hab = "HAB"  // Autobus (hors route)
+    case hca = "HCA"  // Camion ou tracteur routier (hors route)
+    case hmn = "HMN"  // Motoneige (hors route)
+    case hvt = "HVT"  // Véhicule tout-terrain (hors route)
+    case hvo = "HVO"  // Véhicule-outil (hors route)
+    case hot = "HOT"  // Autres (hors route)
     
     var description: String {
         switch self {
@@ -94,7 +97,12 @@ enum VehicleClassification: String, CaseIterable {
         case .rot: return "Other restricted"
         case .hau: return "Off-road automobile/light truck"
         case .hcy: return "Off-road moped"
-        case .hmn: return "Other/Unknown classification"
+        case .hab: return "Off-road bus"
+        case .hca: return "Off-road truck/road tractor"
+        case .hmn: return "Off-road snowmobile"
+        case .hvt: return "Off-road all-terrain vehicle (ATV)"
+        case .hvo: return "Off-road tool vehicle"
+        case .hot: return "Other off-road"
         }
     }
 }

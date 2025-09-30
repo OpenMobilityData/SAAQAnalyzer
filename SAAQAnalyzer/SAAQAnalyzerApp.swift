@@ -32,6 +32,7 @@ struct ContentView: View {
     @State private var selectedSeries: FilteredDataSeries?
     @State private var showingImportProgress = false
     @State private var isAddingSeries = false
+    @State private var isPreparingImport = false
 
     // Series query progress state
     @State private var currentQueryPattern: String?
@@ -45,6 +46,7 @@ struct ContentView: View {
     @State private var pendingImportURLs: [URL] = []
     @State private var currentImportIndex = 0
     @State private var currentImportType: DataEntityType = .vehicle
+    @State private var batchImportStartTime: Date?
 
     // Data package import handling state
     @State private var showingPackageAlert = false
@@ -56,15 +58,13 @@ struct ContentView: View {
     @State private var optimizationResults: String = ""
     @State private var packageAlertMessage = ""
 
-    // SwiftUI file dialog states
-    @State private var showingGeographicFileImporter = false
-    @State private var showingVehicleFileImporter = false
-    @State private var showingLicenseFileImporter = false
-    @State private var showingPackageFileImporter = false
+    // SwiftUI file dialog states - consolidated to avoid SwiftUI fileImporter bug
+    enum FileImporterMode {
+        case vehicle, license, dataPackage, geographic
+    }
+    @State private var activeFileImporterMode: FileImporterMode?
+    @State private var pendingFileImporterMode: FileImporterMode? // Preserved across dialog dismissal
     @State private var showingPackageExporter = false
-    @State private var showingPackageImporter = false
-    @State private var showingDatabaseLocationPicker = false
-    @State private var showingGeographicDataFileImporter = false
 
     // Confirmation dialog states
     @State private var showingClearDataConfirmation = false
@@ -113,26 +113,34 @@ struct ContentView: View {
 
     /// Handle vehicle file import result
     private func handleVehicleFileImport(_ result: Result<[URL], Error>) {
-        Task { @MainActor in
+        Task {
             switch result {
             case .success(let urls):
-                guard !urls.isEmpty else { return }
+                guard !urls.isEmpty else {
+                    await MainActor.run { isPreparingImport = false }
+                    return
+                }
                 await importMultipleFiles(urls)
             case .failure(let error):
                 print("File selection error: \(error)")
+                await MainActor.run { isPreparingImport = false }
             }
         }
     }
 
     /// Handle license file import result
     private func handleLicenseFileImport(_ result: Result<[URL], Error>) {
-        Task { @MainActor in
+        Task {
             switch result {
             case .success(let urls):
-                guard !urls.isEmpty else { return }
+                guard !urls.isEmpty else {
+                    await MainActor.run { isPreparingImport = false }
+                    return
+                }
                 await importMultipleLicenseFiles(urls)
             case .failure(let error):
                 print("File selection error: \(error)")
+                await MainActor.run { isPreparingImport = false }
             }
         }
     }
@@ -207,46 +215,20 @@ struct ContentView: View {
     var body: some View {
         mainContent
             .fileImporter(
-                isPresented: $showingGeographicFileImporter,
-                allowedContentTypes: [.plainText],
-                allowsMultipleSelection: false
+                isPresented: Binding(
+                    get: { activeFileImporterMode != nil },
+                    set: { newValue in
+                        if !newValue {
+                            // Dialog is closing - preserve mode for result handler
+                            pendingFileImporterMode = activeFileImporterMode
+                            activeFileImporterMode = nil
+                        }
+                    }
+                ),
+                allowedContentTypes: allowedFileTypes,
+                allowsMultipleSelection: allowsMultipleSelection
             ) { result in
-                handleGeographicFileImport(result)
-            }
-            .fileImporter(
-                isPresented: $showingVehicleFileImporter,
-                allowedContentTypes: [.commaSeparatedText],
-                allowsMultipleSelection: true
-            ) { result in
-                handleVehicleFileImport(result)
-            }
-            .fileImporter(
-                isPresented: $showingLicenseFileImporter,
-                allowedContentTypes: [.commaSeparatedText],
-                allowsMultipleSelection: true
-            ) { result in
-                handleLicenseFileImport(result)
-            }
-            .fileImporter(
-                isPresented: $showingPackageFileImporter,
-                allowedContentTypes: [.saaqPackage],
-                allowsMultipleSelection: false
-            ) { result in
-                handlePackageImport(result)
-            }
-            .fileImporter(
-                isPresented: $showingPackageImporter,
-                allowedContentTypes: [.saaqPackage],
-                allowsMultipleSelection: false
-            ) { result in
-                handlePackageImport(result)
-            }
-            .fileImporter(
-                isPresented: $showingGeographicDataFileImporter,
-                allowedContentTypes: [.plainText],
-                allowsMultipleSelection: false
-            ) { result in
-                handleGeographicDataFileImport(result)
+                handleFileImportResult(result)
             }
             .fileExporter(
                 isPresented: $showingPackageExporter,
@@ -356,7 +338,7 @@ struct ContentView: View {
                 Label("Data Package", systemImage: "shippingbox")
                     .font(.caption)
                 Button("Import Data Package...") {
-                    showingPackageFileImporter = true
+                    activeFileImporterMode = .dataPackage
                 }
 
                 Divider()
@@ -479,6 +461,41 @@ struct ContentView: View {
             Text(optimizationResults)
         }
         .overlay(alignment: .center) {
+            // Preparing import overlay (instant feedback)
+            if isPreparingImport {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                            .progressViewStyle(CircularProgressViewStyle(tint: .accentColor))
+
+                        Text("Preparing import...")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                    }
+                    .padding(40)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(12)
+                    .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
+                    .transition(.scale.combined(with: .opacity))
+                }
+            }
+
+            // Import progress overlay
+            if showingImportProgress {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+
+                    ImportProgressView(progressManager: progressManager)
+                        .frame(maxWidth: 600)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+
             // Series query progress overlay
             if isAddingSeries {
                 ZStack {
@@ -494,6 +511,55 @@ struct ContentView: View {
                         .transition(.scale.combined(with: .opacity))
                 }
             }
+        }
+    }
+
+    // MARK: - File Importer Helpers
+
+    private var allowedFileTypes: [UTType] {
+        switch activeFileImporterMode {
+        case .vehicle, .license:
+            return [.commaSeparatedText]
+        case .dataPackage:
+            return [.saaqPackage]
+        case .geographic:
+            return [.plainText]
+        case .none:
+            return []
+        }
+    }
+
+    private var allowsMultipleSelection: Bool {
+        switch activeFileImporterMode {
+        case .vehicle, .license:
+            return true
+        case .dataPackage, .geographic:
+            return false
+        case .none:
+            return false
+        }
+    }
+
+    private func handleFileImportResult(_ result: Result<[URL], Error>) {
+        // Use pending mode that was preserved when dialog closed
+        let mode = pendingFileImporterMode
+        print("🔍 Consolidated fileImporter result handler called for mode: \(String(describing: mode))")
+
+        // Clear pending mode after use
+        pendingFileImporterMode = nil
+
+        switch mode {
+        case .vehicle:
+            handleVehicleFileImport(result)
+        case .license:
+            handleLicenseFileImport(result)
+        case .dataPackage:
+            handlePackageImport(result)
+        case .geographic:
+            handleGeographicFileImport(result)
+        case .none:
+            print("⚠️ Warning: fileImporter mode was nil when handling result")
+            break
         }
     }
 
@@ -622,11 +688,16 @@ struct ContentView: View {
     }
 
     private func importVehicleFiles() {
-        showingVehicleFileImporter = true
+        print("🔍 importVehicleFiles() called - setting activeFileImporterMode to .vehicle")
+        // Show preparing overlay immediately for instant feedback
+        isPreparingImport = true
+        activeFileImporterMode = .vehicle
     }
 
     private func importLicenseFiles() {
-        showingLicenseFileImporter = true
+        // Show preparing overlay immediately for instant feedback
+        isPreparingImport = true
+        activeFileImporterMode = .license
     }
 
     private func clearAllData() {
@@ -664,36 +735,136 @@ struct ContentView: View {
     }
 
     private func importMultipleFiles(_ urls: [URL]) async {
-        pendingImportURLs = urls
-        currentImportIndex = 0
+        // Start timing
+        await MainActor.run {
+            batchImportStartTime = Date()
+        }
+
+        print("📦 Starting batch import of \(urls.count) vehicle files")
+
+        // Start progress UI (this will trigger showingImportProgress = true)
+        await progressManager.startBatchImport(totalFiles: urls.count)
+
+        // Wait for progress UI to appear before hiding preparing overlay
+        await MainActor.run {
+            pendingImportURLs = urls
+            currentImportIndex = 0
+            // Hide preparing overlay now that real progress is showing
+            isPreparingImport = false
+        }
+
+        // Sort files by year extracted from filename (background work)
+        let sortedURLs = urls.sorted { url1, url2 in
+            let year1 = extractYearFromFilename(url1.lastPathComponent) ?? 0
+            let year2 = extractYearFromFilename(url2.lastPathComponent) ?? 0
+            return year1 < year2
+        }
+
+        print("📋 Sorted \(sortedURLs.count) files by year:")
+        for (index, url) in sortedURLs.enumerated() {
+            let year = extractYearFromFilename(url.lastPathComponent) ?? 0
+            print("   \(index + 1). Year \(year): \(url.lastPathComponent)")
+        }
+
+        // Update with sorted URLs
+        await MainActor.run {
+            pendingImportURLs = sortedURLs
+        }
+
+        // Begin processing
         await processNextVehicleImport()
     }
 
     private func importMultipleLicenseFiles(_ urls: [URL]) async {
-        pendingImportURLs = urls
-        currentImportIndex = 0
+        // Start timing
+        await MainActor.run {
+            batchImportStartTime = Date()
+        }
+
+        print("📦 Starting batch import of \(urls.count) license files")
+
+        // Start progress UI (this will trigger showingImportProgress = true)
+        await progressManager.startBatchImport(totalFiles: urls.count)
+
+        // Wait for progress UI to appear before hiding preparing overlay
+        await MainActor.run {
+            pendingImportURLs = urls
+            currentImportIndex = 0
+            // Hide preparing overlay now that real progress is showing
+            isPreparingImport = false
+        }
+
+        // Sort files by year extracted from filename (background work)
+        let sortedURLs = urls.sorted { url1, url2 in
+            let year1 = extractYearFromFilename(url1.lastPathComponent) ?? 0
+            let year2 = extractYearFromFilename(url2.lastPathComponent) ?? 0
+            return year1 < year2
+        }
+
+        print("📋 Sorted \(sortedURLs.count) license files by year:")
+        for (index, url) in sortedURLs.enumerated() {
+            let year = extractYearFromFilename(url.lastPathComponent) ?? 0
+            print("   \(index + 1). Year \(year): \(url.lastPathComponent)")
+        }
+
+        // Update with sorted URLs
+        await MainActor.run {
+            pendingImportURLs = sortedURLs
+        }
+
+        // Begin processing
         await processNextLicenseImport()
+    }
+
+    /// Extract year from filename (supports "2011_..." or "..._2011.csv" formats)
+    private func extractYearFromFilename(_ filename: String) -> Int? {
+        let components = filename.components(separatedBy: CharacterSet(charactersIn: "_."))
+        let yearString = components.first { $0.count == 4 && Int($0) != nil }
+        return yearString.flatMap { Int($0) }
     }
 
     private func processNextVehicleImport() async {
         guard currentImportIndex < pendingImportURLs.count else {
-            // All files processed
-            await progressManager.reset()
+            // All files processed - now refresh cache once
+            let fileCount = pendingImportURLs.count
+            let totalElapsed = batchImportStartTime.map { Date().timeIntervalSince($0) } ?? 0
+
+            print("🎉 All \(fileCount) files imported successfully!")
+            if totalElapsed > 0 {
+                let minutes = Int(totalElapsed) / 60
+                let seconds = Int(totalElapsed) % 60
+                print("⏱️  Total batch import time: \(minutes)m \(seconds)s (\(String(format: "%.1f", totalElapsed))s)")
+                print("   Average per file: \(String(format: "%.1f", totalElapsed / Double(fileCount)))s")
+            }
+            print("🔄 Refreshing filter cache for all imported data...")
+
+            await progressManager.updateIndexingOperation("Refreshing filter cache for all years...")
+
+            // Trigger cache refresh on main database manager
+            await databaseManager.refreshAllCachesAfterBatchImport()
+
+            // Complete progress
+            await progressManager.completeImport(recordsImported: 0) // Records already logged per file
+
             currentImportIndex = 0
             pendingImportURLs = []
+            batchImportStartTime = nil
             return
         }
 
         let url = pendingImportURLs[currentImportIndex]
         let filename = url.lastPathComponent
-        let yearString = String(filename.prefix(4))
 
-        guard let year = Int(yearString) else {
+        // Update batch progress
+        await progressManager.updateCurrentFile(index: currentImportIndex, fileName: filename)
+
+        guard let year = extractYearFromFilename(filename) else {
             print("❌ Could not extract year from filename: \(filename)")
             currentImportIndex += 1
             await processNextVehicleImport()
             return
         }
+        print("📅 Extracted year \(year) from filename: \(filename)")
 
         // Check for duplicates
         let yearExists = await databaseManager.isYearImported(year)
@@ -708,22 +879,46 @@ struct ContentView: View {
 
     private func processNextLicenseImport() async {
         guard currentImportIndex < pendingImportURLs.count else {
-            await progressManager.reset()
+            // All files processed - now refresh cache once
+            let fileCount = pendingImportURLs.count
+            let totalElapsed = batchImportStartTime.map { Date().timeIntervalSince($0) } ?? 0
+
+            print("🎉 All \(fileCount) license files imported successfully!")
+            if totalElapsed > 0 {
+                let minutes = Int(totalElapsed) / 60
+                let seconds = Int(totalElapsed) % 60
+                print("⏱️  Total batch import time: \(minutes)m \(seconds)s (\(String(format: "%.1f", totalElapsed))s)")
+                print("   Average per file: \(String(format: "%.1f", totalElapsed / Double(fileCount)))s")
+            }
+            print("🔄 Refreshing filter cache for all imported data...")
+
+            await progressManager.updateIndexingOperation("Refreshing filter cache for all years...")
+
+            // Trigger cache refresh on main database manager
+            await databaseManager.refreshAllCachesAfterBatchImport()
+
+            // Complete progress
+            await progressManager.completeImport(recordsImported: 0) // Records already logged per file
+
             currentImportIndex = 0
             pendingImportURLs = []
+            batchImportStartTime = nil
             return
         }
 
         let url = pendingImportURLs[currentImportIndex]
         let filename = url.lastPathComponent
-        let yearString = String(filename.prefix(4))
 
-        guard let year = Int(yearString) else {
+        // Update batch progress
+        await progressManager.updateCurrentFile(index: currentImportIndex, fileName: filename)
+
+        guard let year = extractYearFromFilename(filename) else {
             print("❌ Could not extract year from filename: \(filename)")
             currentImportIndex += 1
             await processNextLicenseImport()
             return
         }
+        print("📅 Extracted year \(year) from filename: \(filename)")
 
         await performLicenseImport(url: url, year: year)
     }

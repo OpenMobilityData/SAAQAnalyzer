@@ -34,24 +34,65 @@ struct ImportProgressView: View {
     // MARK: - Progress Header
     
     private var progressHeader: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
+            // Batch import indicator (if applicable) - make it very prominent
+            if progressManager.isBatchImport {
+                VStack(spacing: 6) {
+                    HStack {
+                        Image(systemName: "doc.on.doc")
+                            .foregroundColor(.white)
+                            .font(.headline)
+                        Text("Batch Import: File \(progressManager.currentFileIndex + 1) of \(progressManager.totalFiles)")
+                            .font(.headline)
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [Color.blue, Color.blue.opacity(0.8)]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .cornerRadius(10)
+
+                    if !progressManager.currentFileName.isEmpty {
+                        HStack {
+                            Text("Current file:")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Text(progressManager.currentFileName)
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                        }
+                    }
+                }
+            }
+
             HStack {
                 Image(systemName: progressManager.currentStage.systemImage)
                     .foregroundColor(.accentColor)
                     .font(.title2)
-                
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(progressManager.currentStage.title)
                         .font(.headline)
                         .fontWeight(.semibold)
-                    
+
                     Text(progressManager.currentStage.description)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
-                
+
                 Spacer()
-                
+
                 // Step indicator
                 if progressManager.currentStage != .idle {
                     stepIndicator

@@ -219,18 +219,14 @@ struct FilterPanel: View {
                 }
             }
         }
-        .onReceive(databaseManager.$dataVersion) { _ in
-            // Only reload if we might have new years or geographic data
-            // Skip reload if we're just replacing existing year data
+        .onReceive(databaseManager.$dataVersion) { newVersion in
+            // Reload filter options when dataVersion changes
             if hasInitiallyLoaded {
                 Task {
-                    // If we have no data (likely from bypass), do a full reload
-                    if availableYears.isEmpty && availableRegions.isEmpty {
-                        print("🔄 Full reload needed after cache bypass and import")
-                        await loadAvailableOptions()
-                    } else {
-                        await refreshIfNeeded()
-                    }
+                    print("🔄 Data version changed to \(newVersion), reloading filter options")
+                    // Just reload years quickly during incremental updates
+                    // Full cache will be loaded at the end of batch import
+                    await loadYearsOnly()
                 }
             }
         }
@@ -255,6 +251,15 @@ struct FilterPanel: View {
         }
     }
     
+    /// Quickly loads only years for incremental updates during batch imports
+    private func loadYearsOnly() async {
+        let years = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
+        await MainActor.run {
+            availableYears = years
+            print("📊 Reloaded years: \(years.count) available")
+        }
+    }
+
     /// Loads available filter options from database
     private func loadAvailableOptions() {
         Task {
@@ -283,16 +288,21 @@ struct FilterPanel: View {
             async let municipalityMapping = databaseManager.getMunicipalityCodeToNameMapping()
 
             // Wait for all to complete
-            (availableYears, availableRegions, availableMRCs, availableMunicipalities, municipalityCodeToName) =
-                await (years, regions, mrcs, municipalities, municipalityMapping)
+            let loadedData = await (years, regions, mrcs, municipalities, municipalityMapping)
+
+            // Update UI state on main thread
+            await MainActor.run {
+                (availableYears, availableRegions, availableMRCs, availableMunicipalities, municipalityCodeToName) = loadedData
+                print("📊 Loaded filter options: \(availableYears.count) years, \(availableRegions.count) regions, \(availableMRCs.count) MRCs")
+            }
 
             // Load data type specific options
             await loadDataTypeSpecificOptions()
 
-            print("📊 Loaded filter options: \(availableYears.count) years, \(availableRegions.count) regions, \(availableMRCs.count) MRCs")
-            
-            isLoadingData = false
-            hasInitiallyLoaded = true
+            await MainActor.run {
+                isLoadingData = false
+                hasInitiallyLoaded = true
+            }
         }
     }
 
@@ -300,10 +310,17 @@ struct FilterPanel: View {
     private func loadDataTypeSpecificOptions() async {
         // Load new data for the current mode
         if hasInitiallyLoaded {
-            availableYears = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
-            availableRegions = await databaseManager.getAvailableRegions(for: configuration.dataEntityType)
-            availableMRCs = await databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
-            availableMunicipalities = await databaseManager.getAvailableMunicipalities(for: configuration.dataEntityType)
+            let years = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
+            let regions = await databaseManager.getAvailableRegions(for: configuration.dataEntityType)
+            let mrcs = await databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
+            let municipalities = await databaseManager.getAvailableMunicipalities(for: configuration.dataEntityType)
+
+            await MainActor.run {
+                availableYears = years
+                availableRegions = regions
+                availableMRCs = mrcs
+                availableMunicipalities = municipalities
+            }
         }
 
         switch configuration.dataEntityType {
@@ -316,20 +333,26 @@ struct FilterPanel: View {
             async let modelYears = databaseManager.getAvailableModelYears()
 
             // Wait for all to complete
-            (availableClassifications, availableVehicleMakes, availableVehicleModels,
-             availableVehicleColors, availableModelYears) =
-                await (classifications, vehicleMakes, vehicleModels, vehicleColors, modelYears)
+            let vehicleData = await (classifications, vehicleMakes, vehicleModels, vehicleColors, modelYears)
 
-            // Clear license options
-            availableLicenseTypes = []
-            availableAgeGroups = []
-            availableGenders = []
-            availableExperienceLevels = []
-            availableLicenseClasses = []
+            // Update UI state on main thread
+            await MainActor.run {
+                (availableClassifications, availableVehicleMakes, availableVehicleModels,
+                 availableVehicleColors, availableModelYears) = vehicleData
+
+                // Clear license options
+                availableLicenseTypes = []
+                availableAgeGroups = []
+                availableGenders = []
+                availableExperienceLevels = []
+                availableLicenseClasses = []
+            }
 
         case .license:
             // Set loading state for license characteristics
-            isLoadingLicenseCharacteristics = true
+            await MainActor.run {
+                isLoadingLicenseCharacteristics = true
+            }
 
             // Load license-specific options in parallel for better performance
             async let licenseTypes = databaseManager.getAvailableLicenseTypes()
@@ -339,19 +362,23 @@ struct FilterPanel: View {
             async let licenseClasses = databaseManager.getAvailableLicenseClasses()
 
             // Wait for all to complete
-            (availableLicenseTypes, availableAgeGroups, availableGenders,
-             availableExperienceLevels, availableLicenseClasses) =
-                await (licenseTypes, ageGroups, genders, experienceLevels, licenseClasses)
+            let licenseData = await (licenseTypes, ageGroups, genders, experienceLevels, licenseClasses)
 
-            // Clear loading state
-            isLoadingLicenseCharacteristics = false
+            // Update UI state on main thread
+            await MainActor.run {
+                (availableLicenseTypes, availableAgeGroups, availableGenders,
+                 availableExperienceLevels, availableLicenseClasses) = licenseData
 
-            // Clear vehicle options
-            availableClassifications = []
-            availableVehicleMakes = []
-            availableVehicleModels = []
-            availableVehicleColors = []
-            availableModelYears = []
+                // Clear loading state
+                isLoadingLicenseCharacteristics = false
+
+                // Clear vehicle options
+                availableClassifications = []
+                availableVehicleMakes = []
+                availableVehicleModels = []
+                availableVehicleColors = []
+                availableModelYears = []
+            }
         }
     }
     

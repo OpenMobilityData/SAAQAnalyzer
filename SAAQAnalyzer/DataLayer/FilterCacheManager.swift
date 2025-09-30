@@ -60,17 +60,24 @@ class FilterCacheManager {
     }
 
     private func loadRegions() async throws {
-        let sql = "SELECT id, name FROM admin_region_enum ORDER BY name;"
+        let sql = "SELECT id, name || ' (' || code || ')' FROM admin_region_enum ORDER BY name;"
         cachedRegions = try await executeFilterItemQuery(sql)
     }
 
     private func loadMRCs() async throws {
-        let sql = "SELECT id, name FROM mrc_enum ORDER BY name;"
+        let sql = "SELECT id, name || ' (' || code || ')' FROM mrc_enum ORDER BY name;"
         cachedMRCs = try await executeFilterItemQuery(sql)
     }
 
     private func loadMunicipalities() async throws {
-        let sql = "SELECT id, code FROM municipality_enum ORDER BY code;"
+        let sql = """
+        SELECT id,
+               CASE
+                   WHEN name = code THEN 'Unlisted (' || code || ')'
+                   ELSE name || ' (' || code || ')'
+               END
+        FROM municipality_enum ORDER BY name;
+        """
         cachedMunicipalities = try await executeFilterItemQuery(sql)
     }
 

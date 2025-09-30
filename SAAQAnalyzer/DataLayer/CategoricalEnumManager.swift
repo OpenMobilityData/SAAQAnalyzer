@@ -500,7 +500,8 @@ class CategoricalEnumManager {
             defer { sqlite3_finalize(stmt) }
 
             if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_text(stmt, 1, value, -1, nil)
+                let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+                sqlite3_bind_text(stmt, 1, value, -1, SQLITE_TRANSIENT)
 
                 if sqlite3_step(stmt) == SQLITE_ROW {
                     let id = Int(sqlite3_column_int(stmt, 0))

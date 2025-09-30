@@ -56,6 +56,16 @@ class OptimizedQueryManager {
         return try await queryVehicleDataWithIntegers(filters: filters, filterIds: filterIds)
     }
 
+    /// Extract code from "Name (##)" formatted string
+    private func extractCode(from displayString: String) -> String? {
+        if let startIdx = displayString.lastIndex(of: "("),
+           let endIdx = displayString.lastIndex(of: ")") {
+            let code = displayString[displayString.index(after: startIdx)..<endIdx].trimmingCharacters(in: .whitespaces)
+            return code.isEmpty ? nil : code
+        }
+        return nil
+    }
+
     /// Convert filter strings to enumeration IDs
     private func convertFiltersToIds(filters: FilterConfiguration, isVehicle: Bool) async throws -> OptimizedFilterIds {
         var yearIds: [Int] = []
@@ -79,52 +89,47 @@ class OptimizedQueryManager {
             }
         }
 
-        // Convert regions to IDs
+        // Convert regions to IDs (extract code from "Name (##)" format)
         for region in filters.regions {
-            if let id = try await enumManager.getEnumId(table: "admin_region_enum", column: "code", value: region) {
-                print("🔍 Region '\(region)' -> ID \(id)")
+            let regionCode = extractCode(from: region) ?? region
+            if let id = try await enumManager.getEnumId(table: "admin_region_enum", column: "code", value: regionCode) {
+                print("🔍 Region '\(region)' (code: '\(regionCode)') -> ID \(id)")
                 regionIds.append(id)
             } else {
-                print("⚠️ Region '\(region)' not found in admin_region_enum table")
-
-                // Try looking it up by name column instead of code
-                if let id = try await enumManager.getEnumId(table: "admin_region_enum", column: "name", value: region) {
-                    print("🔍 Found region '\(region)' by name -> ID \(id)")
-                    regionIds.append(id)
-                } else {
-                    print("❌ Region '\(region)' not found in admin_region_enum by code OR name")
-                    print("🔍 This will cause the region filter to be ignored!")
-
-                    // Debug: Show what regions are actually available
-                    Task {
-                        await self.debugPrintAvailableRegions()
-                    }
-                }
+                print("⚠️ Region code '\(regionCode)' not found in admin_region_enum table")
             }
         }
 
-        // Convert MRCs to IDs
+        // Convert MRCs to IDs (extract code from "Name (##)" format)
         for mrc in filters.mrcs {
-            if let id = try await enumManager.getEnumId(table: "mrc_enum", column: "code", value: mrc) {
-                print("🔍 MRC '\(mrc)' -> ID \(id)")
+            let mrcCode = extractCode(from: mrc) ?? mrc
+            if let id = try await enumManager.getEnumId(table: "mrc_enum", column: "code", value: mrcCode) {
+                print("🔍 MRC '\(mrc)' (code: '\(mrcCode)') -> ID \(id)")
                 mrcIds.append(id)
             } else {
-                print("⚠️ MRC '\(mrc)' not found in enum table")
+                print("⚠️ MRC code '\(mrcCode)' not found in enum table")
             }
         }
 
-        // Convert municipalities to IDs
+        // Convert municipalities to IDs (extract code from "Name (##)" format)
         for municipality in filters.municipalities {
-            if let id = try await enumManager.getEnumId(table: "municipality_enum", column: "code", value: municipality) {
+            let muniCode = extractCode(from: municipality) ?? municipality
+            if let id = try await enumManager.getEnumId(table: "municipality_enum", column: "code", value: muniCode) {
                 municipalityIds.append(id)
             }
         }
 
         // Convert vehicle-specific filters
         if isVehicle {
+            // Classifications: UI shows descriptions, need to extract codes
+            // e.g., "Personal automobile/light truck" -> lookup by description in DB
             for classification in filters.vehicleClassifications {
+                // Try direct lookup first (if user selected by code)
                 if let id = try await enumManager.getEnumId(table: "classification_enum", column: "code", value: classification) {
                     print("🔍 Classification '\(classification)' -> ID \(id)")
+                    classificationIds.append(id)
+                } else if let id = try await enumManager.getEnumId(table: "classification_enum", column: "description", value: classification) {
+                    print("🔍 Classification '\(classification)' (by description) -> ID \(id)")
                     classificationIds.append(id)
                 } else {
                     print("⚠️ Classification '\(classification)' not found in enum table")
@@ -167,9 +172,14 @@ class OptimizedQueryManager {
                 }
             }
 
+            // Fuel types: UI shows descriptions, need to lookup by description
             for fuelType in filters.fuelTypes {
+                // Try code first (if user somehow selected by code)
                 if let id = try await enumManager.getEnumId(table: "fuel_type_enum", column: "code", value: fuelType) {
                     print("🔍 Fuel type '\(fuelType)' -> ID \(id)")
+                    fuelTypeIds.append(id)
+                } else if let id = try await enumManager.getEnumId(table: "fuel_type_enum", column: "description", value: fuelType) {
+                    print("🔍 Fuel type '\(fuelType)' (by description) -> ID \(id)")
                     fuelTypeIds.append(id)
                 } else {
                     print("⚠️ Fuel type '\(fuelType)' not found in enum table")

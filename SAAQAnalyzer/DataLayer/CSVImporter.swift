@@ -47,9 +47,12 @@ class CSVImporter {
         let overallStartTime = Date()
         print("🚀 Starting import of \(url.lastPathComponent) for year \(year)")
         
-        // Start progress tracking (only if not already started by UI)
+        // Start progress tracking (only if not already started by UI or batch import)
         if !skipDuplicateCheck {
-            await progressManager?.startImport()
+            let isBatchInProgress = await progressManager?.isBatchImport ?? false
+            if !isBatchInProgress {
+                await progressManager?.startImport()
+            }
         }
         
         // Check if year is already imported (unless skipped for SwiftUI handling)
@@ -101,9 +104,12 @@ class CSVImporter {
         let overallStartTime = Date()
         print("🚀 Starting license import of \(url.lastPathComponent) for year \(year)")
 
-        // Start progress tracking (only if not already started by UI)
+        // Start progress tracking (only if not already started by UI or batch import)
         if !skipDuplicateCheck {
-            await progressManager?.startImport()
+            let isBatchInProgress = await progressManager?.isBatchImport ?? false
+            if !isBatchInProgress {
+                await progressManager?.startImport()
+            }
         }
 
         // Check if year is already imported (unless skipped for SwiftUI handling)
@@ -157,20 +163,39 @@ class CSVImporter {
         ]
         
         var fileContent: String?
-        
-        for encoding in encodings {
-            if let content = try? String(contentsOf: url, encoding: encoding) {
-                // Quick check for common French characters
-                if content.contains("é") || content.contains("è") || content.contains("à") {
-                    fileContent = content
-                    break
-                }
+
+        print("🔍 Trying encodings for file: \(url.lastPathComponent)")
+        print("🔍 File path: \(url.path)")
+
+        // Start accessing security-scoped resource (needed for files outside sandbox)
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessing {
+                url.stopAccessingSecurityScopedResource()
             }
         }
-        
+
+        for encoding in encodings {
+            print("  Attempting encoding: \(encoding)")
+            if let content = try? String(contentsOf: url, encoding: encoding) {
+                print("  ✅ Successfully read with \(encoding), checking for French characters...")
+                // Quick check for common French characters
+                if content.contains("é") || content.contains("è") || content.contains("à") {
+                    print("  ✅ Found French characters, using this encoding")
+                    fileContent = content
+                    break
+                } else {
+                    print("  ⚠️ No French characters found, trying next encoding...")
+                }
+            } else {
+                print("  ❌ Failed to read with \(encoding)")
+            }
+        }
+
         guard let content = fileContent else {
             throw ImportError.encodingError("Unable to read file with proper character encoding")
         }
+        print("✅ File successfully read with proper encoding")
         
         // Parse CSV content
         let lines = content.components(separatedBy: .newlines)
@@ -419,8 +444,10 @@ class CSVImporter {
         }
         
         // Complete bulk import and rebuild indexes
+        // Skip cache refresh if this is part of a batch import (progressManager.isBatchImport)
         await progressManager?.updateToIndexing()
-        await databaseManager.endBulkImport(progressManager: progressManager)
+        let skipCache = await progressManager?.isBatchImport ?? false
+        await databaseManager.endBulkImport(progressManager: progressManager, skipCacheRefresh: skipCache)
         
         // Log import completion
         let duration = Date().timeIntervalSince(startTime)
@@ -697,8 +724,10 @@ class CSVImporter {
         }
 
         // Complete bulk import and rebuild indexes
+        // Skip cache refresh if this is part of a batch import (progressManager.isBatchImport)
         await progressManager?.updateToIndexing()
-        await databaseManager.endBulkImport(progressManager: progressManager)
+        let skipCache = await progressManager?.isBatchImport ?? false
+        await databaseManager.endBulkImport(progressManager: progressManager, skipCacheRefresh: skipCache)
 
         // Log import to database
         let status = errorCount > 0 ? "completed_with_errors" : "completed"
