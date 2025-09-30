@@ -733,68 +733,18 @@ class DatabaseManager: ObservableObject {
         
         // Create indexes for better query performance
         let createIndexes = [
-            // Vehicle indexes - single column
+            // Vehicle indexes - non-categorical columns only
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year ON vehicles(year);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_classification ON vehicles(classification);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_geo ON vehicles(admin_region, mrc, geo_code);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_fuel ON vehicles(fuel_type);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_model_year ON vehicles(model_year);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_make ON vehicles(make);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_model ON vehicles(model);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_color ON vehicles(original_color);",
 
-            // Composite indexes for common filter combinations
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_class ON vehicles(year, classification);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_fuel ON vehicles(year, fuel_type);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_region ON vehicles(year, admin_region);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_municipality ON vehicles(year, geo_code);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_geo_class_year ON vehicles(geo_code, classification, year);",  // Strategic index for municipality queries
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_class_region ON vehicles(year, classification, admin_region);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_fuel_class ON vehicles(year, fuel_type, classification);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_model_year ON vehicles(year, model_year);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_make_model ON vehicles(year, make, model);",
-
-            // License indexes - single column (based on actual table structure)
+            // License indexes - non-categorical columns only
             "CREATE INDEX IF NOT EXISTS idx_licenses_year ON licenses(year);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_geo ON licenses(admin_region, mrc);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_type ON licenses(license_type);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_age_group ON licenses(age_group);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_gender ON licenses(gender);",
             "CREATE INDEX IF NOT EXISTS idx_licenses_probationary ON licenses(is_probationary);",
-
-            // Composite indexes for common license filter combinations
-            "CREATE INDEX IF NOT EXISTS idx_licenses_year_type ON licenses(year, license_type);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_year_age ON licenses(year, age_group);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_year_gender ON licenses(year, gender);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_year_region ON licenses(year, admin_region);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_year_type_age ON licenses(year, license_type, age_group);",
-
-            // STRATEGIC LICENSE INDEXES: Match vehicle query performance patterns
-            // These mirror the strategic vehicle index (geo_code, classification, year) for license data
-            "CREATE INDEX IF NOT EXISTS idx_licenses_mrc_type_year ON licenses(mrc, license_type, year);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_region_type_year ON licenses(admin_region, license_type, year);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_mrc_age_year ON licenses(mrc, age_group, year);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_region_age_year ON licenses(admin_region, age_group, year);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_type_gender_year ON licenses(license_type, gender, year);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_experience_type_year ON licenses(experience_global, license_type, year);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_experience_distinct ON licenses(experience_global);",
 
             // Geographic indexes
             "CREATE INDEX IF NOT EXISTS idx_geographic_type ON geographic_entities(type);",
             "CREATE INDEX IF NOT EXISTS idx_geographic_parent ON geographic_entities(parent_code);",
-
-            // CACHE PERFORMANCE: Indexes specifically for DISTINCT queries in cache rebuilds
-            // These prevent full table scans during filter cache rebuilds
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_admin_region_distinct ON vehicles(admin_region);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_mrc_distinct ON vehicles(mrc);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_geo_code_distinct ON vehicles(geo_code);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_make_distinct ON vehicles(make);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_model_distinct ON vehicles(model);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_color_distinct ON vehicles(original_color);",
-
-            // License DISTINCT indexes for cache rebuilds
-            "CREATE INDEX IF NOT EXISTS idx_licenses_admin_region_distinct ON licenses(admin_region);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_mrc_distinct ON licenses(mrc);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_experience_distinct ON licenses(experience_global);",
 
             // ===== OPTIMIZED INTEGER-BASED INDEXES =====
             // These indexes on integer foreign key columns provide 5.6x+ performance improvement
@@ -2664,12 +2614,10 @@ class DatabaseManager: ObservableObject {
                 
                 if totalRecords < 50_000_000 { // Less than 50M records - use current approach
                     print("Using traditional index management (database size: \(totalRecords.formatted()) records)")
-                    // Temporarily disable indexes for faster inserts
+                    // Temporarily disable non-categorical indexes for faster inserts
                     sqlite3_exec(db, "DROP INDEX IF EXISTS idx_vehicles_year", nil, nil, nil)
-                    sqlite3_exec(db, "DROP INDEX IF EXISTS idx_vehicles_classification", nil, nil, nil) 
-                    sqlite3_exec(db, "DROP INDEX IF EXISTS idx_vehicles_geo", nil, nil, nil)
-                    sqlite3_exec(db, "DROP INDEX IF EXISTS idx_vehicles_fuel", nil, nil, nil)
                     sqlite3_exec(db, "DROP INDEX IF EXISTS idx_vehicles_model_year", nil, nil, nil)
+                    sqlite3_exec(db, "DROP INDEX IF EXISTS idx_licenses_year", nil, nil, nil)
                 } else {
                     print("Using incremental index management (database size: \(totalRecords.formatted()) records)")
                     // For large databases, keep indexes and use incremental approach
@@ -2695,25 +2643,11 @@ class DatabaseManager: ObservableObject {
                 let indexStartTime = Date()
                 
                 if totalRecords < 50_000_000 {
-                    print("🔧 Rebuilding indexes with optimized composite indexes...")
+                    print("🔧 Updating query planner statistics...")
 
-                    // Rebuild indexes for query performance - single column
-                    sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_year ON vehicles(year)", nil, nil, nil)
-                    sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_classification ON vehicles(classification)", nil, nil, nil)
-                    sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_geo ON vehicles(admin_region, mrc, geo_code)", nil, nil, nil)
-                    sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_fuel ON vehicles(fuel_type)", nil, nil, nil)
-                    sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_model_year ON vehicles(model_year)", nil, nil, nil)
-
-                    // Add composite indexes for common filter combinations
-                    sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_year_class ON vehicles(year, classification)", nil, nil, nil)
-                    sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_year_fuel ON vehicles(year, fuel_type)", nil, nil, nil)
-                    sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_year_region ON vehicles(year, admin_region)", nil, nil, nil)
-                    sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_year_municipality ON vehicles(year, geo_code)", nil, nil, nil)
-                    sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_vehicles_geo_class_year ON vehicles(geo_code, classification, year)", nil, nil, nil)
-
-                    // Update query planner statistics after index creation
-                    print("📊 Updating query planner statistics...")
+                    // Update query planner statistics (integer indexes already exist from createTablesIfNeeded)
                     sqlite3_exec(db, "ANALYZE vehicles", nil, nil, nil)
+                    sqlite3_exec(db, "ANALYZE licenses", nil, nil, nil)
                 } else {
                     print("🔧 Optimizing indexes (incremental mode)...")
                     

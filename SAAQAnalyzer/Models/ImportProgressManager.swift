@@ -47,18 +47,18 @@ class ImportProgressManager: ObservableObject {
             case .reading: return "Reading File"
             case .parsing: return "Parsing CSV Data"
             case .importing: return "Importing to Database"
-            case .indexing: return "Rebuilding Indexes"
+            case .indexing: return "Finalizing"
             case .completed: return "Import Complete"
             }
         }
-        
+
         var description: String {
             switch self {
             case .idle: return "Ready to import"
             case .reading: return "Reading and validating CSV file structure"
             case .parsing: return "Processing CSV data with parallel workers"
             case .importing: return "Writing records to database in batches"
-            case .indexing: return "Optimizing database for queries"
+            case .indexing: return "Updating statistics and refreshing caches"
             case .completed: return "Import finished successfully"
             }
         }
@@ -199,20 +199,20 @@ class ImportProgressManager: ObservableObject {
     /// Updates to indexing stage
     func updateToIndexing() {
         currentStage = .indexing
-        stageProgress = .indexing(operation: "Rebuilding database indexes...")
+        stageProgress = .indexing(operation: "Updating query statistics...")
         overallProgress = calculateOverallProgress()
     }
-    
+
     /// Updates indexing operation description
     func updateIndexingOperation(_ operation: String) {
         guard currentStage == .indexing else { return }
         stageProgress = .indexing(operation: operation)
     }
-    
+
     /// Updates indexing for incremental mode
     func updateIncrementalIndexing() {
         guard currentStage == .indexing else { return }
-        stageProgress = .indexing(operation: "Updating statistics (incremental mode - much faster!)")
+        stageProgress = .indexing(operation: "Updating statistics...")
     }
     
     /// Completes the import with final statistics
