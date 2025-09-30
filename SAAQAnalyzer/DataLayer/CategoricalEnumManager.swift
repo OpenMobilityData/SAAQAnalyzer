@@ -403,10 +403,11 @@ class CategoricalEnumManager {
     private func populateMunicipalityEnum() async throws {
         let sql = """
         INSERT OR IGNORE INTO municipality_enum (code, name)
-        SELECT DISTINCT geo_code, geo_code
-        FROM vehicles
-        WHERE geo_code IS NOT NULL AND geo_code != ''
-        ORDER BY geo_code;
+        SELECT DISTINCT v.geo_code, COALESCE(g.name, v.geo_code) as name
+        FROM vehicles v
+        LEFT JOIN geographic_entities g ON v.geo_code = g.code AND g.type = 'municipality'
+        WHERE v.geo_code IS NOT NULL AND v.geo_code != ''
+        ORDER BY v.geo_code;
         """
         try await executeSQL(sql, description: "municipality enum")
     }
@@ -491,6 +492,9 @@ class CategoricalEnumManager {
 
         let sql = "SELECT id FROM \(table) WHERE \(column) = ? LIMIT 1;"
 
+        // Debug the lookup
+        print("🔍 Searching \(table).\(column) for value: '\(value)'")
+
         return try await withCheckedThrowingContinuation { continuation in
             var stmt: OpaquePointer?
             defer { sqlite3_finalize(stmt) }
@@ -500,12 +504,70 @@ class CategoricalEnumManager {
 
                 if sqlite3_step(stmt) == SQLITE_ROW {
                     let id = Int(sqlite3_column_int(stmt, 0))
+                    print("✅ Found match: '\(value)' -> ID \(id)")
                     continuation.resume(returning: id)
                 } else {
-                    continuation.resume(returning: nil)
+                    print("❌ No match found for '\(value)' in \(table).\(column)")
+
+                    // Debug: Show what's actually in the table to compare
+                    print("🔍 Checking what values exist in \(table).\(column)...")
+                    let debugSQL = "SELECT id, \(column) FROM \(table) LIMIT 5;"
+                    var debugStmt: OpaquePointer?
+                    defer { sqlite3_finalize(debugStmt) }
+
+                    if sqlite3_prepare_v2(db, debugSQL, -1, &debugStmt, nil) == SQLITE_OK {
+                        while sqlite3_step(debugStmt) == SQLITE_ROW {
+                            let id = Int(sqlite3_column_int(debugStmt, 0))
+                            let actualValue = String(cString: sqlite3_column_text(debugStmt, 1))
+                            print("   ID \(id): \(column)='\(actualValue)'")
+
+                            // Compare byte-by-byte with the search value
+                            if actualValue == value {
+                                print("   ✅ String equality check passes for ID \(id)")
+                                print("   💡 Using this ID since Swift string equality works!")
+                                continuation.resume(returning: id)
+                                return
+                            } else {
+                                print("   ❌ String equality fails:")
+                                print("     Search: \(value.debugDescription) (count: \(value.count))")
+                                print("     Stored: \(actualValue.debugDescription) (count: \(actualValue.count))")
+
+                                // Check if they're visually similar but different
+                                if actualValue.trimmingCharacters(in: .whitespacesAndNewlines) == value.trimmingCharacters(in: .whitespacesAndNewlines) {
+                                    print("     💡 Match after trimming whitespace - using ID \(id)")
+                                    continuation.resume(returning: id)
+                                    return
+                                }
+                            }
+                        }
+                    }
+
+                    // Try a fuzzy match using LIKE to handle encoding issues
+                    print("🔍 Trying fuzzy match with LIKE...")
+                    let fuzzySQL = "SELECT id, \(column) FROM \(table) WHERE \(column) LIKE ? LIMIT 1;"
+                    var fuzzyStmt: OpaquePointer?
+                    defer { sqlite3_finalize(fuzzyStmt) }
+
+                    if sqlite3_prepare_v2(db, fuzzySQL, -1, &fuzzyStmt, nil) == SQLITE_OK {
+                        let likePattern = "%\(value)%"
+                        sqlite3_bind_text(fuzzyStmt, 1, likePattern, -1, nil)
+
+                        if sqlite3_step(fuzzyStmt) == SQLITE_ROW {
+                            let fuzzyId = Int(sqlite3_column_int(fuzzyStmt, 0))
+                            let actualValue = String(cString: sqlite3_column_text(fuzzyStmt, 1))
+                            print("✅ Fuzzy match found: '\(actualValue)' -> ID \(fuzzyId)")
+                            continuation.resume(returning: fuzzyId)
+                        } else {
+                            print("❌ No fuzzy match found either")
+                            continuation.resume(returning: nil)
+                        }
+                    } else {
+                        continuation.resume(returning: nil)
+                    }
                 }
             } else {
                 let error = String(cString: sqlite3_errmsg(db))
+                print("❌ SQL error in getEnumId: \(error)")
                 continuation.resume(throwing: DatabaseError.queryFailed("Failed to lookup enum: \(error)"))
             }
         }

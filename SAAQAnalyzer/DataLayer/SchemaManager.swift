@@ -28,6 +28,28 @@ class SchemaManager {
         print("✅ Schema migration completed successfully!")
     }
 
+    /// Re-populate integer columns if they are NULL/empty
+    func repopulateIntegerColumns() async throws {
+        print("🔄 Re-populating integer columns...")
+
+        // Check current state
+        let populatedCount = try await getCount("SELECT COUNT(*) FROM vehicles WHERE classification_id IS NOT NULL AND fuel_type_id IS NOT NULL;")
+        let totalCount = try await getCount("SELECT COUNT(*) FROM vehicles;")
+
+        print("🔍 Current state: \(populatedCount)/\(totalCount) rows have populated integer columns")
+
+        if populatedCount < totalCount {
+            print("⚠️ Integer columns need population - running migration...")
+            try await populateOptimizedColumns()
+
+            // Re-check
+            let newPopulatedCount = try await getCount("SELECT COUNT(*) FROM vehicles WHERE classification_id IS NOT NULL AND fuel_type_id IS NOT NULL;")
+            print("✅ After migration: \(newPopulatedCount)/\(totalCount) rows have populated integer columns")
+        } else {
+            print("✅ Integer columns already fully populated")
+        }
+    }
+
     /// Adds optimized integer foreign key columns to existing tables
     private func addOptimizedColumns() async throws {
         guard let db = db else { throw DatabaseError.notConnected }

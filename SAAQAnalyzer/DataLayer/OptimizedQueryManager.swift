@@ -5,9 +5,18 @@ import SQLite3
 struct OptimizedFilterIds {
     let yearIds: [Int]
     let regionIds: [Int]
+    let mrcIds: [Int]
+    let municipalityIds: [Int]
     let classificationIds: [Int]
     let makeIds: [Int]
+    let modelIds: [Int]
+    let colorIds: [Int]
+    let modelYearIds: [Int]
     let fuelTypeIds: [Int]
+    // License-specific
+    let licenseTypeIds: [Int]
+    let ageGroupIds: [Int]
+    let genderIds: [Int]
 }
 
 /// Simplified high-performance query manager using categorical enumeration
@@ -27,6 +36,19 @@ class OptimizedQueryManager {
     func queryOptimizedVehicleData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
         print("🚀 Starting OPTIMIZED vehicle query with integer enumerations...")
 
+        // Debug: Log the filters we received
+        print("🔍 Received filters:")
+        print("   Years: \(filters.years)")
+        print("   Regions: \(filters.regions)")
+        print("   MRCs: \(filters.mrcs)")
+        print("   Municipalities: \(filters.municipalities)")
+        print("   Vehicle Classifications: \(filters.vehicleClassifications)")
+        print("   Vehicle Makes: \(filters.vehicleMakes)")
+        print("   Vehicle Models: \(filters.vehicleModels)")
+        print("   Vehicle Colors: \(filters.vehicleColors)")
+        print("   Model Years: \(filters.modelYears)")
+        print("   Fuel Types: \(filters.fuelTypes)")
+
         // First, convert filter strings to integer IDs
         let filterIds = try await convertFiltersToIds(filters: filters, isVehicle: true)
 
@@ -38,9 +60,17 @@ class OptimizedQueryManager {
     private func convertFiltersToIds(filters: FilterConfiguration, isVehicle: Bool) async throws -> OptimizedFilterIds {
         var yearIds: [Int] = []
         var regionIds: [Int] = []
+        var mrcIds: [Int] = []
+        var municipalityIds: [Int] = []
         var classificationIds: [Int] = []
         var makeIds: [Int] = []
+        var modelIds: [Int] = []
+        var colorIds: [Int] = []
+        var modelYearIds: [Int] = []
         var fuelTypeIds: [Int] = []
+        var licenseTypeIds: [Int] = []
+        var ageGroupIds: [Int] = []
+        var genderIds: [Int] = []
 
         // Convert years to IDs
         for year in filters.years {
@@ -52,39 +82,153 @@ class OptimizedQueryManager {
         // Convert regions to IDs
         for region in filters.regions {
             if let id = try await enumManager.getEnumId(table: "admin_region_enum", column: "code", value: region) {
+                print("🔍 Region '\(region)' -> ID \(id)")
                 regionIds.append(id)
+            } else {
+                print("⚠️ Region '\(region)' not found in admin_region_enum table")
+
+                // Try looking it up by name column instead of code
+                if let id = try await enumManager.getEnumId(table: "admin_region_enum", column: "name", value: region) {
+                    print("🔍 Found region '\(region)' by name -> ID \(id)")
+                    regionIds.append(id)
+                } else {
+                    print("❌ Region '\(region)' not found in admin_region_enum by code OR name")
+                    print("🔍 This will cause the region filter to be ignored!")
+
+                    // Debug: Show what regions are actually available
+                    Task {
+                        await self.debugPrintAvailableRegions()
+                    }
+                }
             }
         }
 
-        // Convert classifications to IDs (if vehicle query)
+        // Convert MRCs to IDs
+        for mrc in filters.mrcs {
+            if let id = try await enumManager.getEnumId(table: "mrc_enum", column: "code", value: mrc) {
+                print("🔍 MRC '\(mrc)' -> ID \(id)")
+                mrcIds.append(id)
+            } else {
+                print("⚠️ MRC '\(mrc)' not found in enum table")
+            }
+        }
+
+        // Convert municipalities to IDs
+        for municipality in filters.municipalities {
+            if let id = try await enumManager.getEnumId(table: "municipality_enum", column: "code", value: municipality) {
+                municipalityIds.append(id)
+            }
+        }
+
+        // Convert vehicle-specific filters
         if isVehicle {
             for classification in filters.vehicleClassifications {
                 if let id = try await enumManager.getEnumId(table: "classification_enum", column: "code", value: classification) {
+                    print("🔍 Classification '\(classification)' -> ID \(id)")
                     classificationIds.append(id)
+                } else {
+                    print("⚠️ Classification '\(classification)' not found in enum table")
                 }
             }
 
-            // Convert makes to IDs
             for make in filters.vehicleMakes {
                 if let id = try await enumManager.getEnumId(table: "make_enum", column: "name", value: make) {
+                    print("🔍 Make '\(make)' -> ID \(id)")
                     makeIds.append(id)
+                } else {
+                    print("⚠️ Make '\(make)' not found in enum table")
                 }
             }
 
-            // Convert fuel types to IDs
-            for fuelType in filters.fuelTypes {
-                if let id = try await enumManager.getEnumId(table: "fuel_type_enum", column: "code", value: fuelType) {
-                    fuelTypeIds.append(id)
+            for model in filters.vehicleModels {
+                if let id = try await enumManager.getEnumId(table: "model_enum", column: "name", value: model) {
+                    print("🔍 Model '\(model)' -> ID \(id)")
+                    modelIds.append(id)
+                } else {
+                    print("⚠️ Model '\(model)' not found in enum table")
                 }
             }
+
+            for color in filters.vehicleColors {
+                if let id = try await enumManager.getEnumId(table: "color_enum", column: "name", value: color) {
+                    print("🔍 Color '\(color)' -> ID \(id)")
+                    colorIds.append(id)
+                } else {
+                    print("⚠️ Color '\(color)' not found in enum table")
+                }
+            }
+
+            for modelYear in filters.modelYears {
+                if let id = try await enumManager.getEnumId(table: "model_year_enum", column: "year", value: String(modelYear)) {
+                    print("🔍 Model year '\(modelYear)' -> ID \(id)")
+                    modelYearIds.append(id)
+                } else {
+                    print("⚠️ Model year '\(modelYear)' not found in enum table")
+                }
+            }
+
+            for fuelType in filters.fuelTypes {
+                if let id = try await enumManager.getEnumId(table: "fuel_type_enum", column: "code", value: fuelType) {
+                    print("🔍 Fuel type '\(fuelType)' -> ID \(id)")
+                    fuelTypeIds.append(id)
+                } else {
+                    print("⚠️ Fuel type '\(fuelType)' not found in enum table")
+                }
+            }
+        } else {
+            // License-specific filters
+            for licenseType in filters.licenseTypes {
+                if let id = try await enumManager.getEnumId(table: "license_type_enum", column: "type_name", value: licenseType) {
+                    licenseTypeIds.append(id)
+                }
+            }
+
+            for ageGroup in filters.ageGroups {
+                if let id = try await enumManager.getEnumId(table: "age_group_enum", column: "range_text", value: ageGroup) {
+                    ageGroupIds.append(id)
+                }
+            }
+
+            for gender in filters.genders {
+                if let id = try await enumManager.getEnumId(table: "gender_enum", column: "code", value: gender) {
+                    genderIds.append(id)
+                }
+            }
+        }
+
+        // Debug summary
+        print("🔍 Filter ID conversion summary:")
+        print("   Years: \(yearIds.count) -> \(yearIds)")
+        print("   Regions: \(regionIds.count) -> \(regionIds)")
+        print("   MRCs: \(mrcIds.count) -> \(mrcIds)")
+        print("   Municipalities: \(municipalityIds.count) -> \(municipalityIds)")
+        if isVehicle {
+            print("   Classifications: \(classificationIds.count) -> \(classificationIds)")
+            print("   Makes: \(makeIds.count) -> \(makeIds)")
+            print("   Models: \(modelIds.count) -> \(modelIds)")
+            print("   Colors: \(colorIds.count) -> \(colorIds)")
+            print("   Model Years: \(modelYearIds.count) -> \(modelYearIds)")
+            print("   Fuel Types: \(fuelTypeIds.count) -> \(fuelTypeIds)")
+        } else {
+            print("   License Types: \(licenseTypeIds.count) -> \(licenseTypeIds)")
+            print("   Age Groups: \(ageGroupIds.count) -> \(ageGroupIds)")
+            print("   Genders: \(genderIds.count) -> \(genderIds)")
         }
 
         return OptimizedFilterIds(
             yearIds: yearIds,
             regionIds: regionIds,
+            mrcIds: mrcIds,
+            municipalityIds: municipalityIds,
             classificationIds: classificationIds,
             makeIds: makeIds,
-            fuelTypeIds: fuelTypeIds
+            modelIds: modelIds,
+            colorIds: colorIds,
+            modelYearIds: modelYearIds,
+            fuelTypeIds: fuelTypeIds,
+            licenseTypeIds: licenseTypeIds,
+            ageGroupIds: ageGroupIds,
+            genderIds: genderIds
         )
     }
 
@@ -144,6 +288,56 @@ class OptimizedQueryManager {
                     }
                 }
 
+                // MRC filter using mrc_id
+                if !filterIds.mrcIds.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filterIds.mrcIds.count).joined(separator: ",")
+                    whereClause += " AND mrc_id IN (\(placeholders))"
+                    for id in filterIds.mrcIds {
+                        bindValues.append((bindIndex, id))
+                        bindIndex += 1
+                    }
+                }
+
+                // Municipality filter using municipality_id
+                if !filterIds.municipalityIds.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filterIds.municipalityIds.count).joined(separator: ",")
+                    whereClause += " AND municipality_id IN (\(placeholders))"
+                    for id in filterIds.municipalityIds {
+                        bindValues.append((bindIndex, id))
+                        bindIndex += 1
+                    }
+                }
+
+                // Model filter using model_id
+                if !filterIds.modelIds.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filterIds.modelIds.count).joined(separator: ",")
+                    whereClause += " AND model_id IN (\(placeholders))"
+                    for id in filterIds.modelIds {
+                        bindValues.append((bindIndex, id))
+                        bindIndex += 1
+                    }
+                }
+
+                // Color filter using original_color_id
+                if !filterIds.colorIds.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filterIds.colorIds.count).joined(separator: ",")
+                    whereClause += " AND original_color_id IN (\(placeholders))"
+                    for id in filterIds.colorIds {
+                        bindValues.append((bindIndex, id))
+                        bindIndex += 1
+                    }
+                }
+
+                // Model year filter using model_year_id
+                if !filterIds.modelYearIds.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filterIds.modelYearIds.count).joined(separator: ",")
+                    whereClause += " AND model_year_id IN (\(placeholders))"
+                    for id in filterIds.modelYearIds {
+                        bindValues.append((bindIndex, id))
+                        bindIndex += 1
+                    }
+                }
+
                 // Fuel type filter using fuel_type_id
                 if !filterIds.fuelTypeIds.isEmpty {
                     let placeholders = Array(repeating: "?", count: filterIds.fuelTypeIds.count).joined(separator: ",")
@@ -154,12 +348,57 @@ class OptimizedQueryManager {
                     }
                 }
 
-                // Build the query - JOIN with year_enum to get year values for display
+                // Build the query based on metric type
+                var selectClause: String
+                var additionalJoins = ""
+                var additionalWhereConditions = ""
+
+                // Build SELECT clause based on metric type
+                switch filters.metricType {
+                case .count:
+                    selectClause = "COUNT(*) as value"
+
+                case .sum:
+                    if filters.metricField == .vehicleAge {
+                        // Special case: sum of computed age using year_id
+                        selectClause = "SUM(y.year - my.year) as value"
+                        additionalJoins = " LEFT JOIN model_year_enum my ON v.model_year_id = my.id"
+                        additionalWhereConditions = " AND v.model_year_id IS NOT NULL"
+                    } else if let column = filters.metricField.databaseColumn {
+                        // For integer columns like net_mass_int, displacement_int
+                        let intColumn = column == "net_mass" ? "net_mass_int" :
+                                       column == "displacement" ? "displacement_int" : column
+                        selectClause = "SUM(v.\(intColumn)) as value"
+                        additionalWhereConditions = " AND v.\(intColumn) IS NOT NULL"
+                    } else {
+                        selectClause = "COUNT(*) as value"
+                    }
+
+                case .average:
+                    if filters.metricField == .vehicleAge {
+                        selectClause = "AVG(y.year - my.year) as value"
+                        additionalJoins = " LEFT JOIN model_year_enum my ON v.model_year_id = my.id"
+                        additionalWhereConditions = " AND v.model_year_id IS NOT NULL"
+                    } else if let column = filters.metricField.databaseColumn {
+                        let intColumn = column == "net_mass" ? "net_mass_int" :
+                                       column == "displacement" ? "displacement_int" : column
+                        selectClause = "AVG(v.\(intColumn)) as value"
+                        additionalWhereConditions = " AND v.\(intColumn) IS NOT NULL"
+                    } else {
+                        selectClause = "COUNT(*) as value"
+                    }
+
+                case .percentage:
+                    // For percentage, we calculate count for numerator
+                    selectClause = "COUNT(*) as value"
+                }
+
                 let query = """
-                    SELECT y.year, COUNT(*) as value
+                    SELECT y.year, \(selectClause)
                     FROM vehicles v
                     JOIN year_enum y ON v.year_id = y.id
-                    \(whereClause)
+                    \(additionalJoins)
+                    \(whereClause)\(additionalWhereConditions)
                     GROUP BY v.year_id, y.year
                     ORDER BY y.year
                 """
@@ -189,6 +428,11 @@ class OptimizedQueryManager {
                     let duration = Date().timeIntervalSince(startTime)
                     print("✅ Optimized vehicle query completed in \(String(format: "%.3f", duration))s - \(dataPoints.count) data points")
 
+                    // If we got empty results, this indicates an ID lookup issue
+                    if dataPoints.isEmpty {
+                        print("⚠️ Empty results - likely ID lookup problem or incompatible filter combination")
+                    }
+
                     let series = FilteredDataSeries(
                         name: "Vehicle Count by Year (Optimized)",
                         filters: filters,
@@ -204,11 +448,140 @@ class OptimizedQueryManager {
         }
     }
 
-    /// High-performance license data query (simplified)
+    /// High-performance license data query using integer enumerations
     func queryOptimizedLicenseData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
-        print("🚀 Starting simplified optimized license query...")
+        print("🚀 Starting OPTIMIZED license query with integer enumerations...")
 
-        return try await queryBasicLicenseData(filters: filters)
+        // First, convert filter strings to integer IDs
+        let filterIds = try await convertFiltersToIds(filters: filters, isVehicle: false)
+
+        // Run the optimized query using integer columns
+        return try await queryLicenseDataWithIntegers(filters: filters, filterIds: filterIds)
+    }
+
+    /// Optimized license query using integer columns
+    private func queryLicenseDataWithIntegers(filters: FilterConfiguration, filterIds: OptimizedFilterIds) async throws -> FilteredDataSeries {
+        let startTime = Date()
+
+        return try await withCheckedThrowingContinuation { continuation in
+            databaseManager?.dbQueue.async {
+                guard let db = self.databaseManager?.db else {
+                    continuation.resume(throwing: DatabaseError.notConnected)
+                    return
+                }
+
+                // Build optimized query using integer columns
+                var whereClause = "WHERE 1=1"
+                var bindValues: [(Int32, Any)] = []
+                var bindIndex: Int32 = 1
+
+                // Year filter using year_id
+                if !filterIds.yearIds.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filterIds.yearIds.count).joined(separator: ",")
+                    whereClause += " AND year_id IN (\(placeholders))"
+                    for id in filterIds.yearIds {
+                        bindValues.append((bindIndex, id))
+                        bindIndex += 1
+                    }
+                }
+
+                // Region filter using admin_region_id
+                if !filterIds.regionIds.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filterIds.regionIds.count).joined(separator: ",")
+                    whereClause += " AND admin_region_id IN (\(placeholders))"
+                    for id in filterIds.regionIds {
+                        bindValues.append((bindIndex, id))
+                        bindIndex += 1
+                    }
+                }
+
+                // MRC filter using mrc_id
+                if !filterIds.mrcIds.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filterIds.mrcIds.count).joined(separator: ",")
+                    whereClause += " AND mrc_id IN (\(placeholders))"
+                    for id in filterIds.mrcIds {
+                        bindValues.append((bindIndex, id))
+                        bindIndex += 1
+                    }
+                }
+
+                // License type filter using license_type_id
+                if !filterIds.licenseTypeIds.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filterIds.licenseTypeIds.count).joined(separator: ",")
+                    whereClause += " AND license_type_id IN (\(placeholders))"
+                    for id in filterIds.licenseTypeIds {
+                        bindValues.append((bindIndex, id))
+                        bindIndex += 1
+                    }
+                }
+
+                // Age group filter using age_group_id
+                if !filterIds.ageGroupIds.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filterIds.ageGroupIds.count).joined(separator: ",")
+                    whereClause += " AND age_group_id IN (\(placeholders))"
+                    for id in filterIds.ageGroupIds {
+                        bindValues.append((bindIndex, id))
+                        bindIndex += 1
+                    }
+                }
+
+                // Gender filter using gender_id
+                if !filterIds.genderIds.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filterIds.genderIds.count).joined(separator: ",")
+                    whereClause += " AND gender_id IN (\(placeholders))"
+                    for id in filterIds.genderIds {
+                        bindValues.append((bindIndex, id))
+                        bindIndex += 1
+                    }
+                }
+
+                let query = """
+                    SELECT y.year, COUNT(*) as value
+                    FROM licenses l
+                    JOIN year_enum y ON l.year_id = y.id
+                    \(whereClause)
+                    GROUP BY l.year_id, y.year
+                    ORDER BY y.year
+                """
+
+                print("🔍 Optimized license query: \(query)")
+                print("🔍 Bind values: \(bindValues.map { "(\($0.0), \($0.1))" }.joined(separator: ", "))")
+
+                var stmt: OpaquePointer?
+                defer { sqlite3_finalize(stmt) }
+
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    // Bind parameters
+                    for (index, value) in bindValues {
+                        if let intValue = value as? Int {
+                            sqlite3_bind_int(stmt, index, Int32(intValue))
+                        }
+                    }
+
+                    var dataPoints: [TimeSeriesPoint] = []
+
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        let year = Int(sqlite3_column_int(stmt, 0))
+                        let value = sqlite3_column_double(stmt, 1)
+                        dataPoints.append(TimeSeriesPoint(year: year, value: value, label: nil))
+                    }
+
+                    let duration = Date().timeIntervalSince(startTime)
+                    print("✅ Optimized license query completed in \(String(format: "%.3f", duration))s - \(dataPoints.count) data points")
+
+                    let series = FilteredDataSeries(
+                        name: "License Count by Year (Optimized)",
+                        filters: filters,
+                        points: dataPoints
+                    )
+
+                    continuation.resume(returning: series)
+                } else {
+                    let error = String(cString: sqlite3_errmsg(db))
+                    continuation.resume(throwing: DatabaseError.queryFailed("Optimized license query failed: \(error)"))
+                }
+            }
+        }
     }
 
     /// Basic license query that will work with current schema
@@ -374,6 +747,32 @@ class OptimizedQueryManager {
                     continuation.resume(throwing: DatabaseError.queryFailed("String comparison query failed: \(error)"))
                 }
             }
+        }
+    }
+
+    // MARK: - Debug Helpers
+
+    /// Debug helper to show available regions in enum table
+    private func debugPrintAvailableRegions() async {
+        guard let db = self.db else { return }
+
+        print("🔍 Available regions in admin_region_enum table:")
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let query = "SELECT id, code, name FROM admin_region_enum ORDER BY code LIMIT 10"
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let name = String(cString: sqlite3_column_text(stmt, 2))
+                    print("   ID \(id): code='\(code)', name='\(name)'")
+                }
+            } else {
+                print("   Failed to query admin_region_enum table")
+            }
+            continuation.resume()
         }
     }
 }

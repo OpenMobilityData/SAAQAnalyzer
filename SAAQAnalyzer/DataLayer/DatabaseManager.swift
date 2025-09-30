@@ -13,14 +13,26 @@ class DatabaseManager: ObservableObject {
     /// Triggers UI refresh when data changes - using database file timestamp for persistence
     @Published var dataVersion = 0
     
-    /// Filter cache manager
+    /// Filter cache manager (legacy string-based)
     private let filterCache = FilterCache()
+
+    /// Filter cache manager (new enumeration-based)
+    private(set) var filterCacheManager: FilterCacheManager?
 
     /// Schema migration manager
     private(set) var schemaManager: SchemaManager?
 
     /// Optimized query manager
     private(set) var optimizedQueryManager: OptimizedQueryManager?
+
+    /// Flag to enable optimized integer-based queries
+    private var useOptimizedQueries = true  // Default to optimized after migration
+
+    /// Toggle between optimized and traditional queries for testing
+    func setOptimizedQueriesEnabled(_ enabled: Bool) {
+        useOptimizedQueries = enabled
+        print(enabled ? "🚀 Optimized integer-based queries ENABLED" : "📊 Traditional string-based queries ENABLED")
+    }
 
     /// SQLite database handle
     internal var db: OpaquePointer?
@@ -199,6 +211,7 @@ class DatabaseManager: ObservableObject {
             // Initialize schema and optimization managers
             schemaManager = SchemaManager(databaseManager: self)
             optimizedQueryManager = OptimizedQueryManager(databaseManager: self)
+            filterCacheManager = FilterCacheManager(databaseManager: self)
         } else {
             print("Unable to open database at: \(dbPath)")
             if let errorMessage = sqlite3_errmsg(db) {
@@ -436,6 +449,56 @@ class DatabaseManager: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Re-populate integer columns for optimized queries
+    func repopulateIntegerColumns() async throws {
+        print("🔧 Re-populating integer columns from DatabaseManager...")
+        let schemaManager = SchemaManager(databaseManager: self)
+        try await schemaManager.repopulateIntegerColumns()
+        print("✅ Integer column population completed from DatabaseManager")
+    }
+
+    // MARK: - Enumeration-based Filter Data
+
+    /// Get available regions as FilterItems (ID + display name)
+    func getAvailableRegionItems() async throws -> [FilterItem] {
+        guard let filterCacheManager = filterCacheManager else {
+            throw DatabaseError.notConnected
+        }
+        return try await filterCacheManager.getAvailableRegions()
+    }
+
+    /// Get available MRCs as FilterItems (ID + display name)
+    func getAvailableMRCItems() async throws -> [FilterItem] {
+        guard let filterCacheManager = filterCacheManager else {
+            throw DatabaseError.notConnected
+        }
+        return try await filterCacheManager.getAvailableMRCs()
+    }
+
+    /// Get available municipalities as FilterItems (ID + display name)
+    func getAvailableMunicipalityItems() async throws -> [FilterItem] {
+        guard let filterCacheManager = filterCacheManager else {
+            throw DatabaseError.notConnected
+        }
+        return try await filterCacheManager.getAvailableMunicipalities()
+    }
+
+    /// Get available classifications as FilterItems (ID + display name)
+    func getAvailableClassificationItems() async throws -> [FilterItem] {
+        guard let filterCacheManager = filterCacheManager else {
+            throw DatabaseError.notConnected
+        }
+        return try await filterCacheManager.getAvailableClassifications()
+    }
+
+    /// Get available fuel types as FilterItems (ID + display name)
+    func getAvailableFuelTypeItems() async throws -> [FilterItem] {
+        guard let filterCacheManager = filterCacheManager else {
+            throw DatabaseError.notConnected
+        }
+        return try await filterCacheManager.getAvailableFuelTypes()
     }
 
     /// Clears all data from the database
@@ -823,6 +886,20 @@ class DatabaseManager: ObservableObject {
 
     /// Queries vehicle data based on filters
     func queryVehicleData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
+        // Use optimized query manager if available and enabled
+        if useOptimizedQueries, let optimizedManager = optimizedQueryManager {
+            print("🚀 Using optimized integer-based queries for vehicles")
+            var optimizedSeries = try await optimizedManager.queryOptimizedVehicleData(filters: filters)
+
+            // Update the series name to match the expected format
+            let seriesName = await generateSeriesNameAsync(from: filters)
+            optimizedSeries.name = seriesName
+
+            return optimizedSeries
+        }
+
+        // Fall back to string-based queries
+        print("📊 Using traditional string-based queries for vehicles")
         let startTime = Date()
 
         // First, generate the proper series name with municipality name resolution
@@ -1083,6 +1160,20 @@ class DatabaseManager: ObservableObject {
 
     /// Queries license data based on filters
     func queryLicenseData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
+        // Use optimized query manager if available and enabled
+        if useOptimizedQueries, let optimizedManager = optimizedQueryManager {
+            print("🚀 Using optimized integer-based queries for licenses")
+            var optimizedSeries = try await optimizedManager.queryOptimizedLicenseData(filters: filters)
+
+            // Update the series name to match the expected format
+            let seriesName = await generateSeriesNameAsync(from: filters)
+            optimizedSeries.name = seriesName
+
+            return optimizedSeries
+        }
+
+        // Fall back to string-based queries
+        print("📊 Using traditional string-based queries for licenses")
         let startTime = Date()
 
         // First, generate the proper series name
@@ -2362,6 +2453,17 @@ class DatabaseManager: ObservableObject {
     
     /// Gets available regions - uses cache when possible
     func getAvailableRegions(for dataEntityType: DataEntityType = .vehicle) async -> [String] {
+        // Use enumeration-based data when optimized queries are enabled
+        if useOptimizedQueries, let filterCacheManager = filterCacheManager {
+            do {
+                let filterItems = try await filterCacheManager.getAvailableRegions()
+                print("✅ Using enumeration-based regions (\(filterItems.count) items)")
+                return filterItems.map { $0.displayName }
+            } catch {
+                print("⚠️ Failed to load enumeration regions, falling back to legacy cache: \(error)")
+            }
+        }
+
         print("🔍 getAvailableRegions() - Cache status: \(filterCache.hasCachedData(for: dataEntityType))")
 
         // Check cache first
@@ -2531,6 +2633,17 @@ class DatabaseManager: ObservableObject {
     
     /// Gets available classifications - uses cache when possible
     func getAvailableClassifications() async -> [String] {
+        // Use enumeration-based data when optimized queries are enabled
+        if useOptimizedQueries, let filterCacheManager = filterCacheManager {
+            do {
+                let filterItems = try await filterCacheManager.getAvailableClassifications()
+                print("✅ Using enumeration-based classifications (\(filterItems.count) items)")
+                return filterItems.map { $0.displayName }
+            } catch {
+                print("⚠️ Failed to load enumeration classifications, falling back to legacy cache: \(error)")
+            }
+        }
+
         // Check cache first
         if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
             let cached = filterCache.getCachedClassifications()
@@ -3426,6 +3539,17 @@ class DatabaseManager: ObservableObject {
         // Municipalities only exist for vehicle data
         guard dataType == .vehicle else {
             return []
+        }
+
+        // Use enumeration-based data when optimized queries are enabled
+        if useOptimizedQueries, let filterCacheManager = filterCacheManager {
+            do {
+                let filterItems = try await filterCacheManager.getAvailableMunicipalities()
+                print("✅ Using enumeration-based municipalities (\(filterItems.count) items)")
+                return filterItems.map { $0.displayName }
+            } catch {
+                print("⚠️ Failed to load enumeration municipalities, falling back to legacy cache: \(error)")
+            }
         }
 
         // Check cache first
