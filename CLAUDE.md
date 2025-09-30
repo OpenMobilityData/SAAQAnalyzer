@@ -101,11 +101,52 @@ The CSV importer handles French characters by trying multiple encodings (UTF-8, 
 - **Minimum macOS version**: Requires NavigationSplitView (macOS 13.0+)
 - **Dependencies**: SQLite3, Charts framework, UniformTypeIdentifiers
 
+## Current Implementation Status
+
+### Integer-Based Optimization (September 2024)
+- **Pivoted from migration to clean implementation approach** - Building optimized schema from scratch
+- **Building integer-based schema directly during CSV import** - No migration complexity
+- **Using pre-assigned Quebec geographic codes** - No separate enumeration needed:
+  - Municipality codes: Direct integers (e.g., 66023 for Montréal)
+  - Admin Region codes: Extract from parentheses "Abitibi-Témiscamingue (08)" → 8
+  - MRC codes: Extract from parentheses "Montréal (06)" → 6
+- **Testing with abbreviated CSV files** (1000 rows) before scaling to full datasets
+- **Database deleted for clean slate** - Starting fresh with optimized schema
+
+### Key Architectural Components
+1. **Optimized Query System**
+   - `CategoricalEnumManager.swift`: Creates and manages enumeration tables
+   - `OptimizedQueryManager.swift`: Integer-based queries (5.6x performance improvement)
+   - `FilterCacheManager.swift`: Loads filter data from enumeration tables
+
+2. **Geographic Code Handling**
+   - Municipality codes are the only numeric codes requiring transformation to human-readable names
+   - Admin regions and MRCs have embedded codes in parentheses that need extraction
+   - License data only contains Admin Region and MRC (no municipalities)
+   - Vehicle data contains all three levels of geographic hierarchy
+
+3. **Special Cases**
+   - **Municipalities**: Numeric codes need geographic entity name lookup for UI display
+   - **License Classes**: Multiple boolean columns transformed to single multi-selectable filter
+   - **Numeric Fields**: Vehicle mass and engine displacement remain as true integers (not enumerated)
+
+### Performance Optimizations
+- Integer foreign keys instead of string comparisons
+- Covering indexes for common query patterns
+- Direct use of Quebec's official numeric coding system
+- Canonical geographic code set enables cross-mode filter persistence
+
 ## File Organization
 
 ```
 SAAQAnalyzer/
 ├── DataLayer/          # Database and import logic
+│   ├── DatabaseManager.swift
+│   ├── CSVImporter.swift
+│   ├── GeographicDataImporter.swift
+│   ├── CategoricalEnumManager.swift    # NEW: Enumeration table management
+│   ├── OptimizedQueryManager.swift     # NEW: Integer-based queries
+│   └── FilterCacheManager.swift        # NEW: Enumeration-based filter cache
 ├── Models/             # Data structures and enums
 ├── UI/                # SwiftUI views and components
 ├── Assets.xcassets/   # App icons and colors
@@ -118,6 +159,7 @@ SAAQAnalyzer/
 1. Update `FilterConfiguration` struct in `DataModels.swift`
 2. Add UI components in `FilterPanel.swift`
 3. Update query building in `DatabaseManager.queryVehicleData()`
+4. Add enumeration table if categorical data
 
 ### Adding New Chart Types
 1. Extend `ChartType` enum in `ChartView.swift`
@@ -126,5 +168,5 @@ SAAQAnalyzer/
 
 ### Database Schema Changes
 1. Update table creation SQL in `DatabaseManager.createTablesIfNeeded()`
-2. Add migration logic if needed for existing databases
-3. Update import binding in `CSVImporter` and `DatabaseManager.importVehicleBatch()`
+2. Update `CategoricalEnumManager` for new enumerations
+3. Update import binding in `CSVImporter` to populate integer columns directly
