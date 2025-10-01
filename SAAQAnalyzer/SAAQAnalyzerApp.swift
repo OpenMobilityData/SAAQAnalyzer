@@ -1248,7 +1248,7 @@ struct SettingsView: View {
                 }
                 .tag(3)
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 550, height: 650)
     }
 }
 
@@ -1276,34 +1276,200 @@ struct PerformanceSettingsView: View {
     @StateObject private var settings = AppSettings.shared
 
     var body: some View {
-        Form {
-            Section("Import Performance") {
-                Toggle("Use Adaptive Thread Count", isOn: $settings.useAdaptiveThreadCount)
-                    .help("Automatically adjust thread count based on file size and system capabilities")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // System Information
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("System Information")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
 
-                if !settings.useAdaptiveThreadCount {
                     HStack {
-                        Text("Manual Thread Count:")
-                        Stepper("\(settings.manualThreadCount)", value: $settings.manualThreadCount, in: 1...settings.systemProcessorCount)
+                        Text("Physical Memory:")
+                        Spacer()
+                        Text("\(settings.systemMemoryGB) GB")
+                            .fontWeight(.medium)
+                    }
+
+                    HStack {
+                        Text("Total CPU Cores:")
+                        Spacer()
+                        Text("\(settings.systemProcessorCount)")
+                            .fontWeight(.medium)
+                    }
+
+                    HStack {
+                        Text("Performance Cores:")
+                        Spacer()
+                        Text("\(settings.performanceCoreCount)")
+                            .fontWeight(.medium)
+                            .foregroundColor(.green)
+                    }
+
+                    HStack {
+                        Text("Efficiency Cores:")
+                        Spacer()
+                        Text("\(settings.efficiencyCoreCount)")
+                            .fontWeight(.medium)
+                            .foregroundColor(.orange)
+                    }
+                }
+                .padding(12)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(8)
+
+                Divider()
+
+                // Thread Configuration
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Thread Configuration")
+                        .font(.headline)
+
+                    // Adaptive vs Manual toggle
+                    Toggle(isOn: $settings.useAdaptiveThreadCount) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Adaptive Thread Count")
+                                .font(.subheadline)
+                            Text("Automatically optimize based on file size and system")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    if settings.useAdaptiveThreadCount {
+                        // Adaptive settings
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Maximum Threads:")
+                                Spacer()
+                                Text("\(settings.maxThreadCount)")
+                                    .fontWeight(.medium)
+                            }
+
+                            Slider(
+                                value: Binding(
+                                    get: { Double(settings.maxThreadCount) },
+                                    set: { settings.maxThreadCount = Int($0) }
+                                ),
+                                in: 1...Double(settings.systemProcessorCount),
+                                step: 1
+                            )
+
+                            Text("Adaptive calculation preview:")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            adaptivePreviewGrid
+                        }
+                        .padding(.leading, 20)
+                    } else {
+                        // Manual settings
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Thread Count:")
+                                Spacer()
+                                Text("\(settings.manualThreadCount)")
+                                    .fontWeight(.medium)
+                            }
+
+                            Slider(
+                                value: Binding(
+                                    get: { Double(settings.manualThreadCount) },
+                                    set: { settings.manualThreadCount = Int($0) }
+                                ),
+                                in: 1...Double(settings.systemProcessorCount),
+                                step: 1
+                            )
+
+                            Text("Fixed thread count for all imports")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.leading, 20)
                     }
                 }
 
-                HStack {
-                    Text("Maximum Thread Count:")
-                    Stepper("\(settings.maxThreadCount)", value: $settings.maxThreadCount, in: 1...settings.systemProcessorCount)
+                Divider()
+
+                // Performance Tips
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Performance Tips")
+                        .font(.headline)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        performanceTip(
+                            icon: "cpu",
+                            title: "CPU Usage",
+                            description: "More threads = faster imports, but may slow other apps"
+                        )
+
+                        performanceTip(
+                            icon: "memorychip",
+                            title: "Memory Usage",
+                            description: "Each thread uses ~200MB during import"
+                        )
+
+                        performanceTip(
+                            icon: "chart.line.uptrend.xyaxis",
+                            title: "Adaptive Mode",
+                            description: "Recommended for varying file sizes and system loads"
+                        )
+                    }
                 }
-                .help("Maximum threads for adaptive mode")
+            }
+            .padding(20)
+        }
+    }
 
-                Text("System Cores: \(settings.systemProcessorCount)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+    /// Preview grid showing adaptive thread counts for different file sizes
+    private var adaptivePreviewGrid: some View {
+        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
+            GridRow {
+                Text("File Size")
+                    .font(.caption2)
+                    .fontWeight(.medium)
+                Text("Threads")
+                    .font(.caption2)
+                    .fontWeight(.medium)
+            }
+            .foregroundColor(.secondary)
 
-                Text("Estimated Performance Cores: \(settings.estimatedPerformanceCores)")
+            ForEach([
+                (name: "Small (100K)", count: 100_000),
+                (name: "Medium (1M)", count: 1_000_000),
+                (name: "Large (5M)", count: 5_000_000),
+                (name: "Very Large (10M)", count: 10_000_000)
+            ], id: \.name) { sample in
+                GridRow {
+                    Text(sample.name)
+                        .font(.caption2)
+                    Text("\(settings.getOptimalThreadCount(for: sample.count))")
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                }
+            }
+        }
+        .padding(8)
+        .background(Color.gray.opacity(0.05))
+        .cornerRadius(6)
+    }
+
+    /// Individual performance tip row
+    private func performanceTip(icon: String, title: String, description: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .foregroundColor(.blue)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
                     .font(.caption)
+                    .fontWeight(.medium)
+                Text(description)
+                    .font(.caption2)
                     .foregroundColor(.secondary)
             }
         }
-        .padding(20)
     }
 }
 

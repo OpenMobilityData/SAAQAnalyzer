@@ -89,18 +89,45 @@ class AppSettings: ObservableObject {
     }
     
     // MARK: - Computed Properties
-    
+
     /// Available processor cores on this system
     var systemProcessorCount: Int {
         ProcessInfo.processInfo.activeProcessorCount
     }
-    
-    /// Estimated performance cores (rough heuristic for Apple Silicon)
-    var estimatedPerformanceCores: Int {
+
+    /// Physical memory in GB
+    var systemMemoryGB: Int {
+        let bytes = ProcessInfo.processInfo.physicalMemory
+        return Int(bytes / 1_073_741_824) // Convert to GB
+    }
+
+    /// Number of performance cores (accurate for Apple Silicon)
+    var performanceCoreCount: Int {
+        var perfCores: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+
+        // Try to get actual performance core count (works on macOS 12+)
+        let result = sysctlbyname("hw.perflevel0.logicalcpu", &perfCores, &size, nil, 0)
+
+        if result == 0 && perfCores > 0 {
+            return Int(perfCores)
+        }
+
+        // Fallback to estimation if sysctl fails
+        return estimatedPerformanceCores
+    }
+
+    /// Estimated performance cores (fallback heuristic for non-Apple Silicon or older OS)
+    private var estimatedPerformanceCores: Int {
         // Apple Silicon typically has ~2/3 performance cores
         // M3 Ultra: 24 total → ~16 performance cores
         let total = systemProcessorCount
         return max(4, Int(Double(total) * 0.67))
+    }
+
+    /// Number of efficiency cores
+    var efficiencyCoreCount: Int {
+        return systemProcessorCount - performanceCoreCount
     }
     
     /// Gets the optimal thread count based on current settings
@@ -133,9 +160,9 @@ class AppSettings: ObservableObject {
     
     /// Calculates optimal thread count based on system characteristics and workload
     private func calculateAdaptiveThreadCount(recordCount: Int) -> Int {
-        // Base calculation on performance cores and record count
-        let baseCores = estimatedPerformanceCores
-        
+        // Base calculation on actual performance cores
+        let baseCores = performanceCoreCount
+
         // Scale based on workload size
         let workloadFactor: Double
         switch recordCount {
@@ -148,13 +175,13 @@ class AppSettings: ObservableObject {
         default:
             workloadFactor = 1.0   // Very large files: maximum threading
         }
-        
+
         let calculatedThreads = Int(Double(baseCores) * workloadFactor)
-        
+
         // Ensure reasonable bounds
         let minThreads = max(1, recordCount / 1_000_000) // At least 1, more for huge files
         let maxThreads = min(maxThreadCount, baseCores)
-        
+
         return max(minThreads, min(calculatedThreads, maxThreads))
     }
     
