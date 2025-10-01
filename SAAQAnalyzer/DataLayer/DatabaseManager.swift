@@ -2121,6 +2121,18 @@ class DatabaseManager: ObservableObject {
             components.append("[License Classes: \(classes)]")
         }
 
+        // Vehicle age ranges
+        if !filters.ageRanges.isEmpty {
+            let ageDescriptions = filters.ageRanges.map { ageRange in
+                if let maxAge = ageRange.maxAge {
+                    return "\(ageRange.minAge)-\(maxAge) years"
+                } else {
+                    return "\(ageRange.minAge)+ years"
+                }
+            }
+            components.append("[Age: \(ageDescriptions.joined(separator: " OR "))]")
+        }
+
         // Return appropriate default based on data entity type
         if components.isEmpty {
             return filters.dataEntityType == .license ? "All License Holders" : "All Vehicles"

@@ -189,13 +189,15 @@ struct ChartView: View {
                     case .area:
                         AreaMark(
                             x: .value("Year", point.year),
-                            y: .value(series.yAxisLabel, point.value)
+                            y: .value(series.yAxisLabel, point.value),
+                            series: .value("Series", series.name)
                         )
                         .foregroundStyle(series.color.opacity(0.3))
 
                         LineMark(
                             x: .value("Year", point.year),
-                            y: .value(series.yAxisLabel, point.value)
+                            y: .value(series.yAxisLabel, point.value),
+                            series: .value("Series", series.name)
                         )
                         .foregroundStyle(series.color)
                         .interpolationMethod(.linear)
