@@ -1,6 +1,7 @@
 import SwiftUI
 import Charts
 import UniformTypeIdentifiers
+import AppKit  // FIXME: Remove AppKit dependency - only used for NSPasteboard clipboard access
 
 /// Main chart view for displaying time series data
 struct ChartView: View {
@@ -13,13 +14,6 @@ struct ChartView: View {
     @State private var includeZero = true
     @State private var chartType: ChartType = .line
     @State private var chartRefreshTrigger = false
-
-    // File export states
-    @State private var showingCurrentViewExporter = false
-    @State private var showingPublicationExporter = false
-    @State private var showingCSVExporter = false
-    @State private var exportData: Data?
-    @State private var exportFileName = ""
 
     enum ChartType: String, CaseIterable {
         case line = "Line"
@@ -70,27 +64,6 @@ struct ChartView: View {
             }
         }
         .background(Color(NSColor.controlBackgroundColor))
-        .withFileExporters(
-            showingCurrentViewExporter: $showingCurrentViewExporter,
-            showingPublicationExporter: $showingPublicationExporter,
-            showingCSVExporter: $showingCSVExporter,
-            exportData: exportData,
-            exportFileName: exportFileName,
-            onResult: handleExportResult
-        )
-    }
-
-    /// Handle export result
-    private func handleExportResult(_ result: Result<URL, Error>) {
-        switch result {
-        case .success(let url):
-            print("✅ File exported to: \(url.path)")
-        case .failure(let error):
-            print("❌ Export error: \(error)")
-        }
-        // Clear export data after handling
-        exportData = nil
-        exportFileName = ""
     }
     
     /// Chart toolbar with display options
@@ -129,20 +102,30 @@ struct ChartView: View {
             
             Divider()
                 .frame(height: 20)
-            
+
             // Export button
-            ExportButton(
-                dataSeries: dataSeries,
-                includeZero: includeZero,
-                chartType: chartType,
-                showLegend: showLegend,
-                chartContent: chartContent,
-                showingCurrentViewExporter: $showingCurrentViewExporter,
-                showingPublicationExporter: $showingPublicationExporter,
-                showingCSVExporter: $showingCSVExporter,
-                exportData: $exportData,
-                exportFileName: $exportFileName
-            )
+            Menu {
+                Button {
+                    exportCurrentViewAsPNG()
+                } label: {
+                    Label("Copy Current View as PNG", systemImage: "photo")
+                }
+
+                Button {
+                    exportForPublicationAsPNG()
+                } label: {
+                    Label("Copy Publication PNG", systemImage: "doc.richtext")
+                }
+
+                Button {
+                    exportAsCSV()
+                } label: {
+                    Label("Copy Data as CSV", systemImage: "tablecells")
+                }
+            } label: {
+                Label("Copy to Clipboard", systemImage: "doc.on.clipboard")
+            }
+            .menuStyle(.button)
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
@@ -368,14 +351,219 @@ struct ChartView: View {
         case .active(_):
             // Hover functionality could be implemented here in the future
             break
-            
+
             // Find closest data point
             // This would require more complex calculation based on chart scaling
             // For now, we'll leave it as a placeholder for hover tooltips
-            
+
         case .ended:
             // Clear any hover state
             break
+        }
+    }
+
+    // MARK: - Export Functions
+
+    /// Export current view exactly as displayed in UI
+    private func exportCurrentViewAsPNG() {
+        print("📸 Export Current View as PNG button clicked")
+        let darkBackground = Color(red: 0.1, green: 0.1, blue: 0.1)
+
+        let contentView = VStack(spacing: 16) {
+            if dataSeries.isEmpty {
+                EmptyChartView()
+                    .frame(height: 400)
+            } else {
+                chartContent
+                    .frame(height: 400)
+                    .padding()
+
+                if showLegend && !dataSeries.isEmpty {
+                    ChartLegend(
+                        series: .constant(dataSeries),
+                        selectedSeries: .constant(nil),
+                        chartRefreshTrigger: .constant(false)
+                    )
+                    .padding(.horizontal)
+                }
+            }
+        }
+        .frame(width: 900, height: 700)
+        .background(darkBackground)
+        .environment(\.colorScheme, .dark)
+        .preferredColorScheme(.dark)
+
+        let renderer = ImageRenderer(content: contentView)
+        renderer.scale = AppSettings.shared.exportScaleFactor
+
+        if let cgImage = renderer.cgImage {
+            print("✅ Successfully rendered CGImage")
+            let mutableData = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(mutableData, UTType.png.identifier as CFString, 1, nil) else {
+                print("❌ Error creating image destination")
+                return
+            }
+
+            CGImageDestinationAddImage(destination, cgImage, nil)
+
+            if CGImageDestinationFinalize(destination) {
+                print("✅ PNG data created, size: \(mutableData.length) bytes")
+
+                // FIXME: Replace NSPasteboard with pure SwiftUI when available
+                // Copy PNG to clipboard
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setData(mutableData as Data, forType: .png)
+
+                print("📋 PNG copied to clipboard! (Size: \(mutableData.length) bytes)")
+                print("💡 Paste into Preview.app (⌘N) or any image editor to save")
+            } else {
+                print("❌ Error finalizing PNG export")
+            }
+        } else {
+            print("❌ Error rendering current view to image")
+        }
+    }
+
+    /// Export chart formatted for publication
+    private func exportForPublicationAsPNG() {
+        let chartContent: AnyView
+        if dataSeries.isEmpty {
+            chartContent = AnyView(
+                Text("No data available")
+                    .font(.title2)
+                    .foregroundColor(.secondary)
+                    .frame(width: 900, height: 500)
+            )
+        } else {
+            let chartView = Chart {
+                ForEach(dataSeries.filter { $0.isVisible }, id: \.id) { series in
+                    ForEach(series.points, id: \.year) { point in
+                        LineMark(
+                            x: .value("Year", point.year),
+                            y: .value("Count", point.value),
+                            series: .value("Series", series.name)
+                        )
+                        .foregroundStyle(series.color)
+                        .lineStyle(StrokeStyle(lineWidth: AppSettings.shared.exportLineThickness))
+                    }
+                }
+            }
+            .chartXAxis {
+                AxisMarks { value in
+                    AxisValueLabel {
+                        if let year = value.as(Double.self) {
+                            Text(String(format: "%.0f", year))
+                                .fontWeight(.bold)
+                        }
+                    }
+                }
+            }
+            .chartPlotStyle { plotArea in
+                plotArea
+                    .background(Color(red: 0.9, green: 0.9, blue: 0.9))
+            }
+            .chartXScale(domain: .automatic(includesZero: false))
+            .chartYScale(domain: .automatic(includesZero: includeZero))
+            .frame(width: 900, height: 500)
+
+            chartContent = AnyView(chartView)
+        }
+
+        let legendView = Group {
+            if dataSeries.filter({ $0.isVisible }).count > 1 {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Series")
+                        .font(.headline)
+                        .foregroundColor(.black)
+
+                    ForEach(Array(dataSeries.filter { $0.isVisible }.enumerated()), id: \.element.id) { index, series in
+                        HStack {
+                            Rectangle()
+                                .fill(series.color)
+                                .frame(width: 12, height: 12)
+                            Text(series.name)
+                                .font(.caption)
+                                .foregroundColor(.black)
+                                .lineLimit(2)
+                            Spacer()
+                        }
+                    }
+                }
+                .padding()
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(8)
+            }
+        }
+
+        let exportView = VStack(spacing: 16) {
+            Text("SAAQ Vehicle Registration Data")
+                .font(.title)
+                .fontWeight(.semibold)
+                .foregroundColor(.black)
+
+            chartContent
+
+            legendView
+
+            Text("Generated on \(Date().formatted(date: .abbreviated, time: .shortened))")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(24)
+        .background(Color.white)
+        .frame(width: 1000, height: 700)
+
+        let renderer = ImageRenderer(content: exportView)
+        renderer.scale = AppSettings.shared.exportScaleFactor
+
+        if let cgImage = renderer.cgImage {
+            let mutableData = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(mutableData, UTType.png.identifier as CFString, 1, nil) else {
+                print("❌ Error creating image destination")
+                return
+            }
+
+            CGImageDestinationAddImage(destination, cgImage, nil)
+
+            if CGImageDestinationFinalize(destination) {
+                print("✅ Publication PNG created, size: \(mutableData.length) bytes")
+
+                // FIXME: Replace NSPasteboard with pure SwiftUI when available
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setData(mutableData as Data, forType: .png)
+
+                print("📋 Publication-quality PNG copied to clipboard!")
+                print("💡 Paste into Preview.app (⌘N) or any image editor to save")
+            } else {
+                print("❌ Error finalizing PNG export")
+            }
+        } else {
+            print("❌ Error rendering chart to image")
+        }
+    }
+
+    /// Export data series as CSV
+    private func exportAsCSV() {
+        var csvContent = "Series,Year,Value\n"
+
+        for series in dataSeries {
+            for point in series.points {
+                csvContent += "\"\(series.name)\",\(point.year),\(point.value)\n"
+            }
+        }
+
+        if let data = csvContent.data(using: .utf8) {
+            // FIXME: Replace NSPasteboard with pure SwiftUI when available
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(csvContent, forType: .string)
+
+            print("📋 CSV data copied to clipboard! (\(dataSeries.count) series)")
+            print("💡 Paste into Numbers, Excel, or any text editor to save")
+        } else {
+            print("❌ Error converting CSV to data")
         }
     }
 }
@@ -502,325 +690,10 @@ struct ChartLegend: View {
     }
 }
 
-// MARK: - Export Button
-
-struct ExportButton: View {
-    let dataSeries: [FilteredDataSeries]
-    let includeZero: Bool
-    let chartType: ChartView.ChartType
-    let showLegend: Bool
-    let chartContent: AnyView
-
-    // Export state bindings
-    @Binding var showingCurrentViewExporter: Bool
-    @Binding var showingPublicationExporter: Bool
-    @Binding var showingCSVExporter: Bool
-    @Binding var exportData: Data?
-    @Binding var exportFileName: String
-
-    @State private var showExportOptions = false
-    
-    var body: some View {
-        Menu {
-            Button {
-                exportCurrentViewAsPNG()
-            } label: {
-                Label("Export Current View as PNG", systemImage: "photo")
-            }
-
-            Button {
-                exportForPublicationAsPNG()
-            } label: {
-                Label("Export for Publication as PNG", systemImage: "doc.richtext")
-            }
-
-            Button {
-                exportAsCSV()
-            } label: {
-                Label("Export as CSV", systemImage: "tablecells")
-            }
-            
-            // PDF export placeholder for future
-            Button {
-                // TODO: Implement PDF export
-                print("PDF export not yet implemented")
-            } label: {
-                Label("Export as PDF", systemImage: "doc.richtext")
-            }
-            .disabled(true)
-            
-        } label: {
-            Label("Export", systemImage: "square.and.arrow.up")
-        }
-        .menuStyle(.button)
-    }
-    
-    /// Export current view exactly as displayed in UI
-    private func exportCurrentViewAsPNG() {
-
-            // Force a specific dark background that matches the UI
-            let darkBackground = Color(red: 0.1, green: 0.1, blue: 0.1) // Dark gray like in the UI
-
-            // Create the export view with a solid background
-            let contentView = VStack(spacing: 16) {
-                // Use the exact same chart content from the UI
-                if dataSeries.isEmpty {
-                    EmptyChartView()
-                        .frame(height: 400)
-                } else {
-                    // Direct reference to the actual chartContent used in the UI
-                    chartContent
-                        .frame(height: 400)
-                        .padding()
-
-                    // Include the exact same legend used in the UI
-                    if showLegend && !dataSeries.isEmpty {
-                        ChartLegend(
-                            series: .constant(dataSeries),
-                            selectedSeries: .constant(nil),
-                            chartRefreshTrigger: .constant(false)
-                        )
-                        .padding(.horizontal)
-                    }
-                }
-            }
-            .frame(width: 900, height: 700)
-            .background(darkBackground)
-
-            // Try alternative rendering approach with explicit background
-            let finalView = contentView
-                .environment(\.colorScheme, .dark) // Force dark color scheme
-                .preferredColorScheme(.dark)
-
-            let renderer = ImageRenderer(content: finalView)
-            renderer.scale = AppSettings.shared.exportScaleFactor
-
-            // Set renderer properties for better background handling
-            if #available(macOS 14.0, *) {
-                renderer.isOpaque = true
-                renderer.colorMode = .nonLinear
-            }
-
-            // Try to render with background color by creating a custom image
-
-            if let nsImage = renderer.nsImage {
-                // Create a new image with explicit background
-                let finalImage = NSImage(size: CGSize(width: 900, height: 700))
-                finalImage.lockFocus()
-
-                // Fill with dark background
-                NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0).setFill()
-                NSRect(x: 0, y: 0, width: 900, height: 700).fill()
-
-                // Draw the chart on top
-                nsImage.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1.0)
-
-                finalImage.unlockFocus()
-
-                // Convert to PNG
-                if let tiffData = finalImage.tiffRepresentation,
-                   let bitmapRep = NSBitmapImageRep(data: tiffData),
-                   let pngData = bitmapRep.representation(using: .png, properties: [:]) {
-                    // Prepare data for export
-                    self.exportData = pngData
-                    self.exportFileName = "saaq_chart_view_\(Date().timeIntervalSince1970).png"
-                    self.showingCurrentViewExporter = true
-                } else {
-                    print("❌ Error converting to PNG")
-                }
-            } else {
-                print("❌ Error rendering current view to image")
-            }
-    }
-
-    /// Export chart formatted for publication
-    private func exportForPublicationAsPNG() {
-
-            // Build the chart content separately to avoid compiler timeout
-            let chartContent: AnyView
-            if dataSeries.isEmpty {
-                chartContent = AnyView(
-                    Text("No data available")
-                        .font(.title2)
-                        .foregroundColor(.secondary)
-                        .frame(width: 900, height: 500)
-                )
-            } else {
-                // Simple line chart for export with axis fixes
-                let chartView = Chart {
-                    ForEach(dataSeries.filter { $0.isVisible }, id: \.id) { series in
-                        ForEach(series.points, id: \.year) { point in
-                            LineMark(
-                                x: .value("Year", point.year),
-                                y: .value("Count", point.value),
-                                series: .value("Series", series.name)
-                            )
-                            .foregroundStyle(series.color)
-                            .lineStyle(StrokeStyle(lineWidth: AppSettings.shared.exportLineThickness))
-                        }
-                    }
-                }
-                .chartXAxis {
-                    AxisMarks { value in
-                        AxisValueLabel {
-                            if let year = value.as(Double.self) {
-                                Text(String(format: "%.0f", year))
-                                    .fontWeight(.bold)
-                            }
-                        }
-                    }
-                }
-                .chartPlotStyle { plotArea in
-                    plotArea
-                        .background(Color(red: 0.9, green: 0.9, blue: 0.9))
-                }
-                .chartXScale(domain: .automatic(includesZero: false))
-                .chartYScale(domain: .automatic(includesZero: includeZero))
-                .frame(width: 900, height: 500)
-
-                chartContent = AnyView(chartView)
-            }
-
-            // Build simplified legend for export
-            let legendView = Group {
-                if dataSeries.filter({ $0.isVisible }).count > 1 {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Series")
-                            .font(.headline)
-                            .foregroundColor(.black)
-
-                        ForEach(Array(dataSeries.filter { $0.isVisible }.enumerated()), id: \.element.id) { index, series in
-                            HStack {
-                                Rectangle()
-                                    .fill(series.color)
-                                    .frame(width: 12, height: 12)
-                                Text(series.name)
-                                    .font(.caption)
-                                    .foregroundColor(.black)
-                                    .lineLimit(2)
-                                Spacer()
-                            }
-                        }
-                    }
-                    .padding()
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(8)
-                }
-            }
-
-            // Assemble the complete export view
-            let exportView = VStack(spacing: 16) {
-                Text("SAAQ Vehicle Registration Data")
-                    .font(.title)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.black)
-
-                chartContent
-
-                legendView
-
-                Text("Generated on \(Date().formatted(date: .abbreviated, time: .shortened))")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .padding(24)
-            .background(Color.white)
-            .frame(width: 1000, height: 700)
-
-            // Render using ImageRenderer (macOS 13+)
-            if #available(macOS 13.0, *) {
-                let renderer = ImageRenderer(content: exportView)
-                renderer.scale = 2.0  // High DPI for crisp export
-
-                if let nsImage = renderer.nsImage {
-                    // Convert NSImage to PNG data
-                    if let tiffData = nsImage.tiffRepresentation,
-                       let bitmapRep = NSBitmapImageRep(data: tiffData),
-                       let pngData = bitmapRep.representation(using: .png, properties: [:]) {
-
-                        // Prepare data for export
-                        self.exportData = pngData
-                        self.exportFileName = "saaq_chart_\(Date().timeIntervalSince1970).png"
-                        self.showingPublicationExporter = true
-                    } else {
-                        print("❌ Error converting image to PNG format")
-                    }
-                } else {
-                    print("❌ Error rendering chart to image")
-                }
-            } else {
-                // Fallback for older macOS versions - create basic white image
-                print("⚠️ ImageRenderer requires macOS 13.0+, creating basic placeholder")
-
-                let width = 1000
-                let height = 700
-                let colorSpace = CGColorSpaceCreateDeviceRGB()
-                let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
-
-                guard let context = CGContext(data: nil,
-                                            width: width,
-                                            height: height,
-                                            bitsPerComponent: 8,
-                                            bytesPerRow: width * 4,
-                                            space: colorSpace,
-                                            bitmapInfo: bitmapInfo) else {
-                    print("❌ Error creating graphics context")
-                    return
-                }
-
-                // Fill with white background
-                context.setFillColor(CGColor.white)
-                context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-
-                // Create PNG data
-                guard let cgImage = context.makeImage() else {
-                    print("❌ Error creating image")
-                    return
-                }
-
-                let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: width, height: height))
-
-                if let tiffData = nsImage.tiffRepresentation,
-                   let bitmapRep = NSBitmapImageRep(data: tiffData),
-                   let pngData = bitmapRep.representation(using: .png, properties: [:]) {
-
-                    // Prepare data for export
-                    self.exportData = pngData
-                    self.exportFileName = "saaq_chart_\(Date().timeIntervalSince1970).png"
-                    self.showingPublicationExporter = true
-                } else {
-                    print("❌ Error converting image to PNG format")
-                }
-            }
-    }
-    
-    /// Export data series as CSV
-    private func exportAsCSV() {
-            
-            // Create CSV content
-            var csvContent = "Series,Year,Value\n"
-            
-            for series in dataSeries {
-                for point in series.points {
-                    csvContent += "\"\(series.name)\",\(point.year),\(point.value)\n"
-                }
-            }
-            
-            // Prepare data for export
-            if let data = csvContent.data(using: .utf8) {
-                self.exportData = data
-                self.exportFileName = "saaq_data_\(Date().timeIntervalSince1970).csv"
-                self.showingCSVExporter = true
-            } else {
-                print("❌ Error converting CSV to data")
-            }
-    }
-}
-
 // MARK: - Exportable Document
 
 /// Document wrapper for file export
-struct ExportableDocument: FileDocument {
+struct ExportableDocument: FileDocument, Transferable {
     static var readableContentTypes: [UTType] { [.png, .commaSeparatedText] }
 
     var data: Data
@@ -835,6 +708,16 @@ struct ExportableDocument: FileDocument {
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: data)
+    }
+
+    // Transferable conformance
+    static var transferRepresentation: some TransferRepresentation {
+        DataRepresentation(exportedContentType: .png) { document in
+            document.data
+        }
+        DataRepresentation(exportedContentType: .commaSeparatedText) { document in
+            document.data
+        }
     }
 }
 

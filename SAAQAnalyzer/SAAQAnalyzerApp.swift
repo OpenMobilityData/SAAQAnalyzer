@@ -354,28 +354,15 @@ struct ContentView: View {
                 Label("Import", systemImage: "square.and.arrow.down")
             }
 
-            // Export button
+            // Export menu
             Menu {
-                Button("Export Chart as PNG...") {
-                    // This would be handled by ChartView's export functionality
-                    print("Export chart - use ChartView export buttons")
-                }
-                .disabled(chartData.isEmpty)
-
-                Button("Export Data as CSV...") {
-                    // This would be handled by DataInspector's export functionality
-                    print("Export data - use DataInspector export buttons")
-                }
-                .disabled(chartData.isEmpty)
-
-                Divider()
-
                 Button("Export Data Package...") {
                     showingPackageExporter = true
                 }
             } label: {
                 Label("Export", systemImage: "square.and.arrow.up")
             }
+            .help("Export options")
 
             // Schema Optimization menu
             Menu {
