@@ -1222,9 +1222,99 @@ struct SeriesQueryProgressView: View {
 // MARK: - Settings View
 
 struct SettingsView: View {
+    var body: some View {
+        TabView {
+            GeneralSettingsView()
+                .tabItem {
+                    Label("General", systemImage: "gearshape")
+                }
+                .tag(0)
+
+            PerformanceSettingsView()
+                .tabItem {
+                    Label("Performance", systemImage: "speedometer")
+                }
+                .tag(1)
+
+            DatabaseSettingsView()
+                .tabItem {
+                    Label("Database", systemImage: "cylinder.split.1x2")
+                }
+                .tag(2)
+
+            ExportSettingsView()
+                .tabItem {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+                .tag(3)
+        }
+        .frame(width: 500, height: 400)
+    }
+}
+
+// MARK: - General Settings Tab
+
+struct GeneralSettingsView: View {
+    @StateObject private var settings = AppSettings.shared
+
+    var body: some View {
+        Form {
+            Section("Application") {
+                Button("Reset All Settings to Defaults") {
+                    settings.resetToDefaults()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+    }
+}
+
+// MARK: - Performance Settings Tab
+
+struct PerformanceSettingsView: View {
+    @StateObject private var settings = AppSettings.shared
+
+    var body: some View {
+        Form {
+            Section("Import Performance") {
+                Toggle("Use Adaptive Thread Count", isOn: $settings.useAdaptiveThreadCount)
+                    .help("Automatically adjust thread count based on file size and system capabilities")
+
+                if !settings.useAdaptiveThreadCount {
+                    HStack {
+                        Text("Manual Thread Count:")
+                        Stepper("\(settings.manualThreadCount)", value: $settings.manualThreadCount, in: 1...settings.systemProcessorCount)
+                    }
+                }
+
+                HStack {
+                    Text("Maximum Thread Count:")
+                    Stepper("\(settings.maxThreadCount)", value: $settings.maxThreadCount, in: 1...settings.systemProcessorCount)
+                }
+                .help("Maximum threads for adaptive mode")
+
+                Text("System Cores: \(settings.systemProcessorCount)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Text("Estimated Performance Cores: \(settings.estimatedPerformanceCores)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(20)
+    }
+}
+
+// MARK: - Database Settings Tab
+
+struct DatabaseSettingsView: View {
     @StateObject private var databaseManager = DatabaseManager.shared
+    @StateObject private var settings = AppSettings.shared
     @State private var cachedStats: CachedDatabaseStats?
     @State private var isLoading = true
+    @State private var isOptimizing = false
 
     var body: some View {
         Form {
@@ -1253,8 +1343,21 @@ struct SettingsView: View {
                         .foregroundColor(.secondary)
                 }
             }
+
+            Section("Database Optimization") {
+                Toggle("Update Statistics on Launch", isOn: $settings.updateDatabaseStatisticsOnLaunch)
+                    .help("Run ANALYZE command on launch to update query planner statistics (may delay startup)")
+
+                Button(isOptimizing ? "Optimizing..." : "Update Statistics Now") {
+                    Task {
+                        await optimizeDatabase()
+                    }
+                }
+                .disabled(isOptimizing)
+                .help("Run ANALYZE to update SQLite query planner statistics")
+            }
         }
-        .frame(width: 400, height: 300)
+        .padding(20)
         .task {
             await loadStats()
         }
@@ -1273,11 +1376,69 @@ struct SettingsView: View {
         }
     }
 
+    private func optimizeDatabase() async {
+        await MainActor.run {
+            isOptimizing = true
+        }
+
+        do {
+            try await databaseManager.updateDatabaseStatistics()
+        } catch {
+            print("⚠️ Failed to update database statistics: \(error)")
+        }
+
+        await MainActor.run {
+            isOptimizing = false
+        }
+    }
+
     private func formatFileSize(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useBytes, .useKB, .useMB, .useGB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
+    }
+}
+
+// MARK: - Export Settings Tab
+
+struct ExportSettingsView: View {
+    @StateObject private var settings = AppSettings.shared
+
+    var body: some View {
+        Form {
+            Section("Chart Export") {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Background Brightness:")
+                        Slider(value: $settings.exportBackgroundLuminosity, in: 0...1)
+                        Text("\(Int(settings.exportBackgroundLuminosity * 100))%")
+                            .frame(width: 40)
+                            .monospacedDigit()
+                    }
+
+                    HStack {
+                        Text("Line Thickness:")
+                        Slider(value: $settings.exportLineThickness, in: 1...12)
+                        Text("\(Int(settings.exportLineThickness))")
+                            .frame(width: 40)
+                            .monospacedDigit()
+                    }
+
+                    HStack {
+                        Text("Export Scale:")
+                        Slider(value: $settings.exportScaleFactor, in: 1...4, step: 0.5)
+                        Text("\(settings.exportScaleFactor, specifier: "%.1f")×")
+                            .frame(width: 40)
+                            .monospacedDigit()
+                    }
+
+                    Toggle("Bold Axis Labels", isOn: $settings.exportBoldAxisLabels)
+                    Toggle("Include Legend", isOn: $settings.exportIncludeLegend)
+                }
+            }
+        }
+        .padding(20)
     }
 }
 
