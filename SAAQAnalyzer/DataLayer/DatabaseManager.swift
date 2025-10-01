@@ -145,7 +145,12 @@ class DatabaseManager: ObservableObject {
     func setDatabaseLocation(_ url: URL) {
         dbQueue.async { [weak self] in
             self?.closeDatabase()
-            self?.databaseURL = url
+
+            // Update @Published property on main thread
+            DispatchQueue.main.async {
+                self?.databaseURL = url
+            }
+
             self?.openDatabase()
             self?.createTablesIfNeeded()
         }

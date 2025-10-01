@@ -227,6 +227,28 @@ If cache loading is slow on startup, use either method to bypass:
 
 **Use Cases**: Testing, development, corrupted cache recovery, quick package imports
 
+### Test Mode for Safe Import Testing
+
+Test mode allows you to test data package imports on a separate test database without affecting your production data:
+
+**Setup**:
+1. **In Xcode**: Product → Scheme → Edit Scheme → Run → Arguments → Environment Variables
+2. **Add Variable**: Name: `SAAQ_TEST_MODE`, Value: `1`
+3. **Enable**: Check the checkbox to activate test mode
+4. **Run**: Launch the app from Xcode
+
+**Behavior**:
+- Uses `saaq_data_test.sqlite` instead of production `saaq_data.sqlite`
+- Clears legacy UserDefaults cache to simulate fresh installation
+- On startup with existing test database, prompts:
+  - **Keep Existing**: Continue with current test data
+  - **Delete and Start Fresh**: Remove test database and start clean
+- Import operations write to test database only
+- Production database remains completely untouched
+- Disable `SAAQ_TEST_MODE` to return to normal operation
+
+**Use Cases**: Testing package imports, validating enumeration tables, testing fresh installation behavior, development without production data risk
+
 ### Data Analysis Workflow
 
 1. **Select Data Type**: Use the toolbar selector to choose Vehicle or Driver data
