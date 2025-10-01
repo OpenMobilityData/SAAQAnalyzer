@@ -802,7 +802,7 @@ class DatabaseManager: ObservableObject {
         ]
         
         // Create tables and indexes SYNCHRONOUSLY to ensure they exist before cache operations
-        // Create tables
+        // Create main tables
         for query in [createVehiclesTable, createLicensesTable, createGeographicTable, createImportLogTable] {
             if sqlite3_exec(db, query, nil, nil, nil) != SQLITE_OK {
                 if let errorMessage = sqlite3_errmsg(db) {
@@ -810,6 +810,50 @@ class DatabaseManager: ObservableObject {
                 }
             }
         }
+
+        // Create enumeration tables
+        print("🔧 Creating enumeration tables...")
+        let enumTables = [
+            // Year enumeration
+            "CREATE TABLE IF NOT EXISTS year_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER UNIQUE NOT NULL);",
+            // Classification enumeration
+            "CREATE TABLE IF NOT EXISTS classification_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, description TEXT);",
+            // Cylinder count enumeration
+            "CREATE TABLE IF NOT EXISTS cylinder_count_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, count INTEGER UNIQUE NOT NULL);",
+            // Axle count enumeration
+            "CREATE TABLE IF NOT EXISTS axle_count_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, count INTEGER UNIQUE NOT NULL);",
+            // Color enumeration
+            "CREATE TABLE IF NOT EXISTS color_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL);",
+            // Fuel type enumeration
+            "CREATE TABLE IF NOT EXISTS fuel_type_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, description TEXT);",
+            // Admin region enumeration
+            "CREATE TABLE IF NOT EXISTS admin_region_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL);",
+            // Age group enumeration
+            "CREATE TABLE IF NOT EXISTS age_group_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, range_text TEXT UNIQUE NOT NULL);",
+            // Gender enumeration
+            "CREATE TABLE IF NOT EXISTS gender_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, description TEXT);",
+            // License type enumeration
+            "CREATE TABLE IF NOT EXISTS license_type_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, type_name TEXT UNIQUE NOT NULL, description TEXT);",
+            // Make enumeration
+            "CREATE TABLE IF NOT EXISTS make_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL);",
+            // Model enumeration (requires make_id foreign key)
+            "CREATE TABLE IF NOT EXISTS model_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, make_id INTEGER NOT NULL REFERENCES make_enum(id), UNIQUE(name, make_id));",
+            // Model year enumeration
+            "CREATE TABLE IF NOT EXISTS model_year_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER UNIQUE NOT NULL);",
+            // MRC enumeration
+            "CREATE TABLE IF NOT EXISTS mrc_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL);",
+            // Municipality enumeration
+            "CREATE TABLE IF NOT EXISTS municipality_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL);"
+        ]
+
+        for enumTableSQL in enumTables {
+            if sqlite3_exec(db, enumTableSQL, nil, nil, nil) != SQLITE_OK {
+                if let errorMessage = sqlite3_errmsg(db) {
+                    print("Error creating enumeration table: \(String(cString: errorMessage))")
+                }
+            }
+        }
+        print("✅ Created \(enumTables.count) enumeration tables")
 
         // Create indexes SYNCHRONOUSLY to prevent cache rebuild performance issues
         print("🔧 Creating database indexes for optimal performance...")
@@ -3567,7 +3611,7 @@ class DatabaseManager: ObservableObject {
                     return
                 }
 
-                let query = "SELECT DISTINCT make FROM vehicles WHERE make IS NOT NULL AND make != '' ORDER BY make"
+                let query = "SELECT DISTINCT name FROM make_enum ORDER BY name"
                 var stmt: OpaquePointer?
 
                 defer {
@@ -3602,7 +3646,7 @@ class DatabaseManager: ObservableObject {
                     return
                 }
 
-                let query = "SELECT DISTINCT model FROM vehicles WHERE model IS NOT NULL AND model != '' ORDER BY model"
+                let query = "SELECT DISTINCT name FROM model_enum ORDER BY name"
                 var stmt: OpaquePointer?
 
                 defer {
@@ -3670,7 +3714,7 @@ class DatabaseManager: ObservableObject {
                     return
                 }
 
-                let query = "SELECT DISTINCT original_color FROM vehicles WHERE original_color IS NOT NULL AND original_color != '' ORDER BY original_color"
+                let query = "SELECT DISTINCT name FROM color_enum ORDER BY name"
                 var stmt: OpaquePointer?
 
                 defer {
@@ -4256,7 +4300,7 @@ class DatabaseManager: ObservableObject {
                        let makeId = makeEnumCache[makeStr] {
                         let modelKey = "\(makeStr)|\(modelStr)"
                         if let modelId = modelEnumCache[modelKey] {
-                            sqlite3_bind_int(stmt, 20, Int32(modelId))
+                            sqlite3_bind_int(stmt, 11, Int32(modelId))
                         } else {
                             // Create model enum entry
                             let insertModelSql = "INSERT OR IGNORE INTO model_enum (name, make_id) VALUES (?, ?);"
@@ -4281,10 +4325,10 @@ class DatabaseManager: ObservableObject {
                                     sqlite3_bind_null(stmt, 11)
                                 }
                             } else {
-                                sqlite3_bind_null(stmt, 20)
+                                sqlite3_bind_null(stmt, 11)
                             }
                         }
-                    } else { sqlite3_bind_null(stmt, 20) }
+                    } else { sqlite3_bind_null(stmt, 11) }
 
                     // model_year_id
                     if let myear = modelYear, let modelYearId = getOrCreateIntEnumId(table: "model_year_enum", column: "year", value: Int(myear), cache: &modelYearEnumCache) {

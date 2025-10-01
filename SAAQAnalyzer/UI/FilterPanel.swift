@@ -223,10 +223,9 @@ struct FilterPanel: View {
             // Reload filter options when dataVersion changes
             if hasInitiallyLoaded {
                 Task {
-                    print("🔄 Data version changed to \(newVersion), reloading filter options")
-                    // Just reload years quickly during incremental updates
-                    // Full cache will be loaded at the end of batch import
-                    await loadYearsOnly()
+                    print("🔄 Data version changed to \(newVersion), reloading all filter options")
+                    // Reload all filter options to pick up new enumeration data
+                    await loadAvailableOptions()
                 }
             }
         }
