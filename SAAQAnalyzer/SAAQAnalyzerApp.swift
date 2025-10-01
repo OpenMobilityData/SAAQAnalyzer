@@ -1124,12 +1124,12 @@ struct SeriesQueryProgressView: View {
                         .cornerRadius(4)
                 }
 
-                // Index status information
+                // Query optimization status
                 if let indexed = isIndexed {
                     HStack(spacing: 4) {
                         Image(systemName: indexed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                             .foregroundColor(indexed ? .green : .orange)
-                        Text(indexed ? "Using optimized index" : "Limited indexing - may take longer")
+                        Text(indexed ? "Using integer enumeration optimization" : "Using legacy query path")
                             .font(.caption2)
                             .foregroundColor(indexed ? .green : .orange)
                     }
@@ -1202,7 +1202,7 @@ struct SeriesQueryProgressView: View {
 
     private var titleText: String {
         if let indexed = isIndexed, !indexed {
-            return "Non-Indexed Query in Progress"
+            return "Legacy Query in Progress"
         }
         return "Querying Database"
     }
@@ -1210,9 +1210,9 @@ struct SeriesQueryProgressView: View {
     private var subtitleText: String {
         if let indexed = isIndexed {
             if indexed {
-                return "Analyzing \(dataType) with optimized indexes..."
+                return "Processing \(dataType) using integer-based enumeration tables..."
             } else {
-                return "Query requires table scan due to limited indexing - this may take several minutes..."
+                return "Using legacy string-based queries - consider reimporting data for optimal performance..."
             }
         }
         return "Analyzing \(dataType) with your filter criteria..."
