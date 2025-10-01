@@ -88,8 +88,8 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
 
 **Storage Requirements:**
 - Raw CSV files: 15-25GB per complete vehicle dataset
-- SQLite database: 25-40GB with indexes for full datasets
-- Data packages: 39GB+ for complete export (77M+ vehicle + 66M+ driver records)
+- SQLite database: 12-20GB with integer-based optimization (50-70% reduction from previous 25-40GB)
+- Data packages: 20GB+ for complete export (77M+ vehicle + 66M+ driver records)
 - Cache files: 50-100MB (stored in UserDefaults)
 - Temporary files: 5-10GB during large imports
 
