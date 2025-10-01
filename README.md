@@ -43,6 +43,8 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
   - **Count**: Number of vehicles (default)
   - **Sum**: Total values (mass, displacement, cylinders, etc.)
   - **Average**: Mean values with smart decimal formatting
+  - **Minimum**: Minimum values for numeric fields
+  - **Maximum**: Maximum values for numeric fields
   - **Percentage**: Sophisticated percentage calculations with baseline comparisons
 - **Smart Formatting**: Automatic K/M abbreviations, unit handling, and mixed-metric support
 
@@ -437,6 +439,46 @@ The application automatically handles French character encoding issues:
 - Tries multiple encodings (UTF-8, ISO-Latin-1, Windows-1252)
 - Fixes common corruption patterns (Ã, Â characters)
 - Maintains data integrity across different source file encodings
+
+### Field Availability and NULL Values
+
+**Important**: Not all fields are available in all years of SAAQ data. The most notable example is **fuel type**, which was only added to vehicle records starting in 2017.
+
+**How NULL values are handled**:
+
+1. **Database Storage**:
+   - Pre-2017 vehicle records: `fuel_type_id = NULL`
+   - 2017+ vehicle records: `fuel_type_id` contains valid enumeration IDs
+
+2. **Query Behavior**:
+   - When filtering by fuel type, SQL automatically excludes NULL values
+   - Pre-2017 years simply don't appear in results when fuel type filter is applied
+   - This is standard SQL behavior: `WHERE field_id IN (...)` excludes NULL values
+
+3. **Chart Display**:
+   - Charts only plot years that appear in query results
+   - Missing years create visual gaps in the timeline
+   - **Cannot distinguish** between:
+     - Field not available (NULL in database)
+     - Field available but no matching records (true zero)
+
+**Example Scenarios**:
+
+- **Query**: Gasoline vehicles (2011-2022)
+  - **Result**: Chart shows only 2017-2022 (fuel type field didn't exist before 2017)
+  - **Appearance**: Visual gap from 2011-2016
+
+- **Query**: Electric vehicles in Montreal
+  - **Result**: Some years may show zero data points
+  - **Could mean**: Either no EVs in Montreal that year (true zero) OR field was NULL
+
+**Best Practices**:
+1. Be aware that fuel type data only exists from 2017 onwards
+2. Visual gaps in charts may indicate NULL fields rather than zero counts
+3. Use year filters (2017+) when analyzing fuel type to avoid confusion
+4. Consider the data schema when interpreting chart gaps
+
+**Future fields**: If SAAQ adds new fields in future years, they will behave the same way (NULL for older years, actual values for newer years).
 
 ## Troubleshooting
 
