@@ -1336,10 +1336,11 @@ struct MetricConfigurationSection: View {
                 .labelsHidden()
             }
 
-            // Field selector (shown for sum and average)
-            if metricType == .sum || metricType == .average {
+            // Field selector (shown for sum, average, minimum, and maximum)
+            if metricType == .sum || metricType == .average || metricType == .minimum || metricType == .maximum {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Field to \(metricType == .sum ? "Sum" : "Average")")
+                    let preposition = (metricType == .minimum || metricType == .maximum) ? "for" : "to"
+                    Text("Field \(preposition) \(metricType.rawValue)")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
@@ -1480,6 +1481,36 @@ struct MetricConfigurationSection: View {
                 return "Average model year"
             default:
                 return "Average \(metricField.rawValue)"
+            }
+        case .minimum:
+            switch metricField {
+            case .netMass:
+                return "Minimum vehicle weight"
+            case .displacement:
+                return "Minimum engine displacement"
+            case .cylinderCount:
+                return "Minimum cylinders per vehicle"
+            case .vehicleAge:
+                return "Minimum age of vehicles"
+            case .modelYear:
+                return "Minimum model year"
+            default:
+                return "Minimum \(metricField.rawValue)"
+            }
+        case .maximum:
+            switch metricField {
+            case .netMass:
+                return "Maximum vehicle weight"
+            case .displacement:
+                return "Maximum engine displacement"
+            case .cylinderCount:
+                return "Maximum cylinders per vehicle"
+            case .vehicleAge:
+                return "Maximum age of vehicles"
+            case .modelYear:
+                return "Maximum model year"
+            default:
+                return "Maximum \(metricField.rawValue)"
             }
         case .percentage:
             return "Percentage of baseline category"

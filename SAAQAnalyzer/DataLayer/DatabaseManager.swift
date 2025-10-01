@@ -341,7 +341,7 @@ class DatabaseManager: ObservableObject {
 
         return await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
-                guard let self = self, let db = self.db else {
+                guard let self = self, let _ = self.db else {
                     continuation.resume(returning: false)
                     return
                 }
@@ -1020,6 +1020,24 @@ class DatabaseManager: ObservableObject {
                         query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
                     }
 
+                case .minimum:
+                    if filters.metricField == .vehicleAge {
+                        query = "SELECT year, MIN(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
+                    } else if let column = filters.metricField.databaseColumn {
+                        query = "SELECT year, MIN(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
+                    } else {
+                        query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                    }
+
+                case .maximum:
+                    if filters.metricField == .vehicleAge {
+                        query = "SELECT year, MAX(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
+                    } else if let column = filters.metricField.databaseColumn {
+                        query = "SELECT year, MAX(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
+                    } else {
+                        query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                    }
+
                 case .percentage:
                     // For percentage, we need to do dual queries - this is handled separately
                     query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
@@ -1302,6 +1320,10 @@ class DatabaseManager: ObservableObject {
                         // Fallback to count
                         query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
                     }
+
+                case .minimum, .maximum:
+                    // Min/Max not meaningful for license data - fallback to count
+                    query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
 
                 case .percentage:
                     // For percentage, we need to do dual queries - this is handled separately
@@ -1647,6 +1669,24 @@ class DatabaseManager: ObservableObject {
                     } else {
                         query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
                     }
+
+                case .minimum:
+                    if filters.metricField == .vehicleAge {
+                        query = "SELECT year, MIN(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
+                    } else if let column = filters.metricField.databaseColumn {
+                        query = "SELECT year, MIN(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
+                    } else {
+                        query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                    }
+
+                case .maximum:
+                    if filters.metricField == .vehicleAge {
+                        query = "SELECT year, MAX(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
+                    } else if let column = filters.metricField.databaseColumn {
+                        query = "SELECT year, MAX(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
+                    } else {
+                        query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                    }
                 }
 
                 // Build WHERE clause from filters
@@ -1986,12 +2026,90 @@ class DatabaseManager: ObservableObject {
 
         // Add metric information if not count
         if filters.metricType != .count {
-            var metricLabel = filters.metricType.shortLabel
-            if filters.metricType == .sum || filters.metricType == .average {
-                metricLabel += " \(filters.metricField.rawValue)"
+            if filters.metricType == .sum || filters.metricType == .average || filters.metricType == .minimum || filters.metricType == .maximum {
+                // For aggregate functions, build filter description and use "metric field in [filters]" format
+                var filterComponents: [String] = []
+
+                // Collect all active filters
+                if !filters.vehicleClassifications.isEmpty {
+                    let classifications = filters.vehicleClassifications
+                        .compactMap { VehicleClassification(rawValue: $0)?.description }
+                        .joined(separator: " OR ")
+                    if !classifications.isEmpty {
+                        filterComponents.append("[\(classifications)]")
+                    }
+                }
+
+                // Add other filters inline below
+                if !filters.vehicleMakes.isEmpty {
+                    let makes = Array(filters.vehicleMakes).sorted().prefix(3).joined(separator: " OR ")
+                    let suffix = filters.vehicleMakes.count > 3 ? " (+\(filters.vehicleMakes.count - 3))" : ""
+                    filterComponents.append("[Make: \(makes)\(suffix)]")
+                }
+
+                if !filters.vehicleModels.isEmpty {
+                    let models = Array(filters.vehicleModels).sorted().prefix(3).joined(separator: " OR ")
+                    let suffix = filters.vehicleModels.count > 3 ? " (+\(filters.vehicleModels.count - 3))" : ""
+                    filterComponents.append("[Model: \(models)\(suffix)]")
+                }
+
+                if !filters.vehicleColors.isEmpty {
+                    let colors = Array(filters.vehicleColors).sorted().prefix(3).joined(separator: " OR ")
+                    let suffix = filters.vehicleColors.count > 3 ? " (+\(filters.vehicleColors.count - 3))" : ""
+                    filterComponents.append("[Color: \(colors)\(suffix)]")
+                }
+
+                if !filters.modelYears.isEmpty {
+                    let years = Array(filters.modelYears).sorted(by: >).prefix(3).map { String($0) }.joined(separator: " OR ")
+                    let suffix = filters.modelYears.count > 3 ? " (+\(filters.modelYears.count - 3))" : ""
+                    filterComponents.append("[Model Year: \(years)\(suffix)]")
+                }
+
+                if !filters.fuelTypes.isEmpty {
+                    let fuels = filters.fuelTypes
+                        .compactMap { FuelType(rawValue: $0)?.description }
+                        .joined(separator: " OR ")
+                    if !fuels.isEmpty {
+                        filterComponents.append("[\(fuels)]")
+                    }
+                }
+
+                if !filters.regions.isEmpty {
+                    filterComponents.append("[Region: \(filters.regions.joined(separator: " OR "))]")
+                } else if !filters.mrcs.isEmpty {
+                    filterComponents.append("[MRC: \(filters.mrcs.joined(separator: " OR "))]")
+                } else if !filters.municipalities.isEmpty {
+                    let codeToName = await getMunicipalityCodeToNameMapping()
+                    let municipalityNames = filters.municipalities.compactMap { code in
+                        codeToName[code] ?? code
+                    }
+                    filterComponents.append("[Municipality: \(municipalityNames.joined(separator: " OR "))]")
+                }
+
+                if !filters.ageRanges.isEmpty {
+                    let ageDescriptions = filters.ageRanges.map { ageRange in
+                        if let maxAge = ageRange.maxAge {
+                            return "\(ageRange.minAge)-\(maxAge) years"
+                        } else {
+                            return "\(ageRange.minAge)+ years"
+                        }
+                    }
+                    filterComponents.append("[Age: \(ageDescriptions.joined(separator: " OR "))]")
+                }
+
+                // Build metric label with field
+                var metricLabel = filters.metricType.shortLabel + " \(filters.metricField.rawValue)"
                 if let unit = filters.metricField.unit {
                     metricLabel += " (\(unit))"
                 }
+
+                // Return in "metric field in [filters]" format
+                if !filterComponents.isEmpty {
+                    return "\(metricLabel) in [\(filterComponents.joined(separator: " AND "))]"
+                } else {
+                    return "\(metricLabel) (All Vehicles)"
+                }
+
             } else if filters.metricType == .percentage {
                 // For percentage, put the specific category first, then "in" baseline
                 if let baseFilters = filters.percentageBaseFilters {
@@ -2009,7 +2127,6 @@ class DatabaseManager: ObservableObject {
                     return "% of All Vehicles"
                 }
             }
-            components.append(metricLabel)
         }
 
         if !filters.vehicleClassifications.isEmpty {

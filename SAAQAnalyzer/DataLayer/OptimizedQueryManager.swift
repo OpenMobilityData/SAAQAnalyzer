@@ -399,6 +399,34 @@ class OptimizedQueryManager {
                         selectClause = "COUNT(*) as value"
                     }
 
+                case .minimum:
+                    if filters.metricField == .vehicleAge {
+                        selectClause = "MIN(y.year - my.year) as value"
+                        additionalJoins = " LEFT JOIN model_year_enum my ON v.model_year_id = my.id"
+                        additionalWhereConditions = " AND v.model_year_id IS NOT NULL"
+                    } else if let column = filters.metricField.databaseColumn {
+                        let intColumn = column == "net_mass" ? "net_mass_int" :
+                                       column == "displacement" ? "displacement_int" : column
+                        selectClause = "MIN(v.\(intColumn)) as value"
+                        additionalWhereConditions = " AND v.\(intColumn) IS NOT NULL"
+                    } else {
+                        selectClause = "COUNT(*) as value"
+                    }
+
+                case .maximum:
+                    if filters.metricField == .vehicleAge {
+                        selectClause = "MAX(y.year - my.year) as value"
+                        additionalJoins = " LEFT JOIN model_year_enum my ON v.model_year_id = my.id"
+                        additionalWhereConditions = " AND v.model_year_id IS NOT NULL"
+                    } else if let column = filters.metricField.databaseColumn {
+                        let intColumn = column == "net_mass" ? "net_mass_int" :
+                                       column == "displacement" ? "displacement_int" : column
+                        selectClause = "MAX(v.\(intColumn)) as value"
+                        additionalWhereConditions = " AND v.\(intColumn) IS NOT NULL"
+                    } else {
+                        selectClause = "COUNT(*) as value"
+                    }
+
                 case .percentage:
                     // For percentage, we calculate count for numerator
                     selectClause = "COUNT(*) as value"

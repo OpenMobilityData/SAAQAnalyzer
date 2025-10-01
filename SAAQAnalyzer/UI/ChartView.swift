@@ -334,8 +334,8 @@ struct ChartView: View {
                 }
             }
 
-        case .average:
-            // Show one decimal place for averages with conditional units
+        case .average, .minimum, .maximum:
+            // Show one decimal place for averages/min/max with conditional units
             if showUnits, let unit = firstSeries.metricField.unit {
                 return String(format: "%.1f%@", value, unit)
             } else {

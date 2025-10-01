@@ -1180,6 +1180,8 @@ enum ChartMetricType: String, CaseIterable {
     case count = "Count"
     case sum = "Sum"
     case average = "Average"
+    case minimum = "Minimum"
+    case maximum = "Maximum"
     case percentage = "Percentage"
 
     var description: String {
@@ -1187,6 +1189,8 @@ enum ChartMetricType: String, CaseIterable {
         case .count: return "Record Count"
         case .sum: return "Sum of Values"
         case .average: return "Average Value"
+        case .minimum: return "Minimum Value"
+        case .maximum: return "Maximum Value"
         case .percentage: return "Percentage in Superset"
         }
     }
@@ -1196,6 +1200,8 @@ enum ChartMetricType: String, CaseIterable {
         case .count: return "Count"
         case .sum: return "Sum"
         case .average: return "Avg"
+        case .minimum: return "Min"
+        case .maximum: return "Max"
         case .percentage: return "%"
         }
     }
@@ -1323,6 +1329,18 @@ class FilteredDataSeries: ObservableObject, Identifiable {
             } else {
                 return "Average \(metricField.rawValue)"
             }
+        case .minimum:
+            if let unit = metricField.unit {
+                return "Minimum \(metricField.rawValue) (\(unit))"
+            } else {
+                return "Minimum \(metricField.rawValue)"
+            }
+        case .maximum:
+            if let unit = metricField.unit {
+                return "Maximum \(metricField.rawValue) (\(unit))"
+            } else {
+                return "Maximum \(metricField.rawValue)"
+            }
         case .percentage:
             return "Percentage (%)"
         }
@@ -1350,7 +1368,7 @@ class FilteredDataSeries: ObservableObject, Identifiable {
             } else {
                 return String(format: "%.0f", value)
             }
-        case .average:
+        case .average, .minimum, .maximum:
             if metricField == .vehicleAge || metricField == .displacement {
                 return String(format: "%.1f", value)
             } else {
