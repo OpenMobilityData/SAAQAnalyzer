@@ -967,7 +967,7 @@ class DatabaseManager: ObservableObject {
         // Use optimized query manager if available and enabled
         if useOptimizedQueries, let optimizedManager = optimizedQueryManager {
             print("🚀 Using optimized integer-based queries for vehicles")
-            var optimizedSeries = try await optimizedManager.queryOptimizedVehicleData(filters: filters)
+            let optimizedSeries = try await optimizedManager.queryOptimizedVehicleData(filters: filters)
 
             // Update the series name to match the expected format
             let seriesName = await generateSeriesNameAsync(from: filters)
@@ -1041,6 +1041,20 @@ class DatabaseManager: ObservableObject {
                 case .percentage:
                     // For percentage, we need to do dual queries - this is handled separately
                     query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+
+                case .coverage:
+                    // For coverage, show either percentage or raw NULL count
+                    if let coverageField = filters.coverageField {
+                        let column = coverageField.databaseColumn
+                        if filters.coverageAsPercentage {
+                            query = "SELECT year, (CAST(COUNT(\(column)) AS REAL) / CAST(COUNT(*) AS REAL) * 100.0) as value FROM vehicles WHERE 1=1"
+                        } else {
+                            query = "SELECT year, (COUNT(*) - COUNT(\(column))) as value FROM vehicles WHERE 1=1"
+                        }
+                    } else {
+                        // Fallback to count if no field selected
+                        query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                    }
                 }
 
                 var bindIndex = 1
@@ -1259,7 +1273,7 @@ class DatabaseManager: ObservableObject {
         // Use optimized query manager if available and enabled
         if useOptimizedQueries, let optimizedManager = optimizedQueryManager {
             print("🚀 Using optimized integer-based queries for licenses")
-            var optimizedSeries = try await optimizedManager.queryOptimizedLicenseData(filters: filters)
+            let optimizedSeries = try await optimizedManager.queryOptimizedLicenseData(filters: filters)
 
             // Update the series name to match the expected format
             let seriesName = await generateSeriesNameAsync(from: filters)
@@ -1327,6 +1341,11 @@ class DatabaseManager: ObservableObject {
 
                 case .percentage:
                     // For percentage, we need to do dual queries - this is handled separately
+                    query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
+
+                case .coverage:
+                    // Coverage not yet implemented for licenses (awaiting integer enumeration)
+                    // Fallback to count
                     query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
                 }
 
@@ -1685,6 +1704,20 @@ class DatabaseManager: ObservableObject {
                     } else if let column = filters.metricField.databaseColumn {
                         query = "SELECT year, MAX(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
                     } else {
+                        query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                    }
+
+                case .coverage:
+                    // For coverage, show either percentage or raw NULL count
+                    if let coverageField = filters.coverageField {
+                        let column = coverageField.databaseColumn
+                        if filters.coverageAsPercentage {
+                            query = "SELECT year, (CAST(COUNT(\(column)) AS REAL) / CAST(COUNT(*) AS REAL) * 100.0) as value FROM vehicles WHERE 1=1"
+                        } else {
+                            query = "SELECT year, (COUNT(*) - COUNT(\(column))) as value FROM vehicles WHERE 1=1"
+                        }
+                    } else {
+                        // Fallback to count if no field selected
                         query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
                     }
                 }
@@ -2126,6 +2159,44 @@ class DatabaseManager: ObservableObject {
                 } else {
                     return "% of All Vehicles"
                 }
+            } else if filters.metricType == .coverage {
+                // For coverage, describe the field being analyzed and the mode (percentage or count)
+                if let coverageField = filters.coverageField {
+                    let modePrefix = filters.coverageAsPercentage ? "% Non-NULL" : "NULL Count"
+
+                    // Build filter context
+                    var filterComponents: [String] = []
+
+                    if !filters.vehicleClassifications.isEmpty {
+                        let classifications = filters.vehicleClassifications
+                            .compactMap { VehicleClassification(rawValue: $0)?.description }
+                            .joined(separator: " OR ")
+                        if !classifications.isEmpty {
+                            filterComponents.append("[\(classifications)]")
+                        }
+                    }
+
+                    if !filters.regions.isEmpty {
+                        filterComponents.append("[Region: \(filters.regions.joined(separator: " OR "))]")
+                    } else if !filters.mrcs.isEmpty {
+                        filterComponents.append("[MRC: \(filters.mrcs.joined(separator: " OR "))]")
+                    } else if !filters.municipalities.isEmpty {
+                        let codeToName = await getMunicipalityCodeToNameMapping()
+                        let municipalityNames = filters.municipalities.compactMap { code in
+                            codeToName[code] ?? code
+                        }
+                        filterComponents.append("[Municipality: \(municipalityNames.joined(separator: " OR "))]")
+                    }
+
+                    // Return coverage description
+                    if !filterComponents.isEmpty {
+                        return "\(modePrefix) [\(coverageField.rawValue)] in [\(filterComponents.joined(separator: " AND "))]"
+                    } else {
+                        return "\(modePrefix) [\(coverageField.rawValue)] in [All \(filters.dataEntityType == .vehicle ? "Vehicles" : "License Holders")]"
+                    }
+                } else {
+                    return "Coverage (No Field Selected)"
+                }
             }
         }
 
@@ -2539,6 +2610,14 @@ class DatabaseManager: ObservableObject {
                 metricLabel += " \(filters.metricField.rawValue)"
                 if let unit = filters.metricField.unit {
                     metricLabel += " (\(unit))"
+                }
+            } else if filters.metricType == .coverage {
+                // For coverage, show the mode and field being analyzed
+                if let coverageField = filters.coverageField {
+                    let modePrefix = filters.coverageAsPercentage ? "% Non-NULL" : "NULL Count"
+                    metricLabel = "\(modePrefix) [\(coverageField.rawValue)]"
+                } else {
+                    metricLabel = "Coverage (No Field)"
                 }
             }
             components.append(metricLabel)

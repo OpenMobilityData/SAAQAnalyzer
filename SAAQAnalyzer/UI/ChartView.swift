@@ -345,6 +345,20 @@ struct ChartView: View {
         case .percentage:
             // Format as percentage
             return String(format: "%.0f%%", value)
+        case .coverage:
+            // Check if showing percentage or raw count
+            if firstSeries.filters.coverageAsPercentage {
+                return String(format: "%.0f%%", value)
+            } else {
+                // Format as integer count
+                if value >= 1_000_000 {
+                    return String(format: "%.1fM", value / 1_000_000)
+                } else if value >= 1_000 {
+                    return String(format: "%.0fK", value / 1_000)
+                } else {
+                    return String(format: "%.0f", value)
+                }
+            }
         }
     }
     

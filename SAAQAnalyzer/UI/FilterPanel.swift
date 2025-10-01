@@ -183,6 +183,8 @@ struct FilterPanel: View {
                             metricType: $configuration.metricType,
                             metricField: $configuration.metricField,
                             percentageBaseFilters: $configuration.percentageBaseFilters,
+                            coverageField: $configuration.coverageField,
+                            coverageAsPercentage: $configuration.coverageAsPercentage,
                             currentFilters: configuration
                         )
                     } label: {
@@ -1277,6 +1279,8 @@ struct MetricConfigurationSection: View {
     @Binding var metricType: ChartMetricType
     @Binding var metricField: ChartMetricField
     @Binding var percentageBaseFilters: PercentageBaseFilters?
+    @Binding var coverageField: CoverageField?
+    @Binding var coverageAsPercentage: Bool
     let currentFilters: FilterConfiguration
 
     @State private var selectedCategoryToRemove: FilterCategory?
@@ -1311,12 +1315,17 @@ struct MetricConfigurationSection: View {
     private var availableMetricTypes: [ChartMetricType] {
         switch currentFilters.dataEntityType {
         case .license:
-            // License data only has meaningful count and percentage metrics
-            return [.count, .percentage]
+            // License data only has meaningful count, percentage, and coverage metrics
+            return [.count, .percentage, .coverage]
         case .vehicle:
-            // Vehicle data supports all metric types (count, sum, average, percentage)
+            // Vehicle data supports all metric types (count, sum, average, percentage, coverage)
             return ChartMetricType.allCases
         }
+    }
+
+    /// Available fields for coverage analysis based on data entity type
+    private var availableCoverageFields: [CoverageField] {
+        return CoverageField.allCases.filter { $0.isApplicable(to: currentFilters.dataEntityType) }
     }
 
     var body: some View {
@@ -1389,6 +1398,43 @@ struct MetricConfigurationSection: View {
 
                     if selectedCategoryToRemove != nil {
                         Text("Percentage of \(currentFilters.dataEntityType == .license ? "license holders" : "vehicles") within other selected filters")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(4)
+                    }
+                }
+            }
+
+            // Coverage configuration
+            if metricType == .coverage {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Field to Analyze")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Picker("", selection: $coverageField) {
+                        Text("Select field...").tag(CoverageField?.none)
+                        ForEach(availableCoverageFields, id: \.self) { field in
+                            Text(field.rawValue).tag(CoverageField?.some(field))
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+
+                    if coverageField != nil {
+                        // Toggle between percentage and raw count
+                        Toggle(isOn: $coverageAsPercentage) {
+                            Text("Show as percentage")
+                                .font(.caption)
+                        }
+                        .toggleStyle(.switch)
+
+                        Text(coverageAsPercentage
+                            ? "Percentage of records with non-NULL \(coverageField?.rawValue ?? "") values"
+                            : "Count of NULL \(coverageField?.rawValue ?? "") values")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 8)
@@ -1514,6 +1560,14 @@ struct MetricConfigurationSection: View {
             }
         case .percentage:
             return "Percentage of baseline category"
+        case .coverage:
+            if let field = coverageField {
+                return coverageAsPercentage
+                    ? "Percentage of records with non-NULL \(field.rawValue)"
+                    : "Count of NULL \(field.rawValue) values"
+            } else {
+                return "Select a field to analyze coverage"
+            }
         }
     }
 }

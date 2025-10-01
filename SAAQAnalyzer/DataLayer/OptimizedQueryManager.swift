@@ -430,6 +430,22 @@ class OptimizedQueryManager {
                 case .percentage:
                     // For percentage, we calculate count for numerator
                     selectClause = "COUNT(*) as value"
+
+                case .coverage:
+                    // For coverage, we can show either percentage or raw NULL count
+                    if let coverageField = filters.coverageField {
+                        let column = coverageField.databaseColumn
+                        if filters.coverageAsPercentage {
+                            // Percentage: (COUNT(field) / COUNT(*)) * 100
+                            selectClause = "(CAST(COUNT(\(column)) AS REAL) / CAST(COUNT(*) AS REAL) * 100.0) as value"
+                        } else {
+                            // Raw NULL count: COUNT(*) - COUNT(field)
+                            selectClause = "(COUNT(*) - COUNT(\(column))) as value"
+                        }
+                    } else {
+                        // No field selected, fallback to count
+                        selectClause = "COUNT(*) as value"
+                    }
                 }
 
                 // Age range filter (requires model_year join for age calculation)

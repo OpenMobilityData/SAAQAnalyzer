@@ -1010,6 +1010,64 @@ enum AdministrativeRegion: String, CaseIterable {
 
 // MARK: - Filter Configuration
 
+// MARK: - Coverage Field Selection
+/// Fields that can be analyzed for NULL coverage
+enum CoverageField: String, CaseIterable {
+    // Vehicle-specific fields
+    case fuelType = "Fuel Type"
+    case vehicleClassification = "Vehicle Type"
+    case vehicleMake = "Vehicle Make"
+    case vehicleModel = "Vehicle Model"
+    case vehicleColor = "Vehicle Color"
+    case modelYear = "Model Year"
+    case netMass = "Vehicle Mass"
+    case displacement = "Engine Displacement"
+    case cylinderCount = "Cylinders"
+
+    // Geographic fields (applicable to both)
+    case adminRegion = "Admin Region"
+    case mrc = "MRC"
+    case municipality = "Municipality"
+
+    // License-specific fields
+    case licenseType = "License Type"
+    case ageGroup = "Age Group"
+    case gender = "Gender"
+
+    var databaseColumn: String {
+        switch self {
+        case .fuelType: return "fuel_type_id"
+        case .vehicleClassification: return "classification_id"
+        case .vehicleMake: return "make_id"
+        case .vehicleModel: return "model_id"
+        case .vehicleColor: return "original_color_id"
+        case .modelYear: return "model_year_id"
+        case .netMass: return "net_mass_int"
+        case .displacement: return "displacement_int"
+        case .cylinderCount: return "cylinder_count_id"
+        case .adminRegion: return "admin_region_id"
+        case .mrc: return "mrc_id"
+        case .municipality: return "municipality_id"
+        case .licenseType: return "license_type_id"
+        case .ageGroup: return "age_group_id"
+        case .gender: return "gender_id"
+        }
+    }
+
+    /// Returns true if this field is applicable to the given data entity type
+    func isApplicable(to entityType: DataEntityType) -> Bool {
+        switch self {
+        case .fuelType, .vehicleClassification, .vehicleMake, .vehicleModel, .vehicleColor,
+             .modelYear, .netMass, .displacement, .cylinderCount:
+            return entityType == .vehicle
+        case .licenseType, .ageGroup, .gender:
+            return entityType == .license
+        case .adminRegion, .mrc, .municipality:
+            return true // Applicable to both
+        }
+    }
+}
+
 /// Configuration for filtering data
 // MARK: - Filter Item with ID and Display Name
 struct FilterItem: Equatable, Identifiable {
@@ -1048,6 +1106,8 @@ struct FilterConfiguration: Equatable {
     var metricType: ChartMetricType = .count
     var metricField: ChartMetricField = .none
     var percentageBaseFilters: PercentageBaseFilters? = nil
+    var coverageField: CoverageField? = nil
+    var coverageAsPercentage: Bool = true  // true = percentage, false = raw NULL count
 
     struct AgeRange: Equatable {
         let minAge: Int
@@ -1183,6 +1243,7 @@ enum ChartMetricType: String, CaseIterable {
     case minimum = "Minimum"
     case maximum = "Maximum"
     case percentage = "Percentage"
+    case coverage = "Coverage"
 
     var description: String {
         switch self {
@@ -1192,6 +1253,7 @@ enum ChartMetricType: String, CaseIterable {
         case .minimum: return "Minimum Value"
         case .maximum: return "Maximum Value"
         case .percentage: return "Percentage in Superset"
+        case .coverage: return "Coverage in Superset"
         }
     }
 
@@ -1203,6 +1265,7 @@ enum ChartMetricType: String, CaseIterable {
         case .minimum: return "Min"
         case .maximum: return "Max"
         case .percentage: return "%"
+        case .coverage: return "% Cov"
         }
     }
 }
@@ -1343,6 +1406,12 @@ class FilteredDataSeries: ObservableObject, Identifiable {
             }
         case .percentage:
             return "Percentage (%)"
+        case .coverage:
+            if filters.coverageAsPercentage {
+                return "Coverage (%)"
+            } else {
+                return "NULL Count"
+            }
         }
     }
 
@@ -1376,6 +1445,12 @@ class FilteredDataSeries: ObservableObject, Identifiable {
             }
         case .percentage:
             return String(format: "%.1f%%", value)
+        case .coverage:
+            if filters.coverageAsPercentage {
+                return String(format: "%.1f%%", value)
+            } else {
+                return "\(Int(value)) NULL values"
+            }
         }
     }
 }

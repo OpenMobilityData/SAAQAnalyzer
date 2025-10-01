@@ -46,6 +46,7 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
   - **Minimum**: Minimum values for numeric fields
   - **Maximum**: Maximum values for numeric fields
   - **Percentage**: Sophisticated percentage calculations with baseline comparisons
+  - **Coverage**: Data quality analysis showing NULL value statistics (see Data Coverage Analysis below)
 - **Smart Formatting**: Automatic K/M abbreviations, unit handling, and mixed-metric support
 
 ### Percentage Analysis
@@ -53,6 +54,21 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
 - **Category Dropping**: Select which filter category to use as numerator vs. baseline
 - **Percentage in Superset**: Clear terminology for percentage calculations showing proportion within larger dataset
 - **Intelligent Naming**: Automatic generation of clear percentage labels like "% [Red Cars] in [All Toyota Vehicles]"
+
+### Data Coverage Analysis
+- **Coverage in Superset Metric**: Analyze data completeness and NULL value patterns across years
+- **Field Selection**: Choose any categorical field to analyze (Fuel Type, Vehicle Make, Model Year, etc.)
+- **Dual Display Modes**:
+  - **Percentage Mode**: Shows % of records with non-NULL values (data coverage rate)
+  - **Raw Count Mode**: Shows absolute count of NULL values per year
+- **Toggle Control**: Easy switch between percentage and count views
+- **Quality Monitoring**: Track data completeness trends over time
+- **Field Availability Insights**: Identify when new fields were introduced (e.g., Fuel Type from 2017)
+- **Use Cases**:
+  - Verify field availability before analysis
+  - Track data quality improvements over time
+  - Identify incomplete records requiring cleanup
+  - Understand temporal data collection changes
 
 ### Data Visualization
 - **Interactive Charts**: Hover tooltips, zoom, and pan capabilities
@@ -229,6 +245,19 @@ If cache loading is slow on startup, use either method to bypass:
 - Choose which filter category to use as the numerator
 - The app automatically calculates percentages against the appropriate baseline
 - Example: "% [Red] in [All Toyota Vehicles]" shows red cars as percentage of all Toyota vehicles
+
+#### Data Coverage Analysis
+- Select "Coverage in Superset" as your metric type
+- Choose a field to analyze from the dropdown menu (e.g., Fuel Type, Vehicle Make, Model Year)
+- Toggle between two display modes:
+  - **Percentage Mode (default)**: Shows what % of records have non-NULL values for that field
+  - **Raw Count Mode**: Shows the absolute number of NULL values per year
+- Use this to:
+  - Verify field availability across different years
+  - Track data quality trends over time
+  - Identify when new fields were introduced to the dataset
+  - Understand gaps in your data before running analyses
+- Example: Analyzing Fuel Type coverage will show 0% for pre-2017 years and ~100% for 2017+ years, confirming that field was added in 2017
 
 #### Multi-Series Analysis
 - Create multiple data series with different filter combinations
@@ -462,23 +491,37 @@ The application automatically handles French character encoding issues:
      - Field not available (NULL in database)
      - Field available but no matching records (true zero)
 
+**Analyzing Field Availability with Coverage Metric**:
+
+Use the **Coverage in Superset** metric to analyze field availability patterns:
+
+1. **Select Coverage Metric**: Choose "Coverage in Superset" from Y-Axis Metric options
+2. **Choose Field**: Select the field you want to analyze (e.g., Fuel Type)
+3. **View Results**:
+   - **Percentage Mode**: Shows data coverage rate (0% = all NULL, 100% = no NULLs)
+   - **Raw Count Mode**: Shows absolute number of NULL values per year
+4. **Interpret Gaps**: A sudden jump from 0% to 100% coverage indicates when a field was introduced
+
 **Example Scenarios**:
 
 - **Query**: Gasoline vehicles (2011-2022)
   - **Result**: Chart shows only 2017-2022 (fuel type field didn't exist before 2017)
   - **Appearance**: Visual gap from 2011-2016
+  - **Verification**: Use Coverage metric on Fuel Type to confirm 0% coverage pre-2017
 
 - **Query**: Electric vehicles in Montreal
   - **Result**: Some years may show zero data points
   - **Could mean**: Either no EVs in Montreal that year (true zero) OR field was NULL
+  - **Verification**: Check Coverage metric to distinguish between NULL field vs. no matching records
 
 **Best Practices**:
-1. Be aware that fuel type data only exists from 2017 onwards
-2. Visual gaps in charts may indicate NULL fields rather than zero counts
-3. Use year filters (2017+) when analyzing fuel type to avoid confusion
-4. Consider the data schema when interpreting chart gaps
+1. **Use Coverage Metric First**: Before analyzing a field, check its coverage across years
+2. **Identify Field Introduction**: Look for coverage jumps indicating when fields were added
+3. **Filter Appropriately**: Use year filters to focus on periods with complete data
+4. **Track Data Quality**: Monitor coverage trends to identify incomplete data periods
+5. **Understand Gaps**: Visual chart gaps may indicate NULL fields rather than zero counts
 
-**Future fields**: If SAAQ adds new fields in future years, they will behave the same way (NULL for older years, actual values for newer years).
+**Future fields**: If SAAQ adds new fields in future years, they will behave the same way (NULL for older years, actual values for newer years). The Coverage metric will help identify these changes.
 
 ## Troubleshooting
 
