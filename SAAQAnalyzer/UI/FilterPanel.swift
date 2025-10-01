@@ -295,6 +295,12 @@ struct FilterPanel: View {
             await MainActor.run {
                 (availableYears, availableRegions, availableMRCs, availableMunicipalities, municipalityCodeToName) = loadedData
                 print("📊 Loaded filter options: \(availableYears.count) years, \(availableRegions.count) regions, \(availableMRCs.count) MRCs")
+
+                // Auto-select all years on initial load if none are selected
+                if configuration.years.isEmpty && !availableYears.isEmpty {
+                    configuration.years = Set(availableYears)
+                    print("📊 Auto-selected all \(availableYears.count) years on initial load")
+                }
             }
 
             // Load data type specific options
@@ -321,6 +327,12 @@ struct FilterPanel: View {
                 availableRegions = regions
                 availableMRCs = mrcs
                 availableMunicipalities = municipalities
+
+                // Auto-select all years when switching data types if none are selected
+                if configuration.years.isEmpty && !years.isEmpty {
+                    configuration.years = Set(years)
+                    print("📊 Auto-selected all \(years.count) years after data type switch")
+                }
             }
         }
 
@@ -1446,7 +1458,8 @@ struct MetricConfigurationSection: View {
             }
 
             // Description of what will be displayed
-            if metricType != .count {
+            // Skip for coverage when field is selected since we already show description above
+            if metricType != .count && !(metricType == .coverage && coverageField != nil) {
                 HStack(spacing: 4) {
                     Image(systemName: "chart.line.uptrend.xyaxis")
                         .font(.caption)
