@@ -579,7 +579,7 @@ struct ContentView: View {
             }
 
             do {
-                let newSeries = try await databaseManager.queryVehicleData(filters: selectedFilters)
+                let newSeries = try await databaseManager.queryData(filters: selectedFilters)
 
                 await MainActor.run {
                     // Assign unique color based on series index

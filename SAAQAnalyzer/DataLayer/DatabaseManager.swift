@@ -59,15 +59,11 @@ class DatabaseManager: ObservableObject {
         setDatabaseLocation(dbPath)
     }
 
-    /// Gets a persistent data version based on database file modification time
+    /// Gets a persistent data version based on the integer dataVersion counter
     private func getPersistentDataVersion() -> String {
-        guard let dbURL = databaseURL,
-              let attributes = try? FileManager.default.attributesOfItem(atPath: dbURL.path),
-              let modificationDate = attributes[.modificationDate] as? Date else {
-            return "0"
-        }
-        // Use timestamp as version identifier
-        return String(Int(modificationDate.timeIntervalSince1970))
+        // Use the integer dataVersion counter instead of file modification time
+        // This ensures version only changes when data actually changes, not on every app launch
+        return String(dataVersion)
     }
     
     /// Changes database location
@@ -337,6 +333,12 @@ class DatabaseManager: ObservableObject {
 
     /// Analyzes if a query will use an index without executing it
     func analyzeQueryIndexUsage(filters: FilterConfiguration) async -> Bool {
+        // When using optimized queries, indexes are always used (by design)
+        if useOptimizedQueries {
+            print("🔍 Index analysis - Using optimized integer-based queries (indexes guaranteed)")
+            return true
+        }
+
         return await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
                 guard let self = self, let db = self.db else {
@@ -942,12 +944,16 @@ class DatabaseManager: ObservableObject {
 
     /// Generic query method that routes to appropriate data type handler
     func queryData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
+        print("🔍 queryData() called with metricType: \(filters.metricType)")
+
         // Use optimized parallel query for percentage calculations
         if filters.metricType == .percentage {
+            print("✅ Routing to calculatePercentagePointsParallel()")
             return try await calculatePercentagePointsParallel(filters: filters)
         }
 
         // Regular query for other metric types
+        print("➡️ Routing to regular query for metricType: \(filters.metricType)")
         switch filters.dataEntityType {
         case .vehicle:
             return try await queryVehicleData(filters: filters)
@@ -1532,10 +1538,16 @@ class DatabaseManager: ObservableObject {
     private func calculatePercentagePointsParallel(
         filters: FilterConfiguration
     ) async throws -> FilteredDataSeries {
+        print("🔢 calculatePercentagePointsParallel() called")
+
         guard filters.metricType == .percentage,
               let baselineFilters = filters.percentageBaseFilters else {
             throw DatabaseError.queryFailed("Invalid percentage configuration")
         }
+
+        print("🔢 Starting parallel percentage queries...")
+        print("🔢 Numerator filters: \(filters)")
+        print("🔢 Baseline filters: \(baselineFilters)")
 
         let startTime = Date()
 
@@ -1548,6 +1560,7 @@ class DatabaseManager: ObservableObject {
 
         let queryTime = Date().timeIntervalSince(startTime)
         print("⚡ Parallel percentage queries completed in \(String(format: "%.3f", queryTime))s")
+        print("📊 Numerator points: \(numeratorPoints.count), Baseline points: \(baselinePoints.count)")
 
         // Create baseline lookup dictionary
         let baselineLookup = Dictionary(
@@ -1562,11 +1575,13 @@ class DatabaseManager: ObservableObject {
 
             if let baseline = baselineLookup[year], baseline > 0 {
                 let percentage = (numerator / baseline) * 100.0
+                print("📊 Year \(year): numerator=\(String(format: "%.0f", numerator)), baseline=\(String(format: "%.0f", baseline)), percentage=\(String(format: "%.2f", percentage))%")
                 percentagePoints.append(
                     TimeSeriesPoint(year: year, value: percentage, label: numeratorPoint.label)
                 )
             } else {
                 // No baseline data for this year, or baseline is zero
+                print("⚠️ Year \(year): No baseline data or baseline is zero")
                 percentagePoints.append(
                     TimeSeriesPoint(year: year, value: 0.0, label: numeratorPoint.label)
                 )
@@ -1591,6 +1606,13 @@ class DatabaseManager: ObservableObject {
 
     /// Raw vehicle data query that returns just points without series wrapper
     private func queryVehicleDataRaw(filters: FilterConfiguration) async throws -> [TimeSeriesPoint] {
+        // Use optimized query manager if available (for integer-based queries)
+        if useOptimizedQueries, let optimizedManager = optimizedQueryManager {
+            let series = try await optimizedManager.queryOptimizedVehicleData(filters: filters)
+            return series.points
+        }
+
+        // Fallback to legacy string-based queries
         let startTime = Date()
 
         return try await withCheckedThrowingContinuation { continuation in
