@@ -138,8 +138,8 @@ class DatabaseManager: ObservableObject {
                 }
                 sqlite3_finalize(stmt)
                 
-                // Check available regions
-                let regionQuery = "SELECT DISTINCT admin_region FROM vehicles ORDER BY admin_region"
+                // Check available regions from enumeration table
+                let regionQuery = "SELECT name FROM admin_region_enum ORDER BY code"
                 if sqlite3_prepare_v2(db, regionQuery, -1, &stmt, nil) == SQLITE_OK {
                     print("\nDebug: Available regions:")
                     while sqlite3_step(stmt) == SQLITE_ROW {
@@ -3663,14 +3663,8 @@ class DatabaseManager: ObservableObject {
                     return
                 }
 
-                // Query both vehicles and licenses tables, then merge unique values
-                let query = """
-                    SELECT DISTINCT admin_region FROM (
-                        SELECT admin_region FROM vehicles
-                        UNION
-                        SELECT admin_region FROM licenses
-                    ) ORDER BY admin_region
-                    """
+                // Query enumeration table for admin regions
+                let query = "SELECT name FROM admin_region_enum ORDER BY code"
                 var stmt: OpaquePointer?
 
                 defer {
@@ -3741,9 +3735,8 @@ class DatabaseManager: ObservableObject {
                     return
                 }
 
-                // Query the appropriate table based on data entity type
-                let tableName = dataEntityType == .license ? "licenses" : "vehicles"
-                let query = "SELECT DISTINCT admin_region FROM \(tableName) ORDER BY admin_region"
+                // Query admin regions from enumeration table (same for both vehicles and licenses)
+                let query = "SELECT name FROM admin_region_enum ORDER BY code"
                 var stmt: OpaquePointer?
 
                 defer {

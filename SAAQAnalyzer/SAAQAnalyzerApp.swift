@@ -232,7 +232,7 @@ struct ContentView: View {
             }
             .fileExporter(
                 isPresented: $showingPackageExporter,
-                document: DataPackageDocument(),
+                document: DataPackageDocument(packageManager: packageManager, databaseManager: databaseManager),
                 contentType: .saaqPackage,
                 defaultFilename: "SAAQData_\(Date().formatted(date: .abbreviated, time: .omitted)).saaqpackage"
             ) { result in
@@ -940,20 +940,12 @@ struct ContentView: View {
         await processNextLicenseImport()
     }
 
+    /// Handle package export result
     private func handlePackageExportResult(_ result: Result<URL, Error>) {
         switch result {
         case .success(let url):
-            Task {
-                do {
-                    let options = DataPackageExportOptions.complete
-                    try await packageManager.exportDataPackage(to: url, options: options)
-                    packageAlertMessage = "Data package exported successfully to: \(url.lastPathComponent)"
-                    showingPackageAlert = true
-                } catch {
-                    packageAlertMessage = "Export failed: \(error.localizedDescription)"
-                    showingPackageAlert = true
-                }
-            }
+            packageAlertMessage = "Data package exported successfully to: \(url.lastPathComponent)"
+            showingPackageAlert = true
         case .failure(let error):
             packageAlertMessage = "Export cancelled: \(error.localizedDescription)"
             showingPackageAlert = true
@@ -1054,13 +1046,72 @@ struct ContentView: View {
 struct DataPackageDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.saaqPackage] }
 
-    init() {}
+    let packageManager: DataPackageManager
+    let databaseManager: DatabaseManager
 
-    init(configuration: ReadConfiguration) throws {}
+    init(packageManager: DataPackageManager, databaseManager: DatabaseManager) {
+        self.packageManager = packageManager
+        self.databaseManager = databaseManager
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        // Not used for export
+        self.packageManager = DataPackageManager.shared
+        self.databaseManager = DatabaseManager.shared
+    }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        // Return empty file wrapper - actual export is handled in the result handler
-        return FileWrapper(regularFileWithContents: Data())
+        // Create package in temp location synchronously
+        let tempDir = FileManager.default.temporaryDirectory
+        let packageURL = tempDir.appendingPathComponent("ExportPackage_\(UUID().uuidString).saaqpackage")
+
+        print("📦 Starting package export to: \(packageURL.path)")
+
+        // Export package synchronously by blocking on async operation
+        let semaphore = DispatchSemaphore(value: 0)
+        var exportError: Error?
+
+        Task { @MainActor in
+            do {
+                let options = DataPackageExportOptions.complete
+                try await packageManager.exportDataPackage(to: packageURL, options: options)
+                print("✅ Package export completed successfully")
+            } catch {
+                print("❌ Package export failed: \(error)")
+                exportError = error
+            }
+            semaphore.signal()
+        }
+
+        semaphore.wait()
+
+        if let error = exportError {
+            throw error
+        }
+
+        // Verify package structure before returning
+        let contentsURL = packageURL.appendingPathComponent("Contents")
+        if FileManager.default.fileExists(atPath: contentsURL.path) {
+            print("✓ Contents directory exists")
+            if let contents = try? FileManager.default.contentsOfDirectory(atPath: contentsURL.path) {
+                print("✓ Contents: \(contents)")
+            }
+        } else {
+            print("❌ Contents directory missing!")
+        }
+
+        // Return the package directory as a FileWrapper with recursive reading
+        let wrapper = try FileWrapper(url: packageURL, options: [.immediate, .withoutMapping])
+
+        // Verify the wrapper contains all subdirectories
+        print("📦 FileWrapper contains \(wrapper.fileWrappers?.count ?? 0) items")
+        if let wrappers = wrapper.fileWrappers {
+            for (name, _) in wrappers {
+                print("  - \(name)")
+            }
+        }
+
+        return wrapper
     }
 }
 
