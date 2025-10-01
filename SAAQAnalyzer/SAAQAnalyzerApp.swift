@@ -11,6 +11,23 @@ struct SAAQAnalyzerApp: App {
             ContentView()
                 .environmentObject(databaseManager)
                 .frame(minWidth: 1200, minHeight: 800)
+                .alert("Test Database Found", isPresented: Binding(
+                    get: { databaseManager.testDatabaseCleanupNeeded != nil },
+                    set: { if !$0 { databaseManager.testDatabaseCleanupNeeded = nil } }
+                )) {
+                    Button("Keep Existing") {
+                        if let testPath = databaseManager.testDatabaseCleanupNeeded {
+                            databaseManager.handleTestDatabaseCleanupDecision(shouldDelete: false, testDBPath: testPath)
+                        }
+                    }
+                    Button("Delete and Start Fresh", role: .destructive) {
+                        if let testPath = databaseManager.testDatabaseCleanupNeeded {
+                            databaseManager.handleTestDatabaseCleanupDecision(shouldDelete: true, testDBPath: testPath)
+                        }
+                    }
+                } message: {
+                    Text("A test database from a previous session exists. Would you like to keep it and continue testing, or delete it and start fresh?")
+                }
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)

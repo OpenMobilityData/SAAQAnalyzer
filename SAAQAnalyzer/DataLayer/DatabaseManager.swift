@@ -9,9 +9,12 @@ class DatabaseManager: ObservableObject {
     
     /// Database file URL
     @Published var databaseURL: URL?
-    
+
     /// Triggers UI refresh when data changes - using database file timestamp for persistence
     @Published var dataVersion = 0
+
+    /// Test database cleanup decision (for SwiftUI alert)
+    @Published var testDatabaseCleanupNeeded: URL?
     
     /// Filter cache manager (legacy string-based)
     private let filterCache = FilterCache()
@@ -53,10 +56,82 @@ class DatabaseManager: ObservableObject {
     }
     
     /// Sets up default database location
+    /// Supports SAAQ_TEST_MODE environment variable for testing package imports
+    /// on a "fresh installation" without affecting production data (set in Xcode Scheme editor)
     private func setupDefaultDatabase() {
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let dbPath = documentsPath.appendingPathComponent("saaq_data.sqlite")
-        setDatabaseLocation(dbPath)
+        let testDBPath = documentsPath.appendingPathComponent("saaq_data_test.sqlite")
+        let isTestMode = ProcessInfo.processInfo.environment["SAAQ_TEST_MODE"] != nil
+
+        // Check for test mode (simulates fresh installation for import testing)
+        if isTestMode {
+            // In test mode: check if database exists and prompt if needed
+            // Do NOT open database yet - wait for user decision
+            handleTestModeStartup(testDBPath: testDBPath)
+        } else {
+            // In normal mode: silently clean up any leftover test databases
+            cleanupTestDatabase(testDBPath: testDBPath)
+
+            // Use normal production path
+            let dbPath = documentsPath.appendingPathComponent("saaq_data.sqlite")
+            setDatabaseLocation(dbPath)
+        }
+    }
+
+    /// Handles test mode startup, prompting user about existing test database
+    private func handleTestModeStartup(testDBPath: URL) {
+        print("⚠️ SAAQ_TEST_MODE environment variable detected")
+        print("📍 Using test database: saaq_data_test.sqlite")
+        print("🔒 Production database (saaq_data.sqlite) will not be modified")
+
+        // Clear legacy UserDefaults-based filter cache to simulate fresh installation
+        filterCache.clearCache()
+        print("🗑️ Cleared legacy filter cache from UserDefaults")
+
+        // Check if test database already exists
+        if FileManager.default.fileExists(atPath: testDBPath.path) {
+            DispatchQueue.main.async {
+                // Trigger SwiftUI alert via published property
+                // Database will be opened after user makes decision
+                self.testDatabaseCleanupNeeded = testDBPath
+            }
+        } else {
+            print("💡 Starting with fresh test database")
+            // No existing database, safe to open immediately
+            setDatabaseLocation(testDBPath)
+        }
+    }
+
+    /// Called by UI when user makes test database cleanup decision
+    func handleTestDatabaseCleanupDecision(shouldDelete: Bool, testDBPath: URL) {
+        if shouldDelete {
+            cleanupTestDatabase(testDBPath: testDBPath)
+            print("🗑️ Test database deleted - starting fresh")
+        } else {
+            print("♻️ Continuing with existing test database")
+        }
+
+        // Clear the alert trigger
+        testDatabaseCleanupNeeded = nil
+
+        // Now open the database (either fresh or existing, depending on user's choice)
+        setDatabaseLocation(testDBPath)
+    }
+
+    /// Removes test database files (main db, shm, wal)
+    private func cleanupTestDatabase(testDBPath: URL) {
+        let fileManager = FileManager.default
+        let testFiles = [
+            testDBPath.path,
+            testDBPath.path + "-shm",
+            testDBPath.path + "-wal"
+        ]
+
+        for filePath in testFiles {
+            if fileManager.fileExists(atPath: filePath) {
+                try? fileManager.removeItem(atPath: filePath)
+            }
+        }
     }
 
     /// Gets a persistent data version based on the integer dataVersion counter

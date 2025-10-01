@@ -442,6 +442,12 @@ class DataPackageManager: ObservableObject {
         print("✅ Import completed successfully")
         print("📊 Imported database contains \(newDbStats.totalVehicleRecords) vehicle records and \(newDbStats.totalLicenseRecords) license records")
         print("📊 Data version: \(dataVersion)")
+
+        // Trigger UI refresh by incrementing dataVersion
+        await MainActor.run {
+            databaseManager.dataVersion += 1
+            print("🔄 UI refresh triggered (dataVersion: \(databaseManager.dataVersion))")
+        }
     }
 
     // MARK: - Utility Methods
