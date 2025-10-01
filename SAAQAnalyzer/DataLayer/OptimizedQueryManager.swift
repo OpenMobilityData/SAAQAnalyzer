@@ -48,6 +48,7 @@ class OptimizedQueryManager {
         print("   Vehicle Colors: \(filters.vehicleColors)")
         print("   Model Years: \(filters.modelYears)")
         print("   Fuel Types: \(filters.fuelTypes)")
+        print("   Age Ranges: \(filters.ageRanges)")
 
         // First, convert filter strings to integer IDs
         let filterIds = try await convertFiltersToIds(filters: filters, isVehicle: true)
@@ -401,6 +402,40 @@ class OptimizedQueryManager {
                 case .percentage:
                     // For percentage, we calculate count for numerator
                     selectClause = "COUNT(*) as value"
+                }
+
+                // Age range filter (requires model_year join for age calculation)
+                // This must come AFTER the metric type switch to avoid overwriting joins
+                if !filters.ageRanges.isEmpty {
+                    // Add model_year join if not already present
+                    if !additionalJoins.contains("model_year_enum") {
+                        additionalJoins += " LEFT JOIN model_year_enum my ON v.model_year_id = my.id"
+                    }
+
+                    var ageConditions: [String] = []
+                    for ageRange in filters.ageRanges {
+                        if let maxAge = ageRange.maxAge {
+                            // Age range with both min and max: (year - model_year) BETWEEN minAge AND maxAge
+                            ageConditions.append("(y.year - my.year BETWEEN ? AND ?)")
+                            bindValues.append((bindIndex, ageRange.minAge))
+                            bindIndex += 1
+                            bindValues.append((bindIndex, maxAge))
+                            bindIndex += 1
+                        } else {
+                            // Age range with only min: (year - model_year) >= minAge
+                            ageConditions.append("(y.year - my.year >= ?)")
+                            bindValues.append((bindIndex, ageRange.minAge))
+                            bindIndex += 1
+                        }
+                    }
+
+                    if !ageConditions.isEmpty {
+                        // Append age conditions to existing WHERE conditions
+                        if !additionalWhereConditions.contains("model_year_id IS NOT NULL") {
+                            additionalWhereConditions += " AND v.model_year_id IS NOT NULL"
+                        }
+                        additionalWhereConditions += " AND (" + ageConditions.joined(separator: " OR ") + ")"
+                    }
                 }
 
                 let query = """
