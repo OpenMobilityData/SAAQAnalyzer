@@ -15,11 +15,11 @@ class DatabaseManager: ObservableObject {
 
     /// Test database cleanup decision (for SwiftUI alert)
     @Published var testDatabaseCleanupNeeded: URL?
-    
-    /// Filter cache manager (legacy string-based)
+
+    /// Legacy filter cache (only used for clearing UserDefaults in test mode)
     private let filterCache = FilterCache()
 
-    /// Filter cache manager (new enumeration-based)
+    /// Filter cache manager (enumeration table-based)
     private(set) var filterCacheManager: FilterCacheManager?
 
     /// Schema migration manager
@@ -146,13 +146,16 @@ class DatabaseManager: ObservableObject {
         dbQueue.async { [weak self] in
             self?.closeDatabase()
 
-            // Update @Published property on main thread
+            // Update @Published property on main thread, then open database
             DispatchQueue.main.async {
                 self?.databaseURL = url
-            }
 
-            self?.openDatabase()
-            self?.createTablesIfNeeded()
+                // Open database on background thread after URL is set
+                self?.dbQueue.async {
+                    self?.openDatabase()
+                    // Note: createTablesIfNeeded() is now called INSIDE openDatabase() after page_size is set
+                }
+            }
         }
     }
     
@@ -243,34 +246,43 @@ class DatabaseManager: ObservableObject {
         if sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK {
             print("Successfully opened database at: \(dbPath)")
 
-            // Enable AGGRESSIVE performance optimizations for M3 Ultra (96GB RAM, 58GB database)
+            // Check if database is empty (newly created)
+            var stmt: OpaquePointer?
+            let isEmpty = sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM sqlite_master WHERE type='table'", -1, &stmt, nil) == SQLITE_OK &&
+                          sqlite3_step(stmt) == SQLITE_ROW &&
+                          sqlite3_column_int(stmt, 0) == 0
+            sqlite3_finalize(stmt)
+
+            // Set page size ONLY on new/empty databases (before any tables exist)
+            if isEmpty {
+                print("📄 New database detected - setting page_size to 32KB for optimal performance")
+                sqlite3_exec(db, "PRAGMA page_size = 32768", nil, nil, nil)
+                sqlite3_exec(db, "PRAGMA auto_vacuum = INCREMENTAL", nil, nil, nil)
+            } else {
+                print("📄 Existing database detected - preserving current page_size")
+            }
+
+            // Enable AGGRESSIVE performance optimizations for M3 Ultra (96GB RAM, 27GB database)
             sqlite3_exec(db, "PRAGMA journal_mode = WAL", nil, nil, nil)
             sqlite3_exec(db, "PRAGMA synchronous = NORMAL", nil, nil, nil)
 
-            // Use 8GB cache for 58GB database on 96GB system
+            // Use 8GB cache for large database on 96GB system
             // Negative value = size in KB, so -8000000 = 8GB
             sqlite3_exec(db, "PRAGMA cache_size = -8000000", nil, nil, nil)  // 8GB cache
 
-            // Map 32GB of database into memory (1/3 of available RAM, >50% of DB)
-            // This should cover most frequently accessed data
+            // Map 32GB of database into memory (1/3 of available RAM)
             sqlite3_exec(db, "PRAGMA mmap_size = 34359738368", nil, nil, nil)  // 32GB mmap
 
             // Keep temp tables in memory
             sqlite3_exec(db, "PRAGMA temp_store = MEMORY", nil, nil, nil)
 
-            // Use all efficiency cores for sorting (M3 Ultra has 4)
-            sqlite3_exec(db, "PRAGMA threads = 16", nil, nil, nil)  // Use 16 threads
-
-            // Increase page size for better performance with large datasets
-            sqlite3_exec(db, "PRAGMA page_size = 32768", nil, nil, nil)  // 32KB pages
-
-            // Auto-vacuum to keep database compact
-            sqlite3_exec(db, "PRAGMA auto_vacuum = INCREMENTAL", nil, nil, nil)
+            // Use all available cores for sorting (M3 Ultra has many)
+            sqlite3_exec(db, "PRAGMA threads = 16", nil, nil, nil)  // 16 threads
 
             // WAL checkpoint threshold - less frequent for performance
             sqlite3_exec(db, "PRAGMA wal_autocheckpoint = 10000", nil, nil, nil)  // 10K pages
 
-            // Optimize query planner (fast)
+            // Optimize query planner
             sqlite3_exec(db, "PRAGMA optimize", nil, nil, nil)
 
             // Conditionally update statistics based on user preference
@@ -288,6 +300,9 @@ class DatabaseManager: ObservableObject {
             schemaManager = SchemaManager(databaseManager: self)
             optimizedQueryManager = OptimizedQueryManager(databaseManager: self)
             filterCacheManager = FilterCacheManager(databaseManager: self)
+
+            // Create tables AFTER page_size is set
+            createTablesIfNeeded()
         } else {
             print("Unable to open database at: \(dbPath)")
             if let errorMessage = sqlite3_errmsg(db) {
@@ -2759,25 +2774,14 @@ class DatabaseManager: ObservableObject {
     
     /// Gets available years - uses cache when possible
     func getAvailableYears() async -> [Int] {
-        print("🔍 getAvailableYears() - Cache status: \(filterCache.hasCachedData)")
-
-        // Use enumeration-based data when optimized queries are enabled
+        // Use enumeration-based data
         if useOptimizedQueries, let filterCacheManager = filterCacheManager {
             do {
                 let years = try await filterCacheManager.getAvailableYears()
                 print("✅ Using enumeration-based years (\(years.count) items)")
                 return years
             } catch {
-                print("⚠️ Failed to load enumeration years, falling back to legacy cache: \(error)")
-            }
-        }
-
-        // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedYears()
-            if !cached.isEmpty {
-                print("✅ Using cached years: \(cached.count) items")
-                return cached
+                print("⚠️ Failed to load enumeration years, falling back to database query: \(error)")
             }
         }
 
@@ -2790,26 +2794,18 @@ class DatabaseManager: ObservableObject {
     func getAvailableYears(for dataType: DataEntityType) async -> [Int] {
         print("🔍 getAvailableYears(for: \(dataType)) - Data-type-aware query")
 
-        // Use enumeration-based data when optimized queries are enabled
+        // Use enumeration-based data
         if useOptimizedQueries, let filterCacheManager = filterCacheManager {
             do {
                 let years = try await filterCacheManager.getAvailableYears()
                 print("✅ Using enumeration-based years (\(years.count) items) for \(dataType)")
                 return years
             } catch {
-                print("⚠️ Failed to load enumeration years, falling back to legacy cache: \(error)")
+                print("⚠️ Failed to load enumeration years, falling back to database query: \(error)")
             }
         }
 
-        // Check cache first
-        if filterCache.hasCachedData(for: dataType) && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedYears(for: dataType)
-            if !cached.isEmpty {
-                print("✅ Using cached years (\(cached.count) items) for \(dataType)")
-                return cached
-            }
-        }
-
+        // Fall back to database query
         switch dataType {
         case .vehicle:
             return await getVehicleYearsFromDatabase()
@@ -2855,78 +2851,38 @@ class DatabaseManager: ObservableObject {
         }
     }
     
-    /// Gets available regions - uses cache when possible
+    /// Gets available regions - uses enumeration tables
     func getAvailableRegions(for dataEntityType: DataEntityType = .vehicle) async -> [String] {
-        // Use enumeration-based data when optimized queries are enabled
+        // Use enumeration-based data
         if useOptimizedQueries, let filterCacheManager = filterCacheManager {
             do {
                 let filterItems = try await filterCacheManager.getAvailableRegions()
                 print("✅ Using enumeration-based regions (\(filterItems.count) items)")
                 return filterItems.map { $0.displayName }
             } catch {
-                print("⚠️ Failed to load enumeration regions, falling back to legacy cache: \(error)")
+                print("⚠️ Failed to load enumeration regions, falling back to database query: \(error)")
             }
         }
 
-        print("🔍 getAvailableRegions() - Cache status: \(filterCache.hasCachedData(for: dataEntityType))")
-
-        // Check cache first
-        if filterCache.hasCachedData(for: dataEntityType) && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedRegions(for: dataEntityType)
-            if !cached.isEmpty {
-                print("✅ Using cached regions (\(cached.count) items) for \(dataEntityType)")
-                return cached
-            }
-        }
-
-        // Cache miss or needs refresh - trigger cache refresh and then return cached data
-        print("💾 Cache miss or refresh needed for \(dataEntityType), refreshing cache...")
-        await refreshFilterCache()
-
-        // Return cached data after refresh - no fallbacks, return exactly what's cached
-        let refreshedCache = filterCache.getCachedRegions(for: dataEntityType)
-        if refreshedCache.isEmpty {
-            print("⚠️ No \(dataEntityType) regions available after refresh")
-        } else {
-            print("✅ Using refreshed cached regions (\(refreshedCache.count) items) for \(dataEntityType)")
-        }
-        return refreshedCache
+        // Fall back to database query
+        return await getRegionsFromDatabase(for: dataEntityType)
     }
     
-    /// Gets available MRCs - uses cache when possible
+    /// Gets available MRCs - uses enumeration tables
     func getAvailableMRCs(for dataEntityType: DataEntityType = .vehicle) async -> [String] {
-        // Use enumeration-based data when optimized queries are enabled
+        // Use enumeration-based data
         if useOptimizedQueries, let filterCacheManager = filterCacheManager {
             do {
                 let filterItems = try await filterCacheManager.getAvailableMRCs()
                 print("✅ Using enumeration-based MRCs (\(filterItems.count) items)")
                 return filterItems.map { $0.displayName }
             } catch {
-                print("⚠️ Failed to load enumeration MRCs, falling back to legacy cache: \(error)")
+                print("⚠️ Failed to load enumeration MRCs, falling back to database query: \(error)")
             }
         }
 
-        // Check cache first
-        if filterCache.hasCachedData(for: dataEntityType) && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedMRCs(for: dataEntityType)
-            if !cached.isEmpty {
-                print("✅ Using cached MRCs (\(cached.count) items) for \(dataEntityType)")
-                return cached
-            }
-        }
-
-        // Cache miss or needs refresh - trigger cache refresh and then return cached data
-        print("💾 Cache miss or refresh needed for \(dataEntityType), refreshing cache...")
-        await refreshFilterCache()
-
-        // Return cached data after refresh - no fallbacks, return exactly what's cached
-        let refreshedCache = filterCache.getCachedMRCs(for: dataEntityType)
-        if refreshedCache.isEmpty {
-            print("⚠️ No \(dataEntityType) MRCs available after refresh")
-        } else {
-            print("✅ Using refreshed cached MRCs (\(refreshedCache.count) items) for \(dataEntityType)")
-        }
-        return refreshedCache
+        // Fall back to database query
+        return await getMRCsFromDatabase(for: dataEntityType)
     }
     
     /// Prepares database for bulk import session
@@ -3144,24 +3100,16 @@ class DatabaseManager: ObservableObject {
         }
     }
     
-    /// Gets available classifications - uses cache when possible
+    /// Gets available classifications - uses enumeration tables
     func getAvailableClassifications() async -> [String] {
-        // Use enumeration-based data when optimized queries are enabled
+        // Use enumeration-based data
         if useOptimizedQueries, let filterCacheManager = filterCacheManager {
             do {
                 let filterItems = try await filterCacheManager.getAvailableClassifications()
                 print("✅ Using enumeration-based classifications (\(filterItems.count) items)")
                 return filterItems.map { $0.displayName }
             } catch {
-                print("⚠️ Failed to load enumeration classifications, falling back to legacy cache: \(error)")
-            }
-        }
-
-        // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedClassifications()
-            if !cached.isEmpty {
-                return cached
+                print("⚠️ Failed to load enumeration classifications, falling back to database query: \(error)")
             }
         }
 
@@ -3169,75 +3117,30 @@ class DatabaseManager: ObservableObject {
         return await getClassificationsFromDatabase()
     }
 
-    /// Gets available vehicle makes - uses cache when possible
+    /// Gets available vehicle makes - queries database directly
     func getAvailableVehicleMakes() async -> [String] {
-        // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedVehicleMakes()
-            if !cached.isEmpty {
-                return cached
-            }
-        }
-
-        // Fall back to database query
         return await getVehicleMakesFromDatabase()
     }
 
-    /// Gets available vehicle models - uses cache when possible
+    /// Gets available vehicle models - queries database directly
     func getAvailableVehicleModels() async -> [String] {
-        // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedVehicleModels()
-            if !cached.isEmpty {
-                return cached
-            }
-        }
-
-        // Fall back to database query
         return await getVehicleModelsFromDatabase()
     }
 
-    /// Gets available model years - uses cache when possible
+    /// Gets available model years - queries database directly
     func getAvailableModelYears() async -> [Int] {
-        // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedModelYears()
-            if !cached.isEmpty {
-                return cached
-            }
-        }
-
-        // Fall back to database query
         return await getModelYearsFromDatabase()
     }
 
-    /// Gets available vehicle colors - uses cache when possible
+    /// Gets available vehicle colors - queries database directly
     func getAvailableVehicleColors() async -> [String] {
-        // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedVehicleColors()
-            if !cached.isEmpty {
-                return cached
-            }
-        }
-
-        // Fall back to database query
         return await getVehicleColorsFromDatabase()
     }
 
     // MARK: - License Data Methods
 
-    /// Gets available license types from database (cache-aware)
+    /// Gets available license types from database
     func getAvailableLicenseTypes() async -> [String] {
-        // Check cache first (only if license data is cached)
-        if filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedLicenseTypes()
-            if !cached.isEmpty {
-                print("✅ Using cached license types (\(cached.count) items)")
-                return cached
-            }
-        }
-
         print("⚠️ License types cache miss, falling back to database query")
 
         return await withCheckedContinuation { continuation in
@@ -3264,17 +3167,8 @@ class DatabaseManager: ObservableObject {
         }
     }
 
-    /// Gets available age groups from database (cache-aware)
+    /// Gets available age groups from database
     func getAvailableAgeGroups() async -> [String] {
-        // Check cache first (only if license data is cached)
-        if filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedLicenseAgeGroups()
-            if !cached.isEmpty {
-                print("✅ Using cached age groups (\(cached.count) items)")
-                return cached
-            }
-        }
-
         print("⚠️ Age groups cache miss, falling back to database query")
 
         return await withCheckedContinuation { continuation in
@@ -3301,17 +3195,8 @@ class DatabaseManager: ObservableObject {
         }
     }
 
-    /// Gets available genders from database (cache-aware)
+    /// Gets available genders from database
     func getAvailableGenders() async -> [String] {
-        // Check cache first (only if license data is cached)
-        if filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedLicenseGenders()
-            if !cached.isEmpty {
-                print("✅ Using cached genders (\(cached.count) items)")
-                return cached
-            }
-        }
-
         print("⚠️ Genders cache miss, falling back to database query")
 
         return await withCheckedContinuation { continuation in
@@ -3338,17 +3223,8 @@ class DatabaseManager: ObservableObject {
         }
     }
 
-    /// Gets available experience levels from database (cache-aware)
+    /// Gets available experience levels from database
     func getAvailableExperienceLevels() async -> [String] {
-        // Check cache first (only if license data is cached)
-        if filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedLicenseExperienceLevels()
-            if !cached.isEmpty {
-                print("✅ Using cached experience levels (\(cached.count) items)")
-                return cached
-            }
-        }
-
         print("⚠️ Experience levels cache miss, falling back to database query")
 
         return await withCheckedContinuation { continuation in
@@ -3375,17 +3251,8 @@ class DatabaseManager: ObservableObject {
         }
     }
 
-    /// Gets available license classes from database (cache-aware)
+    /// Gets available license classes from database
     func getAvailableLicenseClasses() async -> [String] {
-        // Check cache first (only if license data is cached)
-        if filterCache.hasLicenseDataCached && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedLicenseClasses()
-            if !cached.isEmpty {
-                print("✅ Using cached license classes (\(cached.count) items)")
-                return cached
-            }
-        }
-
         print("⚠️ License classes cache miss, falling back to database query")
 
         return await withCheckedContinuation { continuation in
@@ -3464,101 +3331,17 @@ class DatabaseManager: ObservableObject {
             refreshLock.unlock()
         }
 
-        print("🔄 Refreshing filter cache...")
-        let startTime = Date()
+        print("🔄 Refreshing filter cache from enumeration tables...")
 
-        // Invalidate enumeration-based cache so it reloads fresh data
+        // Invalidate and reload enumeration-based cache
         filterCacheManager?.invalidateCache()
-        print("✅ Invalidated enumeration-based filter cache")
-
-        // Query all filter values from database in parallel
-        async let years = getYearsFromDatabase()
-        async let regions = getRegionsFromBothTables()  // For backward compatibility
-        async let mrcs = getMRCsFromBothTables()  // For backward compatibility
-        async let vehicleRegions = getRegionsFromDatabase(for: .vehicle)
-        async let vehicleMRCs = getMRCsFromDatabase(for: .vehicle)
-        async let licenseRegions = getRegionsFromDatabase(for: .license)
-        async let licenseMRCs = getMRCsFromDatabase(for: .license)
-        async let municipalities = getMunicipalitiesFromDatabase()
-        async let municipalityMapping = getMunicipalityCodeToNameMappingFromDatabase()
-        async let classifications = getClassificationsFromDatabase()
-        async let vehicleMakes = getVehicleMakesFromDatabase()
-        async let vehicleModels = getVehicleModelsFromDatabase()
-        async let vehicleColors = getVehicleColorsFromDatabase()
-        async let modelYears = getModelYearsFromDatabase()
-        async let licenseTypes = getAvailableLicenseTypes()
-        async let ageGroups = getAvailableAgeGroups()
-        async let genders = getAvailableGenders()
-        async let experienceLevels = getAvailableExperienceLevels()
-        async let licenseClasses = getAvailableLicenseClasses()
-        async let databaseStats = getDatabaseStats()
-
-        // Wait for all queries to complete
-        let (yearsList, regionsList, mrcsList, vehicleRegionsList, vehicleMRCsList, licenseRegionsList, licenseMRCsList,
-             municipalitiesList, municipalityMappingData, classificationsList, makesList, modelsList, colorsList,
-             modelYearsList, licenseTypesList, ageGroupsList, gendersList, experienceLevelsList, licenseClassesList, dbStats) =
-            await (years, regions, mrcs, vehicleRegions, vehicleMRCs, licenseRegions, licenseMRCs,
-                   municipalities, municipalityMapping, classifications, vehicleMakes, vehicleModels, vehicleColors,
-                   modelYears, licenseTypes, ageGroups, genders, experienceLevels, licenseClasses, databaseStats)
-
-        let duration = Date().timeIntervalSince(startTime)
-        print("🔄 Database queries completed in \(String(format: "%.2f", duration))s")
-        print("🔄 Found: \(yearsList.count) years, \(regionsList.count) regions, \(mrcsList.count) MRCs, \(municipalitiesList.count) municipalities, \(classificationsList.count) classifications, \(makesList.count) makes, \(modelsList.count) models, \(colorsList.count) colors, \(modelYearsList.count) model years, \(licenseTypesList.count) license types, \(ageGroupsList.count) age groups, \(gendersList.count) genders, \(experienceLevelsList.count) experience levels, \(licenseClassesList.count) license classes")
-
-        // Update separate caches
-        filterCache.updateVehicleCache(
-            years: yearsList,
-            regions: vehicleRegionsList,
-            mrcs: vehicleMRCsList,
-            municipalities: municipalitiesList, // Municipalities only available for vehicle data
-            classifications: classificationsList,
-            vehicleMakes: makesList,
-            vehicleModels: modelsList,
-            vehicleColors: colorsList,
-            modelYears: modelYearsList
-        )
-
-        filterCache.updateLicenseCache(
-            years: yearsList,
-            regions: licenseRegionsList,
-            mrcs: licenseMRCsList,
-            licenseTypes: licenseTypesList,
-            ageGroups: ageGroupsList,
-            genders: gendersList,
-            experienceLevels: experienceLevelsList,
-            licenseClasses: licenseClassesList
-        )
-
-        filterCache.finalizeCacheUpdate(
-            municipalityCodeToName: municipalityMappingData,
-            databaseStats: dbStats,
-            dataVersion: getPersistentDataVersion()
-        )
-
-        print("✅ Filter cache refresh completed")
+        print("✅ Filter cache refresh completed (enumeration tables reloaded)")
     }
     
     /// Clears the filter cache (useful for troubleshooting)
     func clearFilterCache() {
-        filterCache.clearCache()
-    }
-    
-    /// Gets cache status information
-    var filterCacheInfo: (hasCache: Bool, lastUpdated: Date?, itemCounts: (years: Int, regions: Int, mrcs: Int, classifications: Int, vehicleMakes: Int, vehicleModels: Int, vehicleColors: Int, modelYears: Int)) {
-        return (
-            hasCache: filterCache.hasCachedData,
-            lastUpdated: filterCache.lastUpdated,
-            itemCounts: (
-                years: filterCache.getCachedYears().count,
-                regions: filterCache.getCachedRegions().count,
-                mrcs: filterCache.getCachedMRCs().count,
-                classifications: filterCache.getCachedClassifications().count,
-                vehicleMakes: filterCache.getCachedVehicleMakes().count,
-                vehicleModels: filterCache.getCachedVehicleModels().count,
-                vehicleColors: filterCache.getCachedVehicleColors().count,
-                modelYears: filterCache.getCachedModelYears().count
-            )
-        )
+        filterCacheManager?.invalidateCache()
+        print("🗑️ Filter cache cleared (enumeration-based)")
     }
 
     /// Gets total vehicle count from database
@@ -3715,22 +3498,6 @@ class DatabaseManager: ObservableObject {
         )
     }
 
-
-    // MARK: - Cache Filtering Methods (Private)
-
-    /// Filters cached regions to only include those present in the specified data entity type
-    private func filterCachedRegionsByDataType(regions: [String], dataEntityType: DataEntityType) async -> [String] {
-        // Use data-type-specific cached data if available
-        let cachedRegions = filterCache.getCachedRegions(for: dataEntityType)
-        return cachedRegions.isEmpty ? regions : cachedRegions
-    }
-
-    /// Filters cached MRCs to only include those present in the specified data entity type
-    private func filterCachedMRCsByDataType(mrcs: [String], dataEntityType: DataEntityType) async -> [String] {
-        // Use data-type-specific cached data if available
-        let cachedMRCs = filterCache.getCachedMRCs(for: dataEntityType)
-        return cachedMRCs.isEmpty ? mrcs : cachedMRCs
-    }
 
     // MARK: - Database Query Methods (Private)
 
@@ -4051,22 +3818,14 @@ class DatabaseManager: ObservableObject {
             return []
         }
 
-        // Use enumeration-based data when optimized queries are enabled
+        // Use enumeration-based data
         if useOptimizedQueries, let filterCacheManager = filterCacheManager {
             do {
                 let filterItems = try await filterCacheManager.getAvailableMunicipalities()
                 print("✅ Using enumeration-based municipalities (\(filterItems.count) items)")
                 return filterItems.map { $0.displayName }
             } catch {
-                print("⚠️ Failed to load enumeration municipalities, falling back to legacy cache: \(error)")
-            }
-        }
-
-        // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedMunicipalities(for: .vehicle)
-            if !cached.isEmpty {
-                return cached
+                print("⚠️ Failed to load enumeration municipalities, falling back to database query: \(error)")
             }
         }
 
@@ -4176,16 +3935,8 @@ class DatabaseManager: ObservableObject {
         }
     }
 
-    /// Gets municipality code-to-name mapping for UI display (cache-aware)
+    /// Gets municipality code-to-name mapping for UI display
     func getMunicipalityCodeToNameMapping() async -> [String: String] {
-        // Check cache first
-        if filterCache.hasCachedData && !filterCache.needsRefresh(currentDataVersion: getPersistentDataVersion()) {
-            let cached = filterCache.getCachedMunicipalityCodeToName()
-            if !cached.isEmpty {
-                return cached
-            }
-        }
-
         return await getMunicipalityCodeToNameMappingFromDatabase()
     }
 

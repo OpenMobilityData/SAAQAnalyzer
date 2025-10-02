@@ -264,22 +264,15 @@ struct FilterPanel: View {
     /// Loads available filter options from database
     private func loadAvailableOptions() {
         Task {
-            // Only show loading if we don't already have cached data
-            let cacheInfo = databaseManager.filterCacheInfo
-            let shouldShowLoading = !cacheInfo.hasCache || availableYears.isEmpty
+            // Show loading if we don't already have data loaded
+            let shouldShowLoading = availableYears.isEmpty
 
             if shouldShowLoading {
                 isLoadingData = true
             }
 
-            // Check if we need to populate cache first
-            print("🔍 Filter cache status: hasCache=\(cacheInfo.hasCache), years=\(cacheInfo.itemCounts.years)")
-            if !cacheInfo.hasCache {
-                print("💾 No filter cache found, populating cache before loading options...")
-                await databaseManager.refreshFilterCache()
-            } else {
-                print("✅ Using existing filter cache")
-            }
+            // Filter cache is now always available via enumeration tables
+            print("🔍 Reading cached data version: \(databaseManager.dataVersion)")
             
             // Load shared options from database/cache in parallel
             async let years = databaseManager.getAvailableYears(for: configuration.dataEntityType)
@@ -397,10 +390,9 @@ struct FilterPanel: View {
     
     /// Smart refresh that only updates if there are actual changes
     private func refreshIfNeeded() async {
-        // Check if we already have data loaded and if cache is valid
-        let cacheInfo = databaseManager.filterCacheInfo
-        if !availableYears.isEmpty && cacheInfo.hasCache {
-            print("📊 Cache is valid and data already loaded, skipping refresh")
+        // Check if we already have data loaded
+        if !availableYears.isEmpty {
+            print("📊 Data already loaded, skipping refresh")
             return
         }
 
