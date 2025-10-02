@@ -1,20 +1,21 @@
 import Foundation
-import Combine
+import Observation
 
 /// Manages import progress tracking with detailed stage information
 @MainActor
-class ImportProgressManager: ObservableObject {
+@Observable
+class ImportProgressManager {
     /// Current import progress (0.0 to 1.0)
-    @Published var overallProgress: Double = 0.0
-    
+    var overallProgress: Double = 0.0
+
     /// Current stage being executed
-    @Published var currentStage: ImportStage = .idle
-    
+    var currentStage: ImportStage = .idle
+
     /// Detailed progress information for current stage
-    @Published var stageProgress: StageProgress = .idle
-    
+    var stageProgress: StageProgress = .idle
+
     /// Whether an import is currently in progress
-    @Published var isImporting: Bool = false
+    var isImporting: Bool = false
 
     /// Import start time for duration calculation
     private var importStartTime: Date?
@@ -26,9 +27,9 @@ class ImportProgressManager: ObservableObject {
     private var totalBatches: Int = 0
 
     /// Batch import tracking
-    @Published var currentFileIndex: Int = 0
-    @Published var totalFiles: Int = 0
-    @Published var currentFileName: String = ""
+    var currentFileIndex: Int = 0
+    var totalFiles: Int = 0
+    var currentFileName: String = ""
     var isBatchImport: Bool { totalFiles > 1 }
     
     // MARK: - Import Stages

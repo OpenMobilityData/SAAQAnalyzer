@@ -1,6 +1,6 @@
 import Foundation
 import SwiftUI
-import Combine
+import Observation
 import SQLite3
 
 // MARK: - Vehicle Registration Models
@@ -369,7 +369,8 @@ struct OptimizedDriverLicense: Codable, Sendable {
 }
 
 /// Categorical lookup cache for UI performance
-class CategoricalLookupCache: ObservableObject {
+@Observable
+class CategoricalLookupCache {
     // Cached enumerations for fast UI lookups (all O(1) access)
     private var years: [Int: YearEnum] = [:]
     private var classifications: [Int: ClassificationEnum] = [:]
@@ -398,8 +399,8 @@ class CategoricalLookupCache: ObservableObject {
     private var ageGroupsByRange: [String: Int] = [:]  // range → id
     private var gendersByCode: [String: Int] = [:]  // code → id
 
-    @Published var isLoaded = false
-    @Published var loadingProgress: Double = 0.0
+    var isLoaded = false
+    var loadingProgress: Double = 0.0
 
     /// Initialize cache from database - critical for UI responsiveness
     func loadCache(from databaseManager: DatabaseManager) async throws {
@@ -1347,13 +1348,14 @@ struct TimeSeriesPoint: Identifiable, Sendable {
 }
 
 /// Filtered data series for charting
-class FilteredDataSeries: ObservableObject, Identifiable {
+@Observable
+class FilteredDataSeries: Identifiable {
     let id = UUID()
-    @Published var name: String
+    var name: String
     let filters: FilterConfiguration
-    @Published var points: [TimeSeriesPoint] = []
-    @Published var color: Color = .blue
-    @Published var isVisible: Bool = true
+    var points: [TimeSeriesPoint] = []
+    var color: Color = .blue
+    var isVisible: Bool = true
 
     // Metric configuration
     var metricType: ChartMetricType {

@@ -42,8 +42,8 @@ struct SAAQAnalyzerApp: App {
 /// Main content view with three-panel layout
 struct ContentView: View {
     @EnvironmentObject var databaseManager: DatabaseManager
-    @StateObject private var progressManager = ImportProgressManager()
-    @StateObject private var packageManager = DataPackageManager.shared
+    @State private var progressManager = ImportProgressManager()
+    @State private var packageManager = DataPackageManager.shared
     @State private var selectedFilters = FilterConfiguration()
     @State private var chartData: [FilteredDataSeries] = []
     @State private var selectedSeries: FilteredDataSeries?
@@ -431,7 +431,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: progressManager.currentStage) { _, stage in
-            if stage == .completed {
+            if stage == ImportProgressManager.ImportStage.completed {
                 // Auto-hide progress after a delay
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                     withAnimation(.spring()) {
@@ -942,7 +942,7 @@ struct ContentView: View {
         do {
             let importer = CSVImporter(databaseManager: databaseManager, progressManager: progressManager)
             // Skip duplicate check during batch imports - we already checked at batch level
-            let result = try await importer.importFile(at: url, year: year, dataType: .vehicle, skipDuplicateCheck: true)
+            let result = try await importer.importFile(at: url, year: year, dataType: DataEntityType.vehicle, skipDuplicateCheck: true)
             print("✅ Import completed: \(result.successCount) records imported for year \(year)")
         } catch {
             await progressManager.reset()
@@ -957,7 +957,7 @@ struct ContentView: View {
         do {
             let importer = CSVImporter(databaseManager: databaseManager, progressManager: progressManager)
             // Skip duplicate check during batch imports - we already checked at batch level
-            let result = try await importer.importFile(at: url, year: year, dataType: .license, skipDuplicateCheck: true)
+            let result = try await importer.importFile(at: url, year: year, dataType: DataEntityType.license, skipDuplicateCheck: true)
             print("✅ License import completed: \(result.successCount) records imported for year \(year)")
         } catch {
             await progressManager.reset()
@@ -1074,8 +1074,8 @@ struct ContentView: View {
 struct DataPackageDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.saaqPackage] }
 
-    let packageManager: DataPackageManager
-    let databaseManager: DatabaseManager
+    let packageManager: DataPackageManager?
+    let databaseManager: DatabaseManager?
 
     init(packageManager: DataPackageManager, databaseManager: DatabaseManager) {
         self.packageManager = packageManager
@@ -1083,12 +1083,16 @@ struct DataPackageDocument: FileDocument {
     }
 
     init(configuration: ReadConfiguration) throws {
-        // Not used for export
-        self.packageManager = DataPackageManager.shared
-        self.databaseManager = DatabaseManager.shared
+        // Not used for export - these are nil for import-only documents
+        self.packageManager = nil
+        self.databaseManager = nil
     }
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        guard let packageManager = packageManager else {
+            throw DataPackageError.exportFailed("Package manager not available")
+        }
+
         // Create package in temp location synchronously
         let tempDir = FileManager.default.temporaryDirectory
         let packageURL = tempDir.appendingPathComponent("ExportPackage_\(UUID().uuidString).saaqpackage")
@@ -1320,7 +1324,7 @@ struct SettingsView: View {
 // MARK: - General Settings Tab
 
 struct GeneralSettingsView: View {
-    @StateObject private var settings = AppSettings.shared
+    @State private var settings = AppSettings.shared
 
     var body: some View {
         Form {
@@ -1341,7 +1345,7 @@ struct GeneralSettingsView: View {
 // MARK: - Performance Settings Tab
 
 struct PerformanceSettingsView: View {
-    @StateObject private var settings = AppSettings.shared
+    @State private var settings = AppSettings.shared
 
     var body: some View {
         ScrollView {
@@ -1549,7 +1553,7 @@ struct PerformanceSettingsView: View {
 
 struct DatabaseSettingsView: View {
     @StateObject private var databaseManager = DatabaseManager.shared
-    @StateObject private var settings = AppSettings.shared
+    @State private var settings = AppSettings.shared
     @State private var cachedStats: CachedDatabaseStats?
     @State private var isLoading = true
     @State private var isOptimizing = false
@@ -1655,7 +1659,7 @@ struct DatabaseSettingsView: View {
 // MARK: - Export Settings Tab
 
 struct ExportSettingsView: View {
-    @StateObject private var settings = AppSettings.shared
+    @State private var settings = AppSettings.shared
 
     var body: some View {
         Form {

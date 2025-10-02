@@ -1,44 +1,45 @@
 import Foundation
-import Combine
+import Observation
 
 /// Application settings for performance tuning and preferences
 @MainActor
-class AppSettings: ObservableObject {
+@Observable
+class AppSettings {
     /// Singleton instance
     static let shared = AppSettings()
-    
+
     // MARK: - Export Settings
 
     /// Background color luminosity for PNG exports (0.0 = black, 1.0 = white)
-    @Published var exportBackgroundLuminosity: Double {
+    var exportBackgroundLuminosity: Double {
         didSet {
             UserDefaults.standard.set(exportBackgroundLuminosity, forKey: "exportBackgroundLuminosity")
         }
     }
 
     /// Line thickness for chart lines in PNG exports
-    @Published var exportLineThickness: Double {
+    var exportLineThickness: Double {
         didSet {
             UserDefaults.standard.set(exportLineThickness, forKey: "exportLineThickness")
         }
     }
 
     /// Whether to use bold font for axis labels in PNG exports
-    @Published var exportBoldAxisLabels: Bool {
+    var exportBoldAxisLabels: Bool {
         didSet {
             UserDefaults.standard.set(exportBoldAxisLabels, forKey: "exportBoldAxisLabels")
         }
     }
 
     /// Export image scale factor (1.0 = standard, 2.0 = high DPI)
-    @Published var exportScaleFactor: Double {
+    var exportScaleFactor: Double {
         didSet {
             UserDefaults.standard.set(exportScaleFactor, forKey: "exportScaleFactor")
         }
     }
 
     /// Whether to include legend in PNG exports when multiple series are present
-    @Published var exportIncludeLegend: Bool {
+    var exportIncludeLegend: Bool {
         didSet {
             UserDefaults.standard.set(exportIncludeLegend, forKey: "exportIncludeLegend")
         }
@@ -59,21 +60,21 @@ class AppSettings: ObservableObject {
     // MARK: - Import Performance Settings
 
     /// Whether to use adaptive thread count based on system and file size
-    @Published var useAdaptiveThreadCount: Bool {
+    var useAdaptiveThreadCount: Bool {
         didSet {
             UserDefaults.standard.set(useAdaptiveThreadCount, forKey: "useAdaptiveThreadCount")
         }
     }
-    
+
     /// Manual thread count (used when adaptive is disabled)
-    @Published var manualThreadCount: Int {
+    var manualThreadCount: Int {
         didSet {
             UserDefaults.standard.set(manualThreadCount, forKey: "manualThreadCount")
         }
     }
-    
+
     /// Maximum thread count for adaptive mode
-    @Published var maxThreadCount: Int {
+    var maxThreadCount: Int {
         didSet {
             UserDefaults.standard.set(maxThreadCount, forKey: "maxThreadCount")
         }
@@ -82,7 +83,7 @@ class AppSettings: ObservableObject {
     // MARK: - Database Performance Settings
 
     /// Whether to update database statistics (ANALYZE) on launch
-    @Published var updateDatabaseStatisticsOnLaunch: Bool {
+    var updateDatabaseStatisticsOnLaunch: Bool {
         didSet {
             UserDefaults.standard.set(updateDatabaseStatisticsOnLaunch, forKey: "updateDatabaseStatisticsOnLaunch")
         }

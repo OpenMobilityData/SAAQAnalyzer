@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Comprehensive import progress indicator with detailed stage information
 struct ImportProgressView: View {
-    @ObservedObject var progressManager: ImportProgressManager
+    @Bindable var progressManager: ImportProgressManager
     @State private var animationOffset: CGFloat = 0
     
     var body: some View {
@@ -286,7 +286,7 @@ struct ImportProgressView: View {
     
     private var actionButtons: some View {
         HStack {
-            if progressManager.currentStage == .completed {
+            if progressManager.currentStage == ImportProgressManager.ImportStage.completed {
                 Button("New Import") {
                     progressManager.reset()
                 }
