@@ -10,12 +10,13 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
 - **Integer-Based Optimization**: Categorical data stored as integer foreign keys for 50-70% storage reduction and faster queries
 - **Enumeration Tables**: On-the-fly population of lookup tables during import for instant string-to-ID mapping
 - **Data Type Switching**: Seamless switching between vehicle and driver data analysis modes
-- **SQLite Database**: Efficient storage with WAL mode, strategic indexing, and optimized cache for performance
+- **SQLite Database**: Efficient storage with WAL mode, strategic indexing, and aggressive performance optimizations
+- **32KB Page Size**: New databases automatically configured with optimal 32KB page size for 2-4x query performance improvement
 - **Batch Processing**: Handle large datasets (77M+ records) with intelligent batch processing and parallel workers
 - **Batch Import Progress**: Comprehensive multi-file import tracking with file-by-file progress, "Preparing import..." instant feedback, and total elapsed time reporting
-- **Smart Caching**: Single cache refresh at end of batch (not per-file) for optimal performance
-- **Data Package Export/Import**: Transfer complete databases (39GB+) between machines without re-processing
-- **Cache Preservation**: Export and import filter caches to bypass lengthy rebuild times
+- **Enumeration-Based Cache**: Filter options loaded from database enumeration tables, eliminating cache rebuild overhead
+- **Data Package Export/Import**: Transfer complete databases (39GB+) with enumeration tables intact - no recomputation needed
+- **Instant Package Import**: Imported packages are immediately query-ready with all indexes and enumerations preserved
 
 ### Advanced Filtering System
 - **Temporal Filters**: Filter by years and model years (vehicle data)
@@ -23,8 +24,8 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
 - **Vehicle Characteristics**: Filter by classification, make, model, color, fuel type, and age ranges
 - **Driver Demographics**: Filter by age groups, gender, license types, classes, and experience levels
 - **Data Type Aware**: Dynamic filter panels that adapt based on selected data type
-- **Separate Cache System**: Independent caches for vehicle and driver data prevent cross-contamination
-- **Cached Performance**: Smart caching system for instant filter option loading with persistent versioning
+- **Enumeration-Based Filters**: Filter options loaded directly from database enumeration tables for instant availability
+- **No Cache Rebuild**: Filter data always synchronized with database, no separate cache refresh needed
 - **Mode-Specific Options**: Filter lists show only values present in the currently selected data type
 
 ### Query Performance & Transparency
@@ -106,9 +107,9 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
 
 **Storage Requirements:**
 - Raw CSV files: 15-25GB per complete vehicle dataset
-- SQLite database: 12-20GB with integer-based optimization (50-70% reduction from previous 25-40GB)
+- SQLite database: 12-27GB with integer-based optimization and 32KB page size
 - Data packages: 20GB+ for complete export (77M+ vehicle + 66M+ driver records)
-- Cache files: 50-100MB (stored in UserDefaults)
+- Enumeration tables: Included in database, no separate cache files needed
 - Temporary files: 5-10GB during large imports
 
 **Hardware Notes:**
@@ -160,9 +161,10 @@ SAAQAnalyzer includes a comprehensive XCTest-based test suite covering:
 ### First Launch
 1. Launch SAAQAnalyzer
 2. The app will automatically:
-   - Create a unified SQLite database with separate tables for vehicles and licenses
+   - Create a unified SQLite database with 32KB page size for optimal performance
+   - Create 15 enumeration tables for integer-based queries
    - Import bundled geographic reference data (no manual setup required)
-   - Build separate filter caches for vehicle and driver data to prevent cross-contamination
+   - Load filter options directly from enumeration tables (no cache rebuild needed)
 3. Use the data type selector in the toolbar to choose between Vehicle or Driver data
 4. Import your first dataset using File → Import Vehicle CSV or File → Import Driver CSV
 
@@ -195,37 +197,35 @@ SAAQAnalyzer includes a comprehensive XCTest-based test suite covering:
 Data packages allow you to transfer complete databases between machines without re-importing CSVs:
 
 1. **Export Package**: Click Export toolbar button → "Export Data Package"
-2. **Choose Location**: Select where to save the `.saaqpackage` file (39GB+ for full datasets)
+2. **Choose Location**: Select where to save the `.saaqpackage` file (20-27GB for full datasets)
 3. **Package Contents**:
-   - Complete SQLite database with all records
-   - Vehicle and driver filter caches
+   - Complete SQLite database with all records and enumeration tables
+   - 32KB page size configuration preserved
+   - All 48 indexes for optimal query performance
    - Metadata and statistics
 4. **Transfer**: Copy the package file to another machine via external drive or network
+5. **Performance**: Fast export leveraging optimized database structure
 
 #### Importing Data Packages
 Import a data package to instantly access all data without processing:
 
 1. **Import Package**: Click Import toolbar button → "Import Data Package..."
 2. **Select Package**: Choose the `.saaqpackage` file
-3. **Automatic Setup**: Database and caches are restored immediately
-4. **Ready to Use**: All data available without hours of processing
+3. **Automatic Setup**: Database with enumeration tables restored immediately
+4. **No Recomputation**: Enumeration tables already populated, filter options instantly available
+5. **Ready to Query**: All indexes and optimizations preserved, full performance immediately
+6. **Verification**: Check Settings → Database Statistics to confirm page size and record counts
 
-#### Quick Import Mode (Cache Bypass)
-If cache loading is slow on startup, use either method to bypass:
+#### Database Statistics Verification
+After importing a data package, verify the import in Settings → Database Statistics:
 
-**Method 1: Option Key (End Users)**
-1. **Quit the Application** if running
-2. **Hold Option Key** (⌥) while launching SAAQAnalyzer
-3. **Bypass Confirmation**: You'll see "Cache loading bypassed via Option key" alert
-4. **Import Immediately**: Import data package without waiting for cache rebuild
+- **Vehicle Records**: Confirm total record count matches source
+- **License Records**: Verify driver data imported correctly
+- **Page Size**: Should show "32 KB" for optimal performance (older databases may show "4 KB")
+- **Database Size**: Check total database size
+- **Last Updated**: Confirm import timestamp
 
-**Method 2: Environment Variable (Developers/Xcode)**
-1. **In Xcode**: Product → Scheme → Edit Scheme → Run → Arguments → Environment Variables
-2. **Add Variable**: Name: `SAAQ_BYPASS_CACHE`, Value: `1`
-3. **Run from Xcode**: Cache loading will be bypassed automatically
-4. **Terminal Launch**: `SAAQ_BYPASS_CACHE=1 open -a SAAQAnalyzer`
-
-**Use Cases**: Testing, development, corrupted cache recovery, quick package imports
+Note: If page size shows "4 KB", the database was created before the 32KB optimization. Consider re-importing from CSV or a newer data package for 2-4x query performance improvement.
 
 ### Test Mode for Safe Import Testing
 
@@ -239,15 +239,16 @@ Test mode allows you to test data package imports on a separate test database wi
 
 **Behavior**:
 - Uses `saaq_data_test.sqlite` instead of production `saaq_data.sqlite`
-- Clears legacy UserDefaults cache to simulate fresh installation
+- Test database gets 32KB page size automatically on creation
 - On startup with existing test database, prompts:
   - **Keep Existing**: Continue with current test data
   - **Delete and Start Fresh**: Remove test database and start clean
 - Import operations write to test database only
 - Production database remains completely untouched
 - Disable `SAAQ_TEST_MODE` to return to normal operation
+- Filter options load from test database enumeration tables
 
-**Use Cases**: Testing package imports, validating enumeration tables, testing fresh installation behavior, development without production data risk
+**Use Cases**: Testing package imports, validating enumeration tables, testing 32KB page size benefits, development without production data risk
 
 ### Data Analysis Workflow
 
@@ -314,12 +315,13 @@ SAAQAnalyzer/
 - **geographic_entities**: Hierarchical geographic reference data (for vehicle data only)
 - **import_log**: Import operation tracking and status for both data types
 
-### Cache Architecture
+### Filter Cache Architecture
 
-- **Separate Cache Storage**: Independent cache keys for vehicle and driver data (e.g., `vehicleYears` vs `licenseYears`)
-- **Mode-Specific Validation**: Cache validation ensures data type isolation and prevents cross-contamination
-- **Targeted Cache Management**: Clear vehicle or driver caches independently without affecting the other data type
-- **Performance Optimization**: Parallel cache loading with instant filter option availability
+- **Enumeration Table-Based**: Filter options loaded directly from database enumeration tables (make_enum, model_enum, etc.)
+- **No Separate Cache**: Eliminated UserDefaults-based caching, filter data always synchronized with database
+- **Instant Availability**: Filter options available immediately on app launch from enumeration tables
+- **Data Type Aware**: Filter queries automatically route to appropriate enumeration tables based on data type
+- **Always Fresh**: No cache invalidation needed, enumeration tables updated during import
 
 ### Key Design Patterns
 
@@ -398,10 +400,12 @@ SAAQAnalyzer is optimized for high-performance analysis of massive datasets (58G
 ### Apple Silicon Optimizations
 
 **Aggressive Database Configuration** for Mac Studio M3 Ultra and similar systems:
+- **32KB Page Size**: Automatically set on new databases for 2-4x query performance (vs default 4KB)
 - **8GB SQLite Cache**: Leverages unified memory architecture
 - **32GB Memory Mapping**: Maps majority of database into RAM
 - **16-Thread Processing**: Utilizes all efficiency and performance cores
-- **Smart Index Strategy**: Composite indexes for common query patterns
+- **Smart Index Strategy**: 48 composite indexes for common query patterns
+- **Integer-Based Queries**: Enumeration table joins replace string comparisons for 5-6x speedup
 
 ### Database Optimizations
 
@@ -555,11 +559,11 @@ Use the **Coverage in Superset** metric to analyze field availability patterns:
 - Verify file isn't corrupted or truncated
 
 **Performance Issues**
-- Clear specific cache: Use Settings to clear vehicle or driver cache independently
-- Clear all caches: Preferences → Development → Clear Cache options
-- Restart app to reset database connections and rebuild caches automatically
-- Check available disk space for database growth
-- Use cache bypass: Hold ⌥ while launching or set `SAAQ_BYPASS_CACHE=1` environment variable to skip cache loading
+- Verify page size: Check Settings → Database Statistics for "32 KB" (optimal) vs "4 KB" (legacy)
+- For 4KB databases: Import a new data package with 32KB pages for 2-4x performance improvement
+- Check available disk space for database growth (32KB pages use ~15% more space but query much faster)
+- Restart app to reset database connections
+- Monitor console for query timing and index usage information
 
 **Chart Not Updating**
 - Verify filters are properly selected
@@ -569,12 +573,15 @@ Use the **Coverage in Superset** metric to analyze field availability patterns:
 **License Class Filtering Issues**
 - License class filters now use proper display names (e.g., "1-2-3-4", "Learner 1-2-3")
 - System handles multi-license holders correctly with OR logic
-- Rebuild driver cache if experiencing filter inconsistencies
 
 ### Debug Information
-- Console logs provide detailed import progress
-- Database statistics available in app status
-- Filter cache information shows loading performance
+- Console logs provide detailed import progress and query timing
+- Database statistics available in Settings panel:
+  - Total record counts for vehicles and licenses
+  - Page size (4 KB legacy or 32 KB optimized)
+  - Database file size
+  - Available years, regions, municipalities
+- Query performance metrics in console output
 
 ## License
 
