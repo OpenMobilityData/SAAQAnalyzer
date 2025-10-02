@@ -1331,6 +1331,8 @@ struct GeneralSettingsView: View {
                 .buttonBorderShape(.roundedRectangle)
             }
         }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
         .padding(20)
     }
 }
@@ -1596,6 +1598,8 @@ struct DatabaseSettingsView: View {
                 .help("Run ANALYZE to update SQLite query planner statistics")
             }
         }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
         .padding(20)
         .task {
             await loadStats()
@@ -1687,6 +1691,8 @@ struct ExportSettingsView: View {
                 }
             }
         }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
         .padding(20)
     }
 }
