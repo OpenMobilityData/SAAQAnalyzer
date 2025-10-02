@@ -833,9 +833,14 @@ struct ContentView: View {
 
     /// Extract year from filename (supports "2011_..." or "..._2011.csv" formats)
     private func extractYearFromFilename(_ filename: String) -> Int? {
-        let components = filename.components(separatedBy: CharacterSet(charactersIn: "_."))
-        let yearString = components.first { $0.count == 4 && Int($0) != nil }
-        return yearString.flatMap { Int($0) }
+        // Match 4-digit year anywhere in filename
+        let pattern = /\b(\d{4})\b/
+
+        if let match = filename.firstMatch(of: pattern),
+           let year = Int(match.1) {
+            return year
+        }
+        return nil
     }
 
     private func processNextVehicleImport() async {

@@ -350,20 +350,11 @@ class DatabaseManager: ObservableObject {
                 }
 
                 // Look for index usage patterns in the query plan
-                if detail.contains("USING INDEX") {
-                    // Extract index name from patterns like "USING INDEX idx_name"
-                    let components = detail.components(separatedBy: " ")
-                    if let usingIndex = components.firstIndex(of: "INDEX"),
-                       usingIndex + 1 < components.count {
-                        indexUsed = components[usingIndex + 1]
-                    }
-                } else if detail.contains("USING COVERING INDEX") {
-                    // Extract covering index name
-                    let components = detail.components(separatedBy: " ")
-                    if let coveringIndex = components.firstIndex(of: "INDEX"),
-                       coveringIndex + 1 < components.count {
-                        indexUsed = components[coveringIndex + 1]
-                    }
+                // Match "USING INDEX index_name" or "USING COVERING INDEX index_name"
+                let indexPattern = /USING (?:COVERING )?INDEX (\w+)/
+
+                if let match = detail.firstMatch(of: indexPattern) {
+                    indexUsed = String(match.1)
                 }
             }
         }

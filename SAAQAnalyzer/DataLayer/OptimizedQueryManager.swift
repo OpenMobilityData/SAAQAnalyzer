@@ -59,9 +59,11 @@ class OptimizedQueryManager {
 
     /// Extract code from "Name (##)" formatted string
     private func extractCode(from displayString: String) -> String? {
-        if let startIdx = displayString.lastIndex(of: "("),
-           let endIdx = displayString.lastIndex(of: ")") {
-            let code = displayString[displayString.index(after: startIdx)..<endIdx].trimmingCharacters(in: .whitespaces)
+        // Match content within parentheses at end of string: "Name (code)"
+        let pattern = /\(([^)]+)\)\s*$/
+
+        if let match = displayString.firstMatch(of: pattern) {
+            let code = String(match.1).trimmingCharacters(in: .whitespaces)
             return code.isEmpty ? nil : code
         }
         return nil
