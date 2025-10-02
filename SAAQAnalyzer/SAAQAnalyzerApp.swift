@@ -423,6 +423,7 @@ struct ContentView: View {
             principalToolbar
             primaryActionToolbar
         }
+        .toolbarBackground(.hidden, for: .windowToolbar)
         .onChange(of: progressManager.isImporting) { _, isImporting in
             withAnimation(.spring()) {
                 showingImportProgress = isImporting

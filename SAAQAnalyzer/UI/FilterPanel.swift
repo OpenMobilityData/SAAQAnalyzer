@@ -853,6 +853,7 @@ struct AgeRangeFilterSection: View {
             .controlSize(.small)
             .popover(isPresented: $showAddRange) {
                 CustomAgeRangeView(ageRanges: $ageRanges)
+                    .presentationSizing(.fitted)
             }
         }
     }
