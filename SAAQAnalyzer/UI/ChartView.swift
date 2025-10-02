@@ -440,7 +440,7 @@ struct ChartView: View {
             chartContent = AnyView(
                 Text("No data available")
                     .font(.title2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .frame(width: 900, height: 500)
             )
         } else {
@@ -516,7 +516,7 @@ struct ChartView: View {
 
             Text("Generated on \(Date().formatted(date: .abbreviated, time: .shortened))")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .padding(24)
         .background(Color.white)
@@ -583,16 +583,16 @@ struct EmptyChartView: View {
         VStack(spacing: 16) {
             Image(systemName: "chart.xyaxis.line")
                 .font(.system(size: 60))
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .symbolRenderingMode(.hierarchical)
 
             Text("No Data Series")
                 .font(.title2.weight(.medium))
                 .fontDesign(.rounded)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             
             Text("Add a data series using the filters on the left")
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -650,7 +650,7 @@ struct ChartLegend: View {
                     if let lastPoint = seriesItem.points.last {
                         Text("\(lastPoint.year.formatted(.number.grouping(.never))): \(Int(lastPoint.value).formatted())")
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                     
                     // Hide/Show button
@@ -660,7 +660,7 @@ struct ChartLegend: View {
                         chartRefreshTrigger.toggle()
                     } label: {
                         Image(systemName: seriesItem.isVisible ? "eye" : "eye.slash")
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                             .imageScale(.small)
                     }
                     .buttonStyle(.plain)
@@ -674,7 +674,7 @@ struct ChartLegend: View {
                         series.removeAll { $0.id == seriesItem.id }
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                             .imageScale(.small)
                     }
                     .buttonStyle(.plain)

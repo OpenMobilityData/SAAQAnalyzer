@@ -62,11 +62,11 @@ struct ImportProgressView: View {
                         HStack {
                             Text("Current file:")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                             Text(progressManager.currentFileName)
                                 .font(.caption)
                                 .fontWeight(.medium)
-                                .foregroundColor(.primary)
+                                .foregroundStyle(.primary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                             Spacer()
@@ -77,7 +77,7 @@ struct ImportProgressView: View {
 
             HStack {
                 Image(systemName: progressManager.currentStage.systemImage)
-                    .foregroundColor(.accentColor)
+                    .foregroundStyle(.tint)
                     .font(.title2)
                     .symbolRenderingMode(.hierarchical)
 
@@ -88,7 +88,7 @@ struct ImportProgressView: View {
 
                     Text(progressManager.currentStage.description)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
 
                 Spacer()
@@ -105,21 +105,21 @@ struct ImportProgressView: View {
         HStack(spacing: 4) {
             Text("Step")
                 .font(.caption2)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             
             Text("\(progressManager.currentStage.stepNumber)")
                 .font(.caption)
                 .fontWeight(.bold)
-                .foregroundColor(.accentColor)
+                .foregroundStyle(.tint)
             
             Text("of")
                 .font(.caption2)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             
             Text("\(ImportProgressManager.ImportStage.totalSteps)")
                 .font(.caption)
                 .fontWeight(.medium)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
@@ -141,7 +141,7 @@ struct ImportProgressView: View {
                 Text("\(Int(progressManager.overallProgress * 100))%")
                     .font(.subheadline.weight(.semibold))
                     .fontDesign(.rounded)
-                    .foregroundColor(.accentColor)
+                    .foregroundStyle(.tint)
             }
             
             GeometryReader { geometry in
@@ -205,7 +205,7 @@ struct ImportProgressView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Current Stage")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .textCase(.uppercase)
                         .tracking(0.5)
                     
@@ -260,7 +260,7 @@ struct ImportProgressView: View {
                     Text("\(Int(progress * 100))")
                         .font(.caption2)
                         .fontWeight(.bold)
-                        .foregroundColor(.accentColor)
+                        .foregroundStyle(.tint)
                 }
             }
         }

@@ -488,7 +488,7 @@ struct ContentView: View {
 
                         Text("Preparing import...")
                             .font(.headline)
-                            .foregroundColor(.primary)
+                            .foregroundStyle(.primary)
                     }
                     .padding(40)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
@@ -1174,14 +1174,14 @@ struct SeriesQueryProgressView: View {
 
                 Text(subtitleText)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
                 // Query pattern information
                 if let pattern = queryPattern {
                     Text("Query: \(pattern)")
                         .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .padding(.horizontal)
                         .padding(.vertical, 4)
                         .background(Color.gray.opacity(0.1))
@@ -1346,7 +1346,7 @@ struct PerformanceSettingsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("System Information")
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
 
                     HStack {
                         Text("Physical Memory:")
@@ -1375,7 +1375,7 @@ struct PerformanceSettingsView: View {
                         Spacer()
                         Text("\(settings.efficiencyCoreCount)")
                             .fontWeight(.medium)
-                            .foregroundColor(.orange)
+                            .foregroundStyle(.orange)
                     }
                 }
                 .padding(12)
@@ -1397,7 +1397,7 @@ struct PerformanceSettingsView: View {
                                 .font(.subheadline)
                             Text("Automatically optimize based on file size and system")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     .controlSize(.regular)
@@ -1423,7 +1423,7 @@ struct PerformanceSettingsView: View {
 
                             Text("Adaptive calculation preview:")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
 
                             adaptivePreviewGrid
                         }
@@ -1449,7 +1449,7 @@ struct PerformanceSettingsView: View {
 
                             Text("Fixed thread count for all imports")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                         .padding(.leading, 20)
                     }
@@ -1499,7 +1499,7 @@ struct PerformanceSettingsView: View {
                     .font(.caption2)
                     .fontWeight(.medium)
             }
-            .foregroundColor(.secondary)
+            .foregroundStyle(.secondary)
 
             ForEach([
                 (name: "Small (100K)", count: 100_000),
@@ -1534,7 +1534,7 @@ struct PerformanceSettingsView: View {
                     .fontWeight(.medium)
                 Text(description)
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -1557,7 +1557,7 @@ struct DatabaseSettingsView: View {
                         ProgressView()
                             .scaleEffect(0.8)
                         Text("Loading statistics...")
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                 } else if let stats = cachedStats {
                     VStack(alignment: .leading, spacing: 8) {
@@ -1574,7 +1574,7 @@ struct DatabaseSettingsView: View {
                     .font(.system(.body, design: .monospaced))
                 } else {
                     Text("Unable to load statistics")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
 

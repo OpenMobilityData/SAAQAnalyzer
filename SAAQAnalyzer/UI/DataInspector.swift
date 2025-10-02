@@ -78,17 +78,17 @@ struct DataInspectorView: View {
                 VStack(spacing: 16) {
                     Image(systemName: "sidebar.right")
                         .font(.system(size: 40))
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .symbolRenderingMode(.hierarchical)
 
                     Text("No Series Selected")
                         .font(.title3.weight(.medium))
                         .fontDesign(.rounded)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     
                     Text("Select a data series from the chart to view details")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -144,7 +144,7 @@ struct SeriesSummaryView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Series Name")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 Text(series.name)
                     .font(.body)
                     .textSelection(.enabled)
@@ -154,7 +154,7 @@ struct SeriesSummaryView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Data Type")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 HStack {
                     Image(systemName: series.filters.dataEntityType == .license ? "person.crop.circle.badge.checkmark" : "car")
                         .foregroundColor(series.filters.dataEntityType == .license ? .blue : .purple)
@@ -167,7 +167,7 @@ struct SeriesSummaryView: View {
             HStack {
                 Text("Color:")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 RoundedRectangle(cornerRadius: 4)
                     .fill(series.color)
@@ -178,7 +178,7 @@ struct SeriesSummaryView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Active Filters")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 FilterSummaryView(filters: series.filters)
             }
@@ -187,7 +187,7 @@ struct SeriesSummaryView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Actions")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 Button {
                     copySeriesToClipboard()
@@ -265,7 +265,7 @@ struct FilterSummaryView: View {
             if !filters.mrcs.isEmpty {
                 HStack {
                     Image(systemName: "building.2.fill")
-                        .foregroundColor(.green)
+                        .foregroundStyle(.green)
                         .frame(width: 16)
                     Text("MRCs: \(filters.mrcs.count)")
                         .font(.caption)
@@ -275,7 +275,7 @@ struct FilterSummaryView: View {
             if !filters.municipalities.isEmpty {
                 HStack {
                     Image(systemName: "house.fill")
-                        .foregroundColor(.orange)
+                        .foregroundStyle(.orange)
                         .frame(width: 16)
                     Text("Municipalities: \(filters.municipalities.count)")
                         .font(.caption)
@@ -285,7 +285,7 @@ struct FilterSummaryView: View {
             if !filters.vehicleClassifications.isEmpty {
                 HStack {
                     Image(systemName: "car")
-                        .foregroundColor(.purple)
+                        .foregroundStyle(.purple)
                         .frame(width: 16)
                     Text("Vehicle Types: \(filters.vehicleClassifications.count)")
                         .font(.caption)
@@ -316,7 +316,7 @@ struct FilterSummaryView: View {
             if !filters.ageGroups.isEmpty {
                 HStack {
                     Image(systemName: "person.3")
-                        .foregroundColor(.green)
+                        .foregroundStyle(.green)
                         .frame(width: 16)
                     Text("Age Groups: \(filters.ageGroups.count)")
                         .font(.caption)
@@ -326,7 +326,7 @@ struct FilterSummaryView: View {
             if !filters.genders.isEmpty {
                 HStack {
                     Image(systemName: "person.2")
-                        .foregroundColor(.purple)
+                        .foregroundStyle(.purple)
                         .frame(width: 16)
                     Text("Genders: \(filters.genders.count)")
                         .font(.caption)
@@ -336,7 +336,7 @@ struct FilterSummaryView: View {
             if !filters.experienceLevels.isEmpty {
                 HStack {
                     Image(systemName: "graduationcap")
-                        .foregroundColor(.orange)
+                        .foregroundStyle(.orange)
                         .frame(width: 16)
                     Text("Experience Levels: \(filters.experienceLevels.count)")
                         .font(.caption)
@@ -346,7 +346,7 @@ struct FilterSummaryView: View {
             if !filters.licenseClasses.isEmpty {
                 HStack {
                     Image(systemName: "list.clipboard")
-                        .foregroundColor(.cyan)
+                        .foregroundStyle(.cyan)
                         .frame(width: 16)
                     Text("License Classes: \(filters.licenseClasses.count)")
                         .font(.caption)
@@ -508,11 +508,11 @@ struct SeriesStatisticsView: View {
             
             Text("Trend Analysis")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             
             Text("Future: Polynomial fitting will be implemented here")
                 .font(.caption2)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .italic()
         }
     }
@@ -596,12 +596,12 @@ struct StatisticRow: View {
             HStack(spacing: 4) {
                 Text(label)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 if let help = help {
                     Image(systemName: "questionmark.circle")
                         .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .help(help)
                 }
             }
@@ -775,7 +775,7 @@ extension ExportMenu {
                                 if !packageManager.operationStatus.isEmpty {
                                     Text(packageManager.operationStatus)
                                         .font(.caption)
-                                        .foregroundColor(.secondary)
+                                        .foregroundStyle(.secondary)
                                 }
 
                                 if packageManager.operationProgress > 0 {
@@ -784,12 +784,12 @@ extension ExportMenu {
 
                                     Text("\(Int(packageManager.operationProgress * 100))%")
                                         .font(.caption2)
-                                        .foregroundColor(.secondary)
+                                        .foregroundStyle(.secondary)
                                 }
 
                                 Text("Please do not quit the application")
                                     .font(.caption2)
-                                    .foregroundColor(.orange)
+                                    .foregroundStyle(.orange)
                             }
                             .padding(30)
                             .background(Color(NSColor.controlBackgroundColor))

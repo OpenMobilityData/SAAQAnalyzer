@@ -73,7 +73,7 @@ struct FilterPanel: View {
                                 .scaleEffect(0.8)
                             Text("Loading filter options...")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, minHeight: 200)
                         .padding()
@@ -158,7 +158,7 @@ struct FilterPanel: View {
                                         .scaleEffect(0.8)
                                     Text("Loading license characteristics...")
                                         .font(.caption)
-                                        .foregroundColor(.secondary)
+                                        .foregroundStyle(.secondary)
                                 }
                                 .frame(maxWidth: .infinity, minHeight: 100)
                                 .padding()
@@ -552,7 +552,7 @@ struct SimpleGeographicFilterSection: View {
             if !availableRegions.isEmpty {
                 Text("Administrative Regions")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 SearchableFilterList(
                     items: availableRegions,
@@ -567,7 +567,7 @@ struct SimpleGeographicFilterSection: View {
                 
                 Text("MRCs")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 SearchableFilterList(
                     items: availableMRCs,
@@ -582,7 +582,7 @@ struct SimpleGeographicFilterSection: View {
 
                 Text("Municipalities")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 MunicipalityFilterList(
                     availableCodes: availableMunicipalities,
@@ -598,12 +598,12 @@ struct SimpleGeographicFilterSection: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Selected locations:")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     
                     if !configuration.regions.isEmpty {
                         HStack {
                             Image(systemName: "flag.fill")
-                                .foregroundColor(.blue)
+                                .foregroundStyle(.blue)
                             Text("\(configuration.regions.count) region(s)")
                                 .font(.caption)
                         }
@@ -612,7 +612,7 @@ struct SimpleGeographicFilterSection: View {
                     if !configuration.mrcs.isEmpty {
                         HStack {
                             Image(systemName: "building.2.fill")
-                                .foregroundColor(.green)
+                                .foregroundStyle(.green)
                             Text("\(configuration.mrcs.count) MRC(s)")
                                 .font(.caption)
                         }
@@ -621,7 +621,7 @@ struct SimpleGeographicFilterSection: View {
                     if !configuration.municipalities.isEmpty {
                         HStack {
                             Image(systemName: "location.fill")
-                                .foregroundColor(.orange)
+                                .foregroundStyle(.orange)
                             Text("\(configuration.municipalities.count) municipalit(y/ies)")
                                 .font(.caption)
                         }
@@ -664,7 +664,7 @@ struct VehicleFilterSection: View {
             if !availableClassifications.isEmpty {
                 Text("Vehicle Type")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 VehicleClassificationFilterList(
                     availableClassifications: availableClassifications,
@@ -678,7 +678,7 @@ struct VehicleFilterSection: View {
 
                 Text("Vehicle Make")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 SearchableFilterList(
                     items: availableVehicleMakes,
@@ -693,7 +693,7 @@ struct VehicleFilterSection: View {
 
                 Text("Vehicle Model")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 SearchableFilterList(
                     items: availableVehicleModels,
@@ -708,7 +708,7 @@ struct VehicleFilterSection: View {
 
                 Text("Vehicle Color")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 SearchableFilterList(
                     items: availableVehicleColors,
@@ -723,7 +723,7 @@ struct VehicleFilterSection: View {
 
                 Text("Model Year")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 SearchableFilterList(
                     items: availableModelYears.map { String($0) },
@@ -745,7 +745,7 @@ struct VehicleFilterSection: View {
 
                 Text("Fuel Type (2017+)")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 SearchableFilterList(
                     items: FuelType.allCases.map { $0.description },
@@ -779,7 +779,7 @@ struct AgeRangeFilterSection: View {
             // Predefined age ranges
             Text("Quick Select")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             
             HStack {
                 Button("0-5 years") {
@@ -817,7 +817,7 @@ struct AgeRangeFilterSection: View {
                 
                 Text("Selected Ranges")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 ForEach(Array(ageRanges.enumerated()), id: \.offset) { index, range in
                     HStack {
@@ -833,7 +833,7 @@ struct AgeRangeFilterSection: View {
                             ageRanges.remove(at: index)
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
                     }
@@ -957,7 +957,7 @@ struct SearchableFilterList: View {
             if items.count > 8 {
                 HStack {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .font(.caption)
 
                     TextField(searchPrompt, text: $searchText)
@@ -969,7 +969,7 @@ struct SearchableFilterList: View {
                             searchText = ""
                         }) {
                             Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                                 .font(.caption)
                         }
                         .buttonStyle(.plain)
@@ -1045,7 +1045,7 @@ struct SearchableFilterList: View {
             if !searchText.isEmpty && filteredItems.count != items.count {
                 Text("Showing \(filteredItems.count) of \(items.count) items")
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .padding(.top, 4)
             }
         }
@@ -1084,7 +1084,7 @@ struct VehicleClassificationFilterList: View {
             if availableClassifications.count > 10 {
                 HStack {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .font(.caption)
                     
                     TextField("Search vehicle types...", text: $searchText)
@@ -1163,7 +1163,7 @@ struct VehicleClassificationFilterList: View {
             if !searchText.isEmpty && filteredItems.count != availableClassifications.count {
                 Text("Showing \(filteredItems.count) of \(availableClassifications.count) vehicle types")
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .padding(.top, 4)
             }
         }
@@ -1226,7 +1226,7 @@ struct MunicipalityFilterList: View {
             if displayItems.count > 8 {
                 HStack {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .font(.caption)
 
                     TextField("Search municipalities...", text: $searchText)
@@ -1302,7 +1302,7 @@ struct MunicipalityFilterList: View {
             if !searchText.isEmpty && filteredItems.count != displayItems.count {
                 Text("Showing \(filteredItems.count) of \(displayItems.count) municipalities")
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .padding(.top, 4)
             }
         }
@@ -1378,7 +1378,7 @@ struct MetricConfigurationSection: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Metric Type")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 Picker("", selection: $metricType) {
                     ForEach(availableMetricTypes, id: \.self) { type in
@@ -1395,7 +1395,7 @@ struct MetricConfigurationSection: View {
                     let preposition = (metricType == .minimum || metricType == .maximum) ? "for" : "to"
                     Text("Field \(preposition) \(metricType.rawValue)")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
 
                     Picker("", selection: $metricField) {
                         ForEach(ChartMetricField.allCases.filter { $0 != .none }, id: \.self) { field in
@@ -1403,7 +1403,7 @@ struct MetricConfigurationSection: View {
                                 Text(field.rawValue)
                                 if let unit = field.unit {
                                     Text("(\(unit))")
-                                        .foregroundColor(.secondary)
+                                        .foregroundStyle(.secondary)
                                 }
                             }.tag(field)
                         }
@@ -1420,7 +1420,7 @@ struct MetricConfigurationSection: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Numerator Category")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Picker("", selection: Binding(
                         get: { selectedCategoryToRemove },
                         set: { newCategory in
@@ -1445,7 +1445,7 @@ struct MetricConfigurationSection: View {
                     if selectedCategoryToRemove != nil {
                         Text("Percentage of \(currentFilters.dataEntityType == .license ? "license holders" : "vehicles") within other selected filters")
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(Color.gray.opacity(0.1))
@@ -1459,7 +1459,7 @@ struct MetricConfigurationSection: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Field to Analyze")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Picker("", selection: $coverageField) {
                         Text("Select field...").tag(CoverageField?.none)
                         ForEach(availableCoverageFields, id: \.self) { field in
@@ -1484,7 +1484,7 @@ struct MetricConfigurationSection: View {
                             ? "Percentage of records with non-NULL \(coverageField?.rawValue ?? "") values"
                             : "Count of NULL \(coverageField?.rawValue ?? "") values")
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(Color.gray.opacity(0.1))
@@ -1501,7 +1501,7 @@ struct MetricConfigurationSection: View {
                         .font(.caption)
                     Text(descriptionText)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -1642,7 +1642,7 @@ struct LicenseFilterSection: View {
             if !availableLicenseTypes.isEmpty {
                 Text("License Type")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 SearchableFilterList(
                     items: availableLicenseTypes,
@@ -1657,7 +1657,7 @@ struct LicenseFilterSection: View {
 
                 Text("Age Group")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 SearchableFilterList(
                     items: availableAgeGroups,
@@ -1672,7 +1672,7 @@ struct LicenseFilterSection: View {
 
                 Text("Gender")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 SearchableFilterList(
                     items: availableGenders.map { gender in
@@ -1712,7 +1712,7 @@ struct LicenseFilterSection: View {
 
                 Text("Experience Level")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 SearchableFilterList(
                     items: availableExperienceLevels,
@@ -1727,7 +1727,7 @@ struct LicenseFilterSection: View {
 
                 Text("License Classes")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 SearchableFilterList(
                     items: availableLicenseClasses,
