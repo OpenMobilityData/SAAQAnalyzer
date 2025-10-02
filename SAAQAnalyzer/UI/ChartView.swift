@@ -225,6 +225,7 @@ struct ChartView: View {
         .chartYScale(domain: chartType == .line ? yAxisDomain() : yAxisDomainForBarArea())
         .chartPlotStyle { plotArea in
             plotArea
+                .background(.ultraThinMaterial.opacity(0.5))
                 .border(Color.secondary.opacity(0.2), width: 1)
         }
     }
