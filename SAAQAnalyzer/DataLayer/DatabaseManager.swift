@@ -3467,6 +3467,28 @@ class DatabaseManager: ObservableObject {
         }
     }
 
+    /// Gets database page size from PRAGMA
+    func getDatabasePageSize() async -> Int {
+        return await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: 0)
+                    return
+                }
+
+                var pageSize = 0
+                var stmt: OpaquePointer?
+                if sqlite3_prepare_v2(db, "PRAGMA page_size", -1, &stmt, nil) == SQLITE_OK {
+                    if sqlite3_step(stmt) == SQLITE_ROW {
+                        pageSize = Int(sqlite3_column_int(stmt, 0))
+                    }
+                    sqlite3_finalize(stmt)
+                }
+                continuation.resume(returning: pageSize)
+            }
+        }
+    }
+
     /// Gets database summary statistics
     func getDatabaseStats() async -> CachedDatabaseStats {
         // Vehicle statistics
@@ -3483,6 +3505,7 @@ class DatabaseManager: ObservableObject {
         let municipalities = await getMunicipalitiesFromDatabase()
         let regions = await getRegionsFromDatabase()
         let fileSize = await getDatabaseFileSize()
+        let pageSize = await getDatabasePageSize()
 
         return CachedDatabaseStats(
             totalVehicleRecords: totalVehicleRecords,
@@ -3494,6 +3517,7 @@ class DatabaseManager: ObservableObject {
             municipalities: municipalities.count,
             regions: regions.count,
             fileSizeBytes: fileSize,
+            pageSizeBytes: pageSize,
             lastUpdated: Date()
         )
     }

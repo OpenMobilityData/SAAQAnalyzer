@@ -16,6 +16,7 @@ struct CachedDatabaseStats: Codable {
     let municipalities: Int
     let regions: Int
     let fileSizeBytes: Int64
+    let pageSizeBytes: Int
     let lastUpdated: Date
 
     // Computed properties for backward compatibility and convenience

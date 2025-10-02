@@ -1556,6 +1556,7 @@ struct DatabaseSettingsView: View {
                         Text("Municipalities: \(stats.municipalities)")
                         Text("Regions: \(stats.regions)")
                         Text("Database Size: \(formatFileSize(stats.fileSizeBytes))")
+                        Text("Page Size: \(formatPageSize(stats.pageSizeBytes))")
                         Text("Last Updated: \(stats.lastUpdated.formatted())")
                     }
                     .font(.system(.body, design: .monospaced))
@@ -1618,6 +1619,14 @@ struct DatabaseSettingsView: View {
         formatter.allowedUnits = [.useBytes, .useKB, .useMB, .useGB]
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
+    }
+
+    private func formatPageSize(_ bytes: Int) -> String {
+        if bytes >= 1024 {
+            return "\(bytes / 1024) KB"
+        } else {
+            return "\(bytes) bytes"
+        }
     }
 }
 
