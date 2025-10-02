@@ -584,9 +584,11 @@ struct EmptyChartView: View {
             Image(systemName: "chart.xyaxis.line")
                 .font(.system(size: 60))
                 .foregroundColor(.secondary)
-            
+                .symbolRenderingMode(.hierarchical)
+
             Text("No Data Series")
-                .font(.title2)
+                .font(.title2.weight(.medium))
+                .fontDesign(.rounded)
                 .foregroundColor(.secondary)
             
             Text("Add a data series using the filters on the left")
@@ -608,8 +610,9 @@ struct ChartLegend: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Legend")
-                    .font(.headline)
-                
+                    .font(.headline.weight(.medium))
+                    .fontDesign(.rounded)
+
                 Spacer()
                 
                 // Clear all button

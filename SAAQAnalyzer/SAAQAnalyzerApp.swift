@@ -1169,8 +1169,8 @@ struct SeriesQueryProgressView: View {
                     .symbolEffect(.pulse, isActive: true)
 
                 Text(titleText)
-                    .font(.headline)
-                    .fontWeight(.semibold)
+                    .font(.headline.weight(.medium))
+                    .fontDesign(.rounded)
 
                 Text(subtitleText)
                     .font(.caption)
@@ -1386,7 +1386,8 @@ struct PerformanceSettingsView: View {
                 // Thread Configuration
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Thread Configuration")
-                        .font(.headline)
+                        .font(.headline.weight(.medium))
+                        .fontDesign(.rounded)
 
                     // Adaptive vs Manual toggle
                     Toggle(isOn: $settings.useAdaptiveThreadCount) {
@@ -1457,7 +1458,8 @@ struct PerformanceSettingsView: View {
                 // Performance Tips
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Performance Tips")
-                        .font(.headline)
+                        .font(.headline.weight(.medium))
+                        .fontDesign(.rounded)
 
                     VStack(alignment: .leading, spacing: 4) {
                         performanceTip(

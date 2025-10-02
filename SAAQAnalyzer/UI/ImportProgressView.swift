@@ -42,8 +42,8 @@ struct ImportProgressView: View {
                             .foregroundColor(.white)
                             .font(.headline)
                         Text("Batch Import: File \(progressManager.currentFileIndex + 1) of \(progressManager.totalFiles)")
-                            .font(.headline)
-                            .fontWeight(.bold)
+                            .font(.headline.weight(.medium))
+                            .fontDesign(.rounded)
                             .foregroundColor(.white)
                         Spacer()
                     }
@@ -83,8 +83,8 @@ struct ImportProgressView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(progressManager.currentStage.title)
-                        .font(.headline)
-                        .fontWeight(.semibold)
+                        .font(.headline.weight(.medium))
+                        .fontDesign(.rounded)
 
                     Text(progressManager.currentStage.description)
                         .font(.caption)
@@ -133,14 +133,14 @@ struct ImportProgressView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Overall Progress")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                
+                    .font(.subheadline.weight(.medium))
+                    .fontDesign(.rounded)
+
                 Spacer()
                 
                 Text("\(Int(progressManager.overallProgress * 100))%")
-                    .font(.subheadline)
-                    .fontWeight(.bold)
+                    .font(.subheadline.weight(.semibold))
+                    .fontDesign(.rounded)
                     .foregroundColor(.accentColor)
             }
             
@@ -210,8 +210,8 @@ struct ImportProgressView: View {
                         .tracking(0.5)
                     
                     Text(progressManager.stageProgress.progressText)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+                        .font(.subheadline.weight(.medium))
+                        .fontDesign(.rounded)
                         .multilineTextAlignment(.leading)
                 }
                 

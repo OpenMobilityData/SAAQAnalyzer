@@ -46,7 +46,8 @@ struct FilterPanel: View {
             // Header
             HStack {
                 Label("Filters", systemImage: "line.horizontal.3.decrease.circle")
-                    .font(.headline)
+                    .font(.headline.weight(.medium))
+                    .fontDesign(.rounded)
                     .symbolRenderingMode(.hierarchical)
 
                 Spacer()

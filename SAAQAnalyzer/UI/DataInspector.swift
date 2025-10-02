@@ -31,7 +31,8 @@ struct DataInspectorView: View {
             // Header
             HStack {
                 Label("Data Inspector", systemImage: "sidebar.right")
-                    .font(.headline)
+                    .font(.headline.weight(.medium))
+                    .fontDesign(.rounded)
                     .symbolRenderingMode(.hierarchical)
 
                 Spacer()
@@ -79,9 +80,10 @@ struct DataInspectorView: View {
                         .font(.system(size: 40))
                         .foregroundColor(.secondary)
                         .symbolRenderingMode(.hierarchical)
-                    
+
                     Text("No Series Selected")
-                        .font(.title3)
+                        .font(.title3.weight(.medium))
+                        .fontDesign(.rounded)
                         .foregroundColor(.secondary)
                     
                     Text("Select a data series from the chart to view details")
