@@ -1411,6 +1411,7 @@ struct MetricConfigurationSection: View {
                     .pickerStyle(.menu)
                     .labelsHidden()
                     .frame(maxWidth: .infinity)
+                    .controlSize(.small)
                 }
             }
 
@@ -1439,6 +1440,7 @@ struct MetricConfigurationSection: View {
                     .pickerStyle(.menu)
                     .labelsHidden()
                     .frame(maxWidth: .infinity)
+                    .controlSize(.small)
 
                     if selectedCategoryToRemove != nil {
                         Text("Percentage of \(currentFilters.dataEntityType == .license ? "license holders" : "vehicles") within other selected filters")
@@ -1467,6 +1469,7 @@ struct MetricConfigurationSection: View {
                     .pickerStyle(.menu)
                     .labelsHidden()
                     .frame(maxWidth: .infinity)
+                    .controlSize(.small)
 
                     if coverageField != nil {
                         // Toggle between percentage and raw count
@@ -1475,6 +1478,7 @@ struct MetricConfigurationSection: View {
                                 .font(.caption)
                         }
                         .toggleStyle(.switch)
+                        .controlSize(.small)
 
                         Text(coverageAsPercentage
                             ? "Percentage of records with non-NULL \(coverageField?.rawValue ?? "") values"

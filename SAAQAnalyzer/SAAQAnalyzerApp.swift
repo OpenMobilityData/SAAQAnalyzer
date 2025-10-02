@@ -1400,6 +1400,7 @@ struct PerformanceSettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+                    .controlSize(.regular)
 
                     if settings.useAdaptiveThreadCount {
                         // Adaptive settings
@@ -1579,6 +1580,7 @@ struct DatabaseSettingsView: View {
 
             Section("Database Optimization") {
                 Toggle("Update Statistics on Launch", isOn: $settings.updateDatabaseStatisticsOnLaunch)
+                    .controlSize(.regular)
                     .help("Run ANALYZE command on launch to update query planner statistics (may delay startup)")
 
                 Button(isOptimizing ? "Optimizing..." : "Update Statistics Now") {
@@ -1677,7 +1679,9 @@ struct ExportSettingsView: View {
                     }
 
                     Toggle("Bold Axis Labels", isOn: $settings.exportBoldAxisLabels)
+                        .controlSize(.regular)
                     Toggle("Include Legend", isOn: $settings.exportIncludeLegend)
+                        .controlSize(.regular)
                 }
             }
         }
