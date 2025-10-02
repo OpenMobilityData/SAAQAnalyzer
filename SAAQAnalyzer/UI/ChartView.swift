@@ -623,9 +623,11 @@ struct ChartLegend: View {
                     } label: {
                         Label("Clear All", systemImage: "trash")
                             .font(.caption)
+                            .symbolRenderingMode(.hierarchical)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundColor(.red)
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                    .tint(.red)
                 }
             }
             

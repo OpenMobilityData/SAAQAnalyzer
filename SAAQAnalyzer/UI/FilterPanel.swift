@@ -55,8 +55,9 @@ struct FilterPanel: View {
                 Button("Clear All") {
                     clearAllFilters()
                 }
-                .buttonStyle(.plain)
-                .foregroundColor(.secondary)
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .tint(.secondary)
             }
             .padding()
             
@@ -497,17 +498,23 @@ struct YearFilterSection: View {
                     selectedYears = Set(availableYears)
                 }
                 .buttonStyle(.bordered)
-                
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
+
                 Button("Last 5") {
                     let lastFive = availableYears.suffix(5)
                     selectedYears = Set(lastFive)
                 }
                 .buttonStyle(.bordered)
-                
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
+
                 Button("Clear") {
                     selectedYears.removeAll()
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
             }
             
             // Year checkboxes in a grid
@@ -779,21 +786,29 @@ struct AgeRangeFilterSection: View {
                     addAgeRange(min: 0, max: 5)
                 }
                 .buttonStyle(.bordered)
-                
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
+
                 Button("6-10 years") {
                     addAgeRange(min: 6, max: 10)
                 }
                 .buttonStyle(.bordered)
-                
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
+
                 Button("11-15 years") {
                     addAgeRange(min: 11, max: 15)
                 }
                 .buttonStyle(.bordered)
-                
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
+
                 Button("16+ years") {
                     addAgeRange(min: 16, max: nil)
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
             }
             
             // Custom ranges
@@ -831,8 +846,11 @@ struct AgeRangeFilterSection: View {
                 showAddRange.toggle()
             } label: {
                 Label("Add Custom Range", systemImage: "plus.circle")
+                    .symbolRenderingMode(.hierarchical)
             }
             .buttonStyle(.bordered)
+            .buttonBorderShape(.roundedRectangle)
+            .controlSize(.small)
             .popover(isPresented: $showAddRange) {
                 CustomAgeRangeView(ageRanges: $ageRanges)
             }
@@ -884,11 +902,13 @@ struct CustomAgeRangeView: View {
                     dismiss()
                 }
                 .buttonStyle(.bordered)
-                
+                .buttonBorderShape(.roundedRectangle)
+
                 Button("Add") {
                     addRange()
                 }
                 .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.roundedRectangle)
                 .disabled(minAge.isEmpty || (hasMaxAge && maxAge.isEmpty))
             }
         }
@@ -968,12 +988,14 @@ struct SearchableFilterList: View {
                     selectedItems = Set(filteredItems)
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
                 .controlSize(.mini)
-                
+
                 Button("Clear") {
                     selectedItems.removeAll()
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
                 .controlSize(.mini)
                 
                 Spacer()
@@ -984,9 +1006,9 @@ struct SearchableFilterList: View {
                             isExpanded.toggle()
                         }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
                     .font(.caption2)
-                    .foregroundColor(.accentColor)
+                    .tint(.accentColor)
                 }
             }
             
@@ -1081,12 +1103,14 @@ struct VehicleClassificationFilterList: View {
                     selectedClassifications = Set(filteredItems)
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
                 .controlSize(.mini)
-                
+
                 Button("Clear") {
                     selectedClassifications.removeAll()
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
                 .controlSize(.mini)
                 
                 Spacer()
@@ -1097,9 +1121,9 @@ struct VehicleClassificationFilterList: View {
                             isExpanded.toggle()
                         }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
                     .font(.caption2)
-                    .foregroundColor(.accentColor)
+                    .tint(.accentColor)
                 }
             }
             
@@ -1221,12 +1245,14 @@ struct MunicipalityFilterList: View {
                     selectedCodes = Set(filteredItems.map { $0.code })
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
                 .controlSize(.mini)
 
                 Button("Clear") {
                     selectedCodes.removeAll()
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
                 .controlSize(.mini)
 
                 Spacer()
@@ -1237,9 +1263,9 @@ struct MunicipalityFilterList: View {
                             isExpanded.toggle()
                         }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
                     .font(.caption2)
-                    .foregroundColor(.accentColor)
+                    .tint(.accentColor)
                 }
             }
 

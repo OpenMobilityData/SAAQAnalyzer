@@ -196,6 +196,8 @@ struct SeriesSummaryView: View {
                         .symbolRenderingMode(.hierarchical)
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
 
                 Button {
                     exportSeriesAsCSV()
@@ -204,6 +206,8 @@ struct SeriesSummaryView: View {
                         .symbolRenderingMode(.hierarchical)
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
             }
         }
     }

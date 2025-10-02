@@ -1327,6 +1327,7 @@ struct GeneralSettingsView: View {
                     settings.resetToDefaults()
                 }
                 .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.roundedRectangle)
             }
         }
         .padding(20)
@@ -1585,6 +1586,8 @@ struct DatabaseSettingsView: View {
                         await optimizeDatabase()
                     }
                 }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
                 .disabled(isOptimizing)
                 .help("Run ANALYZE to update SQLite query planner statistics")
             }

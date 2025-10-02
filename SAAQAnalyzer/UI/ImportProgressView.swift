@@ -291,15 +291,17 @@ struct ImportProgressView: View {
                     progressManager.reset()
                 }
                 .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.roundedRectangle)
             }
-            
+
             if progressManager.isImporting {
                 Button("Cancel") {
                     // TODO: Implement cancel functionality
                     progressManager.reset()
                 }
                 .buttonStyle(.bordered)
-                .foregroundColor(.red)
+                .buttonBorderShape(.roundedRectangle)
+                .tint(.red)
             }
             
             Spacer()
