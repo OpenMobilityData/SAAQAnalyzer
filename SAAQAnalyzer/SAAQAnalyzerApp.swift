@@ -833,8 +833,8 @@ struct ContentView: View {
 
     /// Extract year from filename (supports "2011_..." or "..._2011.csv" formats)
     private func extractYearFromFilename(_ filename: String) -> Int? {
-        // Match 4-digit year anywhere in filename
-        let pattern = /\b(\d{4})\b/
+        // Match 4-digit year bounded by non-digits (including underscore, dot, etc.)
+        let pattern = /(?:^|[^\d])(\d{4})(?:[^\d]|$)/
 
         if let match = filename.firstMatch(of: pattern),
            let year = Int(match.1) {
