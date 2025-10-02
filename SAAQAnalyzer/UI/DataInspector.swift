@@ -73,6 +73,7 @@ struct DataInspectorView: View {
                     }
                     .padding()
                 }
+                .scrollIndicators(.visible, axes: .vertical)
             } else {
                 // Empty state
                 VStack(spacing: 16) {

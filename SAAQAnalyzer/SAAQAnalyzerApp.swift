@@ -1487,6 +1487,7 @@ struct PerformanceSettingsView: View {
             }
             .padding(20)
         }
+        .scrollIndicators(.visible, axes: .vertical)
     }
 
     /// Preview grid showing adaptive thread counts for different file sizes

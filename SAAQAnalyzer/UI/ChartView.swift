@@ -61,6 +61,7 @@ struct ChartView: View {
                         }
                     }
                 }
+                .scrollIndicators(.visible, axes: .vertical)
             }
         }
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 0))

@@ -203,6 +203,7 @@ struct FilterPanel: View {
                 }
                 .padding()
             }
+            .scrollIndicators(.visible, axes: .vertical)
         }
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 0))
         .onAppear {
