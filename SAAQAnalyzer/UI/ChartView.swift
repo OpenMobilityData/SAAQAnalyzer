@@ -63,7 +63,7 @@ struct ChartView: View {
                 }
             }
         }
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 0))
     }
     
     /// Chart toolbar with display options
@@ -73,6 +73,7 @@ struct ChartView: View {
             Picker("Chart Type", selection: $chartType) {
                 ForEach(ChartType.allCases, id: \.self) { type in
                     Label(type.rawValue, systemImage: type.systemImage)
+                        .symbolRenderingMode(.hierarchical)
                         .tag(type)
                 }
             }
@@ -84,18 +85,21 @@ struct ChartView: View {
             // Display options
             Toggle(isOn: $showGridLines) {
                 Image(systemName: "grid")
+                    .symbolRenderingMode(.hierarchical)
             }
             .toggleStyle(.button)
             .help("Toggle grid lines")
-            
+
             Toggle(isOn: $includeZero) {
                 Image(systemName: includeZero ? "0.square.fill" : "chart.line.uptrend.xyaxis")
+                    .symbolRenderingMode(.hierarchical)
             }
             .toggleStyle(.button)
             .help(includeZero ? "Y-axis starts at zero (click to fit data range)" : "Y-axis fits data range (click to include zero)")
-            
+
             Toggle(isOn: $showLegend) {
                 Image(systemName: "list.bullet.rectangle")
+                    .symbolRenderingMode(.hierarchical)
             }
             .toggleStyle(.button)
             .help("Toggle legend")
@@ -109,21 +113,25 @@ struct ChartView: View {
                     exportCurrentViewAsPNG()
                 } label: {
                     Label("Copy Current View as PNG", systemImage: "photo")
+                        .symbolRenderingMode(.hierarchical)
                 }
 
                 Button {
                     exportForPublicationAsPNG()
                 } label: {
                     Label("Copy Publication PNG", systemImage: "doc.richtext")
+                        .symbolRenderingMode(.hierarchical)
                 }
 
                 Button {
                     exportAsCSV()
                 } label: {
                     Label("Copy Data as CSV", systemImage: "tablecells")
+                        .symbolRenderingMode(.hierarchical)
                 }
             } label: {
                 Label("Copy to Clipboard", systemImage: "doc.on.clipboard")
+                    .symbolRenderingMode(.hierarchical)
             }
             .menuStyle(.button)
         }

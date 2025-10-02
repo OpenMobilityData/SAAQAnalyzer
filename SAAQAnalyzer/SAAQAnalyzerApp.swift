@@ -314,11 +314,13 @@ struct ContentView: View {
                         selectedFilters.dataEntityType = dataType
                     } label: {
                         Label(dataType.description, systemImage: dataType == .vehicle ? "car" : "person.crop.circle")
+                            .symbolRenderingMode(.hierarchical)
                     }
                 }
             } label: {
                 Label(selectedFilters.dataEntityType.description,
                       systemImage: selectedFilters.dataEntityType == .vehicle ? "car" : "person.crop.circle")
+                    .symbolRenderingMode(.hierarchical)
             }
 
             // Create Series button
@@ -327,9 +329,11 @@ struct ContentView: View {
             } label: {
                 if isAddingSeries {
                     Label("Adding Series...", systemImage: "arrow.triangle.2.circlepath")
+                        .symbolRenderingMode(.hierarchical)
                         .symbolEffect(.rotate, isActive: isAddingSeries)
                 } else {
                     Label("Add Series", systemImage: "plus.circle")
+                        .symbolRenderingMode(.hierarchical)
                 }
             }
             .buttonStyle(.borderedProminent)
@@ -343,6 +347,7 @@ struct ContentView: View {
             Menu {
                 Label("CSV Files", systemImage: "doc.text")
                     .font(.caption)
+                    .symbolRenderingMode(.hierarchical)
                 Button("Import Vehicle Data Files...") {
                     importVehicleFiles()
                 }
@@ -354,6 +359,7 @@ struct ContentView: View {
 
                 Label("Data Package", systemImage: "shippingbox")
                     .font(.caption)
+                    .symbolRenderingMode(.hierarchical)
                 Button("Import Data Package...") {
                     activeFileImporterMode = .dataPackage
                 }
@@ -369,6 +375,7 @@ struct ContentView: View {
                 }
             } label: {
                 Label("Import", systemImage: "square.and.arrow.down")
+                    .symbolRenderingMode(.hierarchical)
             }
 
             // Export menu
@@ -378,6 +385,7 @@ struct ContentView: View {
                 }
             } label: {
                 Label("Export", systemImage: "square.and.arrow.up")
+                    .symbolRenderingMode(.hierarchical)
             }
             .help("Export options")
 
@@ -385,6 +393,7 @@ struct ContentView: View {
             Menu {
                 Label("Database Optimization", systemImage: "speedometer")
                     .font(.caption)
+                    .symbolRenderingMode(.hierarchical)
                 Button(isMigratingSchema ? "Migrating Schema..." : "Migrate to Optimized Schema") {
                     migrateToOptimizedSchema()
                 }
@@ -403,6 +412,7 @@ struct ContentView: View {
                 }
             } label: {
                 Label("Optimize", systemImage: "speedometer")
+                    .symbolRenderingMode(.hierarchical)
             }
         }
     }
@@ -481,8 +491,7 @@ struct ContentView: View {
                             .foregroundColor(.primary)
                     }
                     .padding(40)
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .cornerRadius(12)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                     .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
                     .transition(.scale.combined(with: .opacity))
                 }
@@ -1234,8 +1243,7 @@ struct SeriesQueryProgressView: View {
             }
         }
         .padding(24)
-        .background(Color(NSColor.controlBackgroundColor))
-        .cornerRadius(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
     }
 

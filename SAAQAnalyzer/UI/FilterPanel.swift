@@ -47,7 +47,8 @@ struct FilterPanel: View {
             HStack {
                 Label("Filters", systemImage: "line.horizontal.3.decrease.circle")
                     .font(.headline)
-                
+                    .symbolRenderingMode(.hierarchical)
+
                 Spacer()
                 
                 Button("Clear All") {
@@ -89,6 +90,7 @@ struct FilterPanel: View {
                     } label: {
                         Label("Years", systemImage: "calendar")
                             .font(.subheadline)
+                            .symbolRenderingMode(.hierarchical)
                     }
                     
                     Divider()
@@ -105,6 +107,7 @@ struct FilterPanel: View {
                     } label: {
                         Label("Geographic Location", systemImage: "map")
                             .font(.subheadline)
+                            .symbolRenderingMode(.hierarchical)
                     }
                     
                     Divider()
@@ -130,6 +133,7 @@ struct FilterPanel: View {
                         } label: {
                             Label("Vehicle Characteristics", systemImage: "car")
                                 .font(.subheadline)
+                                .symbolRenderingMode(.hierarchical)
                         }
 
                         Divider()
@@ -140,6 +144,7 @@ struct FilterPanel: View {
                         } label: {
                             Label("Vehicle Age", systemImage: "clock")
                                 .font(.subheadline)
+                                .symbolRenderingMode(.hierarchical)
                         }
                     } else {
                         // License characteristics section
@@ -172,6 +177,7 @@ struct FilterPanel: View {
                         } label: {
                             Label("License Characteristics", systemImage: "person.crop.circle")
                                 .font(.subheadline)
+                                .symbolRenderingMode(.hierarchical)
                         }
                     }
 
@@ -190,12 +196,13 @@ struct FilterPanel: View {
                     } label: {
                         Label("Y-Axis Metric", systemImage: "chart.line.uptrend.xyaxis")
                             .font(.subheadline)
+                            .symbolRenderingMode(.hierarchical)
                     }
                 }
                 .padding()
             }
         }
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 0))
         .onAppear {
             if !hasInitiallyLoaded {
                 // Check if Option key is held down or environment variable is set to bypass cache loading

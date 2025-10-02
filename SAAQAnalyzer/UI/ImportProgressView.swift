@@ -22,8 +22,7 @@ struct ImportProgressView: View {
                 actionButtons
             }
             .padding(20)
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(12)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
         }
         .onAppear {
@@ -80,6 +79,7 @@ struct ImportProgressView: View {
                 Image(systemName: progressManager.currentStage.systemImage)
                     .foregroundColor(.accentColor)
                     .font(.title2)
+                    .symbolRenderingMode(.hierarchical)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(progressManager.currentStage.title)

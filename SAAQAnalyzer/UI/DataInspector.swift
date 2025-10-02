@@ -32,7 +32,8 @@ struct DataInspectorView: View {
             HStack {
                 Label("Data Inspector", systemImage: "sidebar.right")
                     .font(.headline)
-                
+                    .symbolRenderingMode(.hierarchical)
+
                 Spacer()
             }
             .padding()
@@ -44,6 +45,7 @@ struct DataInspectorView: View {
                 Picker("Inspector Tab", selection: $selectedTab) {
                     ForEach(InspectorTab.allCases, id: \.self) { tab in
                         Label(tab.rawValue, systemImage: tab.systemImage)
+                            .symbolRenderingMode(.hierarchical)
                             .tag(tab)
                     }
                 }
@@ -76,6 +78,7 @@ struct DataInspectorView: View {
                     Image(systemName: "sidebar.right")
                         .font(.system(size: 40))
                         .foregroundColor(.secondary)
+                        .symbolRenderingMode(.hierarchical)
                     
                     Text("No Series Selected")
                         .font(.title3)
@@ -90,7 +93,7 @@ struct DataInspectorView: View {
                 .padding()
             }
         }
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 0))
         .fileExporter(
             isPresented: $showingCSVExporter,
             document: ExportableDocument(data: exportData ?? Data()),
@@ -188,13 +191,15 @@ struct SeriesSummaryView: View {
                     copySeriesToClipboard()
                 } label: {
                     Label("Copy Data to Clipboard", systemImage: "doc.on.clipboard")
+                        .symbolRenderingMode(.hierarchical)
                 }
                 .buttonStyle(.bordered)
-                
+
                 Button {
                     exportSeriesAsCSV()
                 } label: {
                     Label("Export as CSV", systemImage: "square.and.arrow.up")
+                        .symbolRenderingMode(.hierarchical)
                 }
                 .buttonStyle(.bordered)
             }
