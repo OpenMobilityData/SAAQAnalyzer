@@ -1,7 +1,7 @@
 import Foundation
 
 /// Database statistics for caching
-struct CachedDatabaseStats: Codable {
+struct CachedDatabaseStats: Codable, Sendable {
     // Vehicle data statistics
     let totalVehicleRecords: Int
     let vehicleYearRange: String

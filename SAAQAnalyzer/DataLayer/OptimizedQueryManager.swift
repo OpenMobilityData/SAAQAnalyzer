@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 /// Holds converted filter IDs for optimized queries
-struct OptimizedFilterIds {
+struct OptimizedFilterIds: Sendable {
     let yearIds: [Int]
     let regionIds: [Int]
     let mrcIds: [Int]
@@ -867,7 +867,7 @@ class OptimizedQueryManager {
 }
 
 /// Performance comparison results
-struct PerformanceComparison {
+struct PerformanceComparison: Sendable {
     let optimizedTime: TimeInterval
     let estimatedStringTime: TimeInterval
     let improvementFactor: Double

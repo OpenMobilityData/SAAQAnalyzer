@@ -6,7 +6,7 @@ import SQLite3
 // MARK: - Vehicle Registration Models
 
 /// Represents a vehicle registration record from SAAQ data
-struct VehicleRegistration: Codable {
+struct VehicleRegistration: Codable, Sendable {
     let year: Int                       // AN
     let vehicleSequence: String         // NOSEQ_VEH
     let classification: String          // CLAS (PAU, CMC, etc.)
@@ -32,7 +32,7 @@ struct VehicleRegistration: Codable {
 }
 
 /// Vehicle classification types
-enum VehicleClassification: String, CaseIterable {
+enum VehicleClassification: String, CaseIterable, Sendable {
     // Personal use
     case pau = "PAU"  // Automobile ou camion léger
     case pmc = "PMC"  // Motocyclette
@@ -108,7 +108,7 @@ enum VehicleClassification: String, CaseIterable {
 }
 
 /// Fuel type codes (available from 2017+)
-enum FuelType: String, CaseIterable {
+enum FuelType: String, CaseIterable, Sendable {
     case electric = "L"      // Électricité
     case gasoline = "E"      // Essence
     case diesel = "D"        // Diesel
@@ -143,7 +143,7 @@ enum FuelType: String, CaseIterable {
 // MARK: - Driver's License Models
 
 /// Represents a driver's license record from SAAQ data
-struct DriverLicense: Codable {
+struct DriverLicense: Codable, Sendable {
     let year: Int                           // AN
     let licenseSequence: String             // NOSEQ_TITUL
     let ageGroup: String                    // AGE_1ER_JUIN
@@ -175,7 +175,7 @@ protocol CategoricalEnum: Codable, Hashable {
 }
 
 /// Year enumeration (12 values)
-struct YearEnum: CategoricalEnum {
+struct YearEnum: CategoricalEnum, Sendable {
     let id: Int  // TINYINT
     let year: Int
 
@@ -183,7 +183,7 @@ struct YearEnum: CategoricalEnum {
 }
 
 /// Vehicle classification enumeration (30 values)
-struct ClassificationEnum: CategoricalEnum {
+struct ClassificationEnum: CategoricalEnum, Sendable {
     let id: Int  // TINYINT
     let code: String      // PAU, CMC, etc.
     let description: String
@@ -192,7 +192,7 @@ struct ClassificationEnum: CategoricalEnum {
 }
 
 /// Vehicle make enumeration (418 values)
-struct MakeEnum: CategoricalEnum {
+struct MakeEnum: CategoricalEnum, Sendable {
     let id: Int  // SMALLINT
     let name: String
 
@@ -200,7 +200,7 @@ struct MakeEnum: CategoricalEnum {
 }
 
 /// Vehicle model enumeration (9,923 values)
-struct ModelEnum: CategoricalEnum {
+struct ModelEnum: CategoricalEnum, Sendable {
     let id: Int  // SMALLINT
     let name: String
     let makeId: Int
@@ -209,7 +209,7 @@ struct ModelEnum: CategoricalEnum {
 }
 
 /// Model year enumeration (120 values)
-struct ModelYearEnum: CategoricalEnum {
+struct ModelYearEnum: CategoricalEnum, Sendable {
     let id: Int  // SMALLINT
     let year: Int
 
@@ -217,7 +217,7 @@ struct ModelYearEnum: CategoricalEnum {
 }
 
 /// Cylinder count enumeration (9 values)
-struct CylinderCountEnum: CategoricalEnum {
+struct CylinderCountEnum: CategoricalEnum, Sendable {
     let id: Int  // TINYINT
     let count: Int
 
@@ -225,7 +225,7 @@ struct CylinderCountEnum: CategoricalEnum {
 }
 
 /// Axle count enumeration (6 values)
-struct AxleCountEnum: CategoricalEnum {
+struct AxleCountEnum: CategoricalEnum, Sendable {
     let id: Int  // TINYINT
     let count: Int
 
@@ -233,7 +233,7 @@ struct AxleCountEnum: CategoricalEnum {
 }
 
 /// Vehicle color enumeration (21 values)
-struct ColorEnum: CategoricalEnum {
+struct ColorEnum: CategoricalEnum, Sendable {
     let id: Int  // TINYINT
     let name: String
 
@@ -241,7 +241,7 @@ struct ColorEnum: CategoricalEnum {
 }
 
 /// Fuel type enumeration (13 values)
-struct FuelTypeEnum: CategoricalEnum {
+struct FuelTypeEnum: CategoricalEnum, Sendable {
     let id: Int  // TINYINT
     let code: String      // E, D, L, H, etc.
     let description: String
@@ -250,7 +250,7 @@ struct FuelTypeEnum: CategoricalEnum {
 }
 
 /// Administrative region enumeration (18/35 values)
-struct AdminRegionEnum: CategoricalEnum {
+struct AdminRegionEnum: CategoricalEnum, Sendable {
     let id: Int  // TINYINT
     let code: String
     let name: String
@@ -259,7 +259,7 @@ struct AdminRegionEnum: CategoricalEnum {
 }
 
 /// MRC enumeration (106 values)
-struct MRCEnum: CategoricalEnum {
+struct MRCEnum: CategoricalEnum, Sendable {
     let id: Int  // SMALLINT
     let code: String
     let name: String
@@ -268,7 +268,7 @@ struct MRCEnum: CategoricalEnum {
 }
 
 /// Municipality enumeration (129 values)
-struct MunicipalityEnum: CategoricalEnum {
+struct MunicipalityEnum: CategoricalEnum, Sendable {
     let id: Int  // SMALLINT
     let code: String
     let name: String
@@ -277,7 +277,7 @@ struct MunicipalityEnum: CategoricalEnum {
 }
 
 /// Age group enumeration (8 values)
-struct AgeGroupEnum: CategoricalEnum {
+struct AgeGroupEnum: CategoricalEnum, Sendable {
     let id: Int  // TINYINT
     let range: String     // "16-19", "20-24", etc.
 
@@ -285,7 +285,7 @@ struct AgeGroupEnum: CategoricalEnum {
 }
 
 /// Gender enumeration (2 values)
-struct GenderEnum: CategoricalEnum {
+struct GenderEnum: CategoricalEnum, Sendable {
     let id: Int  // TINYINT
     let code: String      // M, F
     let description: String
@@ -294,7 +294,7 @@ struct GenderEnum: CategoricalEnum {
 }
 
 /// License type enumeration (3 values)
-struct LicenseTypeEnum: CategoricalEnum {
+struct LicenseTypeEnum: CategoricalEnum, Sendable {
     let id: Int  // TINYINT
     let typeName: String
     let description: String
@@ -303,7 +303,7 @@ struct LicenseTypeEnum: CategoricalEnum {
 }
 
 /// Optimized vehicle registration with enumerated categorical data
-struct OptimizedVehicleRegistration: Codable {
+struct OptimizedVehicleRegistration: Codable, Sendable {
     // Core identifiers
     let yearId: Int                    // TINYINT → year enum
     let vehicleSequence: String        // Keep as-is for uniqueness constraint
@@ -338,7 +338,7 @@ struct OptimizedVehicleRegistration: Codable {
 }
 
 /// Optimized driver license with enumerated categorical data
-struct OptimizedDriverLicense: Codable {
+struct OptimizedDriverLicense: Codable, Sendable {
     // Core identifiers
     let yearId: Int                    // TINYINT → year enum
     let licenseSequence: String        // Keep as-is for uniqueness constraint
@@ -846,7 +846,7 @@ class CategoricalLookupCache: ObservableObject {
 }
 
 /// Driver's license types
-enum LicenseType: String, CaseIterable {
+enum LicenseType: String, CaseIterable, Sendable {
     case learner = "APPRENTI"       // Learner's permit
     case probationary = "PROBATOIRE" // Probationary license
     case regular = "RÉGULIER"       // Regular license
@@ -861,7 +861,7 @@ enum LicenseType: String, CaseIterable {
 }
 
 /// Age groups for license holders
-enum AgeGroup: String, CaseIterable {
+enum AgeGroup: String, CaseIterable, Sendable {
     case age16_19 = "16-19"
     case age20_24 = "20-24"
     case age25_34 = "25-34"
@@ -886,7 +886,7 @@ enum AgeGroup: String, CaseIterable {
 }
 
 /// Gender classification
-enum Gender: String, CaseIterable {
+enum Gender: String, CaseIterable, Sendable {
     case female = "F"
     case male = "M"
 
@@ -899,7 +899,7 @@ enum Gender: String, CaseIterable {
 }
 
 /// Driving experience levels
-enum ExperienceLevel: String, CaseIterable {
+enum ExperienceLevel: String, CaseIterable, Sendable {
     case absent = "Absente"
     case under2Years = "Moins de 2 ans"
     case years2to5 = "2 à 5 ans"
@@ -920,7 +920,7 @@ enum ExperienceLevel: String, CaseIterable {
 // MARK: - Data Entity Type and Shared Protocol
 
 /// Type of data entity being analyzed
-enum DataEntityType: String, CaseIterable {
+enum DataEntityType: String, CaseIterable, Sendable {
     case vehicle = "Vehicle"
     case license = "License"
 
@@ -952,13 +952,13 @@ extension DriverLicense: SAAQDataRecord {}
 // MARK: - Geographic Models
 
 /// Represents a geographic entity (municipality, MRC, region)
-struct GeographicEntity: Codable, Hashable {
+struct GeographicEntity: Codable, Hashable, Sendable {
     let code: String
     let name: String
     let type: GeographicLevel
     let parentCode: String?
-    
-    enum GeographicLevel: String, Codable {
+
+    enum GeographicLevel: String, Codable, Sendable {
         case municipality
         case mrc
         case adminRegion
@@ -966,7 +966,7 @@ struct GeographicEntity: Codable, Hashable {
 }
 
 /// Administrative regions in Quebec
-enum AdministrativeRegion: String, CaseIterable {
+enum AdministrativeRegion: String, CaseIterable, Sendable {
     case basStLaurent = "01"
     case saguenayLacStJean = "02"
     case capitaleNationale = "03"
@@ -1012,7 +1012,7 @@ enum AdministrativeRegion: String, CaseIterable {
 
 // MARK: - Coverage Field Selection
 /// Fields that can be analyzed for NULL coverage
-enum CoverageField: String, CaseIterable {
+enum CoverageField: String, CaseIterable, Sendable {
     // Vehicle-specific fields
     case fuelType = "Fuel Type"
     case vehicleClassification = "Vehicle Type"
@@ -1070,13 +1070,13 @@ enum CoverageField: String, CaseIterable {
 
 /// Configuration for filtering data
 // MARK: - Filter Item with ID and Display Name
-struct FilterItem: Equatable, Identifiable {
+struct FilterItem: Equatable, Identifiable, Sendable {
     let id: Int
     let displayName: String
 }
 
 // MARK: - Current Filter Configuration (String-based, will migrate to integer-based)
-struct FilterConfiguration: Equatable {
+struct FilterConfiguration: Equatable, Sendable {
     // Data type selection
     var dataEntityType: DataEntityType = .vehicle
 
@@ -1123,7 +1123,7 @@ struct FilterConfiguration: Equatable {
 }
 
 // MARK: - Future Integer-based Filter Configuration
-struct IntegerFilterConfiguration: Equatable {
+struct IntegerFilterConfiguration: Equatable, Sendable {
     // Data type selection
     var dataEntityType: DataEntityType = .vehicle
 
@@ -1159,7 +1159,7 @@ struct IntegerFilterConfiguration: Equatable {
 
 /// Simplified filter configuration for percentage baseline calculations
 /// Avoids recursion by not including metric configuration
-struct PercentageBaseFilters: Equatable {
+struct PercentageBaseFilters: Equatable, Sendable {
     // Data type selection
     var dataEntityType: DataEntityType = .vehicle
 
@@ -1236,7 +1236,7 @@ struct PercentageBaseFilters: Equatable {
 // MARK: - Chart Metrics
 
 /// Types of metrics that can be displayed on the Y-axis
-enum ChartMetricType: String, CaseIterable {
+enum ChartMetricType: String, CaseIterable, Sendable {
     case count = "Count"
     case sum = "Sum"
     case average = "Average"
@@ -1271,7 +1271,7 @@ enum ChartMetricType: String, CaseIterable {
 }
 
 /// Fields that can be used for sum/average calculations
-enum ChartMetricField: String, CaseIterable {
+enum ChartMetricField: String, CaseIterable, Sendable {
     case none = "None"
 
     // Vehicle-specific fields
@@ -1339,7 +1339,7 @@ enum ChartMetricField: String, CaseIterable {
 // MARK: - Time Series Data
 
 /// Represents a time series data point
-struct TimeSeriesPoint: Identifiable {
+struct TimeSeriesPoint: Identifiable, Sendable {
     let id = UUID()
     let year: Int
     let value: Double
@@ -1458,7 +1458,7 @@ class FilteredDataSeries: ObservableObject, Identifiable {
 // MARK: - Import Schemas
 
 /// Schema configuration for different years of data
-struct DataSchema {
+struct DataSchema: Sendable {
     let year: Int
     let hasFieldCount: Int
     let hasFuelType: Bool
@@ -1475,8 +1475,8 @@ struct DataSchema {
 // MARK: - Export Models
 
 /// Configuration for exporting data
-struct ExportConfiguration {
-    enum Format {
+struct ExportConfiguration: Sendable {
+    enum Format: Sendable {
         case csv
         case png
         case pdf
@@ -1498,14 +1498,14 @@ protocol AnalysisResult {
 }
 
 /// Standard analysis result implementation
-struct StandardAnalysisResult: AnalysisResult {
+struct StandardAnalysisResult: AnalysisResult, Sendable {
     let name: String
     let description: String
     let timeSeries: [TimeSeriesPoint]
 }
 
 // MARK: - Integer-based Percentage Base Configuration
-struct IntegerPercentageBaseFilters: Equatable {
+struct IntegerPercentageBaseFilters: Equatable, Sendable {
     // Data type selection
     var dataEntityType: DataEntityType = .vehicle
 

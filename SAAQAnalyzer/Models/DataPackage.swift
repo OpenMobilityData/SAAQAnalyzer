@@ -14,7 +14,7 @@ extension UTType {
 }
 
 /// Represents the contents of a SAAQ data package
-struct DataPackageInfo: Codable {
+struct DataPackageInfo: Codable, Sendable {
     let packageVersion: String
     let vehicleRecordCount: Int
     let driverRecordCount: Int
@@ -25,7 +25,7 @@ struct DataPackageInfo: Codable {
     let cacheVersion: String
 
     /// Package file size information
-    struct FileSizeInfo: Codable {
+    struct FileSizeInfo: Codable, Sendable {
         let databaseSizeBytes: Int64
         let vehicleCacheSizeBytes: Int64
         let driverCacheSizeBytes: Int64
@@ -36,7 +36,7 @@ struct DataPackageInfo: Codable {
 }
 
 /// Statistics for vehicle data within the package
-struct PackagedVehicleStats: Codable {
+struct PackagedVehicleStats: Codable, Sendable {
     let totalRecords: Int
     let yearRange: String
     let availableYearsCount: Int
@@ -52,7 +52,7 @@ struct PackagedVehicleStats: Codable {
 }
 
 /// Statistics for driver data within the package
-struct PackagedDriverStats: Codable {
+struct PackagedDriverStats: Codable, Sendable {
     let totalRecords: Int
     let yearRange: String
     let availableYearsCount: Int
@@ -67,7 +67,7 @@ struct PackagedDriverStats: Codable {
 }
 
 /// Combined statistics for the entire package
-struct PackagedDataStats: Codable {
+struct PackagedDataStats: Codable, Sendable {
     let vehicleStats: PackagedVehicleStats
     let driverStats: PackagedDriverStats
     let totalRecords: Int
@@ -76,14 +76,14 @@ struct PackagedDataStats: Codable {
 }
 
 /// Options for what to include in data package export
-struct DataPackageExportOptions {
+struct DataPackageExportOptions: Sendable {
     let includeVehicleData: Bool
     let includeDriverData: Bool
     let includeVehicleCache: Bool
     let includeDriverCache: Bool
     let compressionLevel: CompressionLevel
 
-    enum CompressionLevel {
+    enum CompressionLevel: Sendable {
         case none
         case fast
         case balanced
@@ -124,7 +124,7 @@ struct DataPackageExportOptions {
 }
 
 /// Validation result for data package import
-enum DataPackageValidationResult {
+enum DataPackageValidationResult: Sendable {
     case valid
     case invalidFormat
     case incompatibleVersion
@@ -151,7 +151,7 @@ enum DataPackageValidationResult {
 }
 
 /// Error types for data package operations
-enum DataPackageError: LocalizedError {
+enum DataPackageError: LocalizedError, Sendable {
     case exportFailed(String)
     case importFailed(String)
     case validationFailed(DataPackageValidationResult)

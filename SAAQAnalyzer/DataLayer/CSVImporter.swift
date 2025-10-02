@@ -883,7 +883,7 @@ class CSVImporter {
 // MARK: - Import Types
 
 /// Result of an import operation
-struct ImportResult {
+struct ImportResult: Sendable {
     let totalRecords: Int
     let successCount: Int
     let errorCount: Int
