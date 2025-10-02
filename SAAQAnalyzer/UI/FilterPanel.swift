@@ -49,6 +49,7 @@ struct FilterPanel: View {
                     .font(.headline.weight(.medium))
                     .fontDesign(.rounded)
                     .symbolRenderingMode(.hierarchical)
+                    .typesettingLanguage(.init(languageCode: .french))
 
                 Spacer()
                 
@@ -1036,6 +1037,7 @@ struct SearchableFilterList: View {
                         Text(item)
                             .font(.caption)
                             .multilineTextAlignment(.leading)
+                            .typesettingLanguage(.init(languageCode: .french))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(.vertical, 1)
@@ -1293,6 +1295,7 @@ struct MunicipalityFilterList: View {
                         Text(item.name)
                             .font(.caption)
                             .multilineTextAlignment(.leading)
+                            .typesettingLanguage(.init(languageCode: .french))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(.vertical, 1)

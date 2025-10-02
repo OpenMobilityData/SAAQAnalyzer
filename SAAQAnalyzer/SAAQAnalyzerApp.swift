@@ -334,6 +334,7 @@ struct ContentView: View {
                 } else {
                     Label("Add Series", systemImage: "plus.circle")
                         .symbolRenderingMode(.hierarchical)
+                        .symbolEffect(.bounce, value: chartData.count)
                 }
             }
             .buttonStyle(.borderedProminent)
