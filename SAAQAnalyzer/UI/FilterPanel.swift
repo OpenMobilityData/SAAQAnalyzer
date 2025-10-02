@@ -1312,6 +1312,12 @@ struct MetricConfigurationSection: View {
         if !currentFilters.mrcs.isEmpty { categories.append(.mrcs) }
         if !currentFilters.municipalities.isEmpty { categories.append(.municipalities) }
         if !currentFilters.ageRanges.isEmpty { categories.append(.ageRanges) }
+
+        // Ensure selected category is always included even if filter is temporarily empty
+        if let selected = selectedCategoryToRemove, !categories.contains(selected) {
+            categories.append(selected)
+        }
+
         return categories
     }
 
