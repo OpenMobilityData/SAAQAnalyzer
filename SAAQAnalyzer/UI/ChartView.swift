@@ -392,7 +392,8 @@ struct ChartView: View {
                     ChartLegend(
                         series: .constant(dataSeries),
                         selectedSeries: .constant(nil),
-                        chartRefreshTrigger: .constant(false)
+                        chartRefreshTrigger: .constant(false),
+                        isExportMode: true  // Hide UI controls in exported PNG
                     )
                     .padding(.horizontal)
                 }
@@ -607,7 +608,8 @@ struct ChartLegend: View {
     @Binding var selectedSeries: FilteredDataSeries?
     @Binding var chartRefreshTrigger: Bool
     @State private var refreshTrigger = false
-    
+    var isExportMode: Bool = false  // Hide UI controls when exporting
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -616,9 +618,9 @@ struct ChartLegend: View {
                     .fontDesign(.rounded)
 
                 Spacer()
-                
-                // Clear all button
-                if !series.isEmpty {
+
+                // Clear all button (hidden in export mode)
+                if !series.isEmpty && !isExportMode {
                     Button {
                         series.removeAll()
                         selectedSeries = nil
@@ -654,33 +656,36 @@ struct ChartLegend: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
-                    
-                    // Hide/Show button
-                    Button {
-                        seriesItem.isVisible.toggle()
-                        refreshTrigger.toggle()
-                        chartRefreshTrigger.toggle()
-                    } label: {
-                        Image(systemName: seriesItem.isVisible ? "eye" : "eye.slash")
-                            .foregroundStyle(.secondary)
-                            .imageScale(.small)
-                    }
-                    .buttonStyle(.plain)
-                    .help(seriesItem.isVisible ? "Hide this series" : "Show this series")
 
-                    // Delete button
-                    Button {
-                        if selectedSeries?.id == seriesItem.id {
-                            selectedSeries = nil
+                    // Hide/Show and Delete buttons (hidden in export mode)
+                    if !isExportMode {
+                        // Hide/Show button
+                        Button {
+                            seriesItem.isVisible.toggle()
+                            refreshTrigger.toggle()
+                            chartRefreshTrigger.toggle()
+                        } label: {
+                            Image(systemName: seriesItem.isVisible ? "eye" : "eye.slash")
+                                .foregroundStyle(.secondary)
+                                .imageScale(.small)
                         }
-                        series.removeAll { $0.id == seriesItem.id }
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                            .imageScale(.small)
+                        .buttonStyle(.plain)
+                        .help(seriesItem.isVisible ? "Hide this series" : "Show this series")
+
+                        // Delete button
+                        Button {
+                            if selectedSeries?.id == seriesItem.id {
+                                selectedSeries = nil
+                            }
+                            series.removeAll { $0.id == seriesItem.id }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                                .imageScale(.small)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Remove this series")
                     }
-                    .buttonStyle(.plain)
-                    .help("Remove this series")
                 }
                 .padding(.vertical, 2)
                 .padding(.horizontal, 8)
