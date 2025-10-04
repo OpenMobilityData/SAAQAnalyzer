@@ -60,3 +60,7 @@ fastlane/report.xml
 fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output
+
+# Notes directory - track the directory but not its contents
+Notes/*
+!Notes/.gitkeep
