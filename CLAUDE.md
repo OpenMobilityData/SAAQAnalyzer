@@ -6,6 +6,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 SAAQAnalyzer is a macOS SwiftUI application designed to import, analyze, and visualize vehicle registration data from SAAQ (Société de l'assurance automobile du Québec). The application provides a three-panel interface for filtering data, displaying charts, and inspecting details.
 
+## Development Principles
+
+### Swift Concurrency
+- **Swift version**: 6.2
+- **Concurrency**: Use only modern Swift 6.2 concurrency constructs (async/await, actors, TaskGroups)
+- **Avoid**: Legacy patterns (DispatchQueue, Operation, completion handlers)
+
+### Framework Preferences
+- **Avoid AppKit**: Stick to SwiftUI and Swift-native APIs whenever possible
+- **NS prefix warning**: Always ask before using any AppKit/Foundation API with NS prefix (NSOpenPanel, NSSavePanel, NSAlert, etc.)
+- **Prefer**: SwiftUI equivalents and modern Swift APIs
+
+### Command Line Workflow
+- **Manual execution preferred**: Generate robust command-line invocations for copy/paste into console
+- **Don't auto-run**: User prefers to run scripts manually to monitor output and selectively copy results back
+- **Output format**: Ensure scripts produce clear, copy-friendly output for integration into Claude Code sessions
+
+#### Example Command Line Patterns
+```bash
+# Database inspection
+sqlite3 ~/Library/Application\ Support/SAAQAnalyzer/saaq.db "SELECT COUNT(*) FROM vehicles;"
+
+# CSV validation before import
+head -n 5 ~/Downloads/Vehicule_En_Circulation_2023.csv
+
+# Performance testing
+time sqlite3 ~/Library/Application\ Support/SAAQAnalyzer/saaq.db "EXPLAIN QUERY PLAN SELECT..."
+
 ## Build and Development Commands
 
 ```bash
