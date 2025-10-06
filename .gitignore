@@ -65,6 +65,7 @@ fastlane/test_output
 Notes/*
 !Notes/.gitkeep
 
-# Scripts directory - only track Swift source files
+# Scripts directory - track Swift source files and documentation
 Scripts/*
 !Scripts/*.swift
+!Scripts/*.md

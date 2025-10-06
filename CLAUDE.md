@@ -88,6 +88,26 @@ xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
 - **Vehicle CSV files**: Named pattern `Vehicule_En_Circulation_YYYY.csv`
 - **Geographic d001 files**: `d001_min.txt` format for municipality/region mapping
 
+### CSV Preprocessing (Scripts/)
+
+**Production Tool:**
+- **NormalizeCSV.swift** ✅ - Fixes structural inconsistencies in SAAQ CSV files
+  - Problem: 2017+ files have 16 fields (fuel_type added), earlier files have 15
+  - Solution: Adds NULL fuel_type column to pre-2017 files
+  - Status: Production-ready, required for database import
+  - Compilation: `swiftc NormalizeCSV.swift -o NormalizeCSV -O`
+
+**Experimental Tools (Work in Progress):**
+- **Make/Model Regularization Scripts** 🚧 - Various approaches to correcting typos and variants
+  - Problem: 2023-2024 data has typos (VOLV0), truncations (CX3 vs CX-3), mixed with genuinely new models
+  - Scripts: StandardizeMakeModel, AIStandardizeMake, AIStandardizeMakeModel, AIRegularizeMakeModel, RegularizeMakeModel
+  - Status: Experimental - DO NOT apply to production database
+  - See: `Scripts/SCRIPTS_DOCUMENTATION.md` for detailed analysis and architectural evolution
+
+**Key Distinction:**
+- ✅ **NormalizeCSV** fixes column structure (WORKING - use in production)
+- 🚧 **Make/Model scripts** attempt content correction (EXPERIMENTAL - research only)
+
 ### Character Encoding
 The CSV importer handles French characters by trying multiple encodings (UTF-8, ISO-Latin-1, Windows-1252) and includes fixes for common encoding corruption patterns like "Montréal" → "MontrÃ©al".
 

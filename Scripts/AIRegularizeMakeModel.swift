@@ -5,7 +5,6 @@ import FoundationModels
 
 // MARK: - Configuration
 let SIMILARITY_THRESHOLD = 0.4
-let PAU_CAU_CODES = ["PAU", "CAU"]  // Priority vehicle types
 
 // MARK: - Data Models
 struct MakeModelPair: Hashable {
@@ -29,7 +28,6 @@ struct MakeModelPair: Hashable {
 struct CanonicalPair {
     let pair: MakeModelPair
     let vehicleTypes: Set<String>  // Can be PAU, CAU, PMC, etc.
-    let isPauCau: Bool  // Convenience flag
 }
 
 struct Candidate {
@@ -37,24 +35,6 @@ struct Candidate {
     let similarity: Double
 }
 
-enum Priority: Int, Comparable {
-    case canonicalPauCau = 1      // Highest
-    case cvsNewPauCau = 2
-    case canonicalSpecialty = 3
-    case unknown = 4              // Lowest
-
-    static func < (lhs: Priority, rhs: Priority) -> Bool {
-        return lhs.rawValue < rhs.rawValue
-    }
-}
-
-struct ClassificationResult {
-    let priority: Priority
-    let reasoning: String
-    let inCanonical: Bool
-    let inCVS: Bool
-    let canonicalTypes: Set<String>?
-}
 
 struct CVSValidationResult {
     let decision: String  // "SUPPORT" or "PREVENT" or "NEUTRAL"
@@ -71,18 +51,16 @@ struct TemporalValidationResult {
 struct AIAnalysisResult {
     let classification: String
     let confidence: Double
-    let shouldStandardize: Bool
+    let shouldRegularize: Bool
     let reasoning: String
 }
 
-struct StandardizationDecision {
+struct RegularizationDecision {
     let nonStdPair: MakeModelPair
     let canonicalPair: CanonicalPair?
-    let priority: Priority
-    let shouldStandardize: Bool
+    let shouldRegularize: Bool
     let reasoning: String
     let similarity: Double
-    let classification: ClassificationResult?
     let cvsValidation: CVSValidationResult?
     let temporalValidation: TemporalValidationResult?
     let aiAnalysis: AIAnalysisResult?
@@ -180,96 +158,6 @@ func hyphenationBoost(nonStd: String, canonical: String) -> Double? {
     return nil
 }
 
-// MARK: - Classification Logic
-func classifyPair(nonStdPair: MakeModelPair, saaqDBPath: String, cvsDBPath: String) -> ClassificationResult {
-    // Check canonical SAAQ (2011-2022)
-    guard let saaqDB = try? DatabaseHelper(path: saaqDBPath) else {
-        return ClassificationResult(
-            priority: .unknown,
-            reasoning: "SAAQ database unavailable",
-            inCanonical: false,
-            inCVS: false,
-            canonicalTypes: nil
-        )
-    }
-
-    let canonicalSQL = """
-    SELECT DISTINCT classification_enum.code
-    FROM vehicles
-    JOIN make_enum ON vehicles.make_id = make_enum.id
-    JOIN model_enum ON vehicles.model_id = model_enum.id
-    JOIN classification_enum ON vehicles.classification_id = classification_enum.id
-    WHERE make_enum.name = '\(nonStdPair.make)'
-      AND model_enum.name = '\(nonStdPair.model)'
-      AND year BETWEEN 2011 AND 2022;
-    """
-
-    let canonicalTypes: Set<String>
-    if let results = try? saaqDB.query(canonicalSQL), !results.isEmpty {
-        canonicalTypes = Set(results.compactMap { $0["code"] })
-    } else {
-        canonicalTypes = []
-    }
-
-    // Check CVS
-    guard let cvsDB = try? DatabaseHelper(path: cvsDBPath) else {
-        if !canonicalTypes.isEmpty {
-            let isPauCau = !canonicalTypes.isDisjoint(with: PAU_CAU_CODES)
-            return ClassificationResult(
-                priority: isPauCau ? .canonicalPauCau : .canonicalSpecialty,
-                reasoning: isPauCau ? "Found in canonical as PAU/CAU" : "Found in canonical as specialty vehicle",
-                inCanonical: true,
-                inCVS: false,
-                canonicalTypes: canonicalTypes
-            )
-        }
-
-        return ClassificationResult(
-            priority: .unknown,
-            reasoning: "CVS database unavailable, not in canonical",
-            inCanonical: false,
-            inCVS: false,
-            canonicalTypes: nil
-        )
-    }
-
-    let cvsSQL = """
-    SELECT DISTINCT saaq_make, saaq_model, vehicle_type
-    FROM cvs_data
-    WHERE saaq_make = '\(nonStdPair.make)' AND saaq_model = '\(nonStdPair.model)'
-    LIMIT 1;
-    """
-
-    let inCVS = (try? cvsDB.query(cvsSQL).isEmpty == false) ?? false
-
-    // Priority decision
-    if !canonicalTypes.isEmpty {
-        let isPauCau = !canonicalTypes.isDisjoint(with: PAU_CAU_CODES)
-        return ClassificationResult(
-            priority: isPauCau ? .canonicalPauCau : .canonicalSpecialty,
-            reasoning: isPauCau ? "Found in canonical as PAU/CAU (\(canonicalTypes.joined(separator: ",")))" : "Found in canonical as specialty vehicle (\(canonicalTypes.joined(separator: ",")))",
-            inCanonical: true,
-            inCVS: inCVS,
-            canonicalTypes: canonicalTypes
-        )
-    } else if inCVS {
-        return ClassificationResult(
-            priority: .cvsNewPauCau,
-            reasoning: "Not in canonical, found in CVS (likely new PAU/CAU model)",
-            inCanonical: false,
-            inCVS: true,
-            canonicalTypes: nil
-        )
-    } else {
-        return ClassificationResult(
-            priority: .unknown,
-            reasoning: "Not in canonical, not in CVS (unknown origin)",
-            inCanonical: false,
-            inCVS: false,
-            canonicalTypes: nil
-        )
-    }
-}
 
 // MARK: - CVS Validation
 func queryCVS(cvsDBPath: String, make: String, model: String) -> [String: Any]? {
@@ -374,43 +262,16 @@ func validateWithCVS(nonStdPair: MakeModelPair, canonicalPair: MakeModelPair, cv
 }
 
 // MARK: - Temporal Validation
-func validateWithTemporal(nonStdPair: MakeModelPair, canonicalPair: MakeModelPair, saaqDBPath: String) -> TemporalValidationResult {
-    guard let saaqDB = try? DatabaseHelper(path: saaqDBPath) else {
+func validateWithTemporal(nonStdPair: MakeModelPair, canonicalPair: MakeModelPair) -> TemporalValidationResult {
+    // Use pre-loaded registration year ranges
+    guard let nonStdMin = nonStdPair.minRegistrationYear,
+          let nonStdMax = nonStdPair.maxRegistrationYear,
+          let canonicalMin = canonicalPair.minRegistrationYear,
+          let canonicalMax = canonicalPair.maxRegistrationYear else {
         return TemporalValidationResult(
             decision: "NEUTRAL",
             confidence: 0.5,
-            reasoning: "SAAQ database unavailable"
-        )
-    }
-
-    let nonStdSQL = """
-    SELECT MIN(vehicles.year) as min_year, MAX(vehicles.year) as max_year
-    FROM vehicles
-    JOIN make_enum ON vehicles.make_id = make_enum.id
-    JOIN model_enum ON vehicles.model_id = model_enum.id
-    WHERE make_enum.name = '\(nonStdPair.make)' AND model_enum.name = '\(nonStdPair.model)';
-    """
-
-    let canonicalSQL = """
-    SELECT MIN(vehicles.year) as min_year, MAX(vehicles.year) as max_year
-    FROM vehicles
-    JOIN make_enum ON vehicles.make_id = make_enum.id
-    JOIN model_enum ON vehicles.model_id = model_enum.id
-    WHERE make_enum.name = '\(canonicalPair.make)' AND model_enum.name = '\(canonicalPair.model)';
-    """
-
-    guard let nonStdResults = try? saaqDB.query(nonStdSQL),
-          let canonicalResults = try? saaqDB.query(canonicalSQL),
-          let nonStdRow = nonStdResults.first,
-          let canonicalRow = canonicalResults.first,
-          let nonStdMin = Int(nonStdRow["min_year"] ?? ""),
-          let nonStdMax = Int(nonStdRow["max_year"] ?? ""),
-          let canonicalMin = Int(canonicalRow["min_year"] ?? ""),
-          let canonicalMax = Int(canonicalRow["max_year"] ?? "") else {
-        return TemporalValidationResult(
-            decision: "NEUTRAL",
-            confidence: 0.5,
-            reasoning: "Could not determine year ranges"
+            reasoning: "Year range data unavailable"
         )
     }
 
@@ -420,34 +281,65 @@ func validateWithTemporal(nonStdPair: MakeModelPair, canonicalPair: MakeModelPai
         return TemporalValidationResult(
             decision: "SUPPORT",
             confidence: 0.9,
-            reasoning: "Year ranges overlap (\(nonStdMin)-\(nonStdMax) vs \(canonicalMin)-\(canonicalMax))"
+            reasoning: "Registration years overlap (\(nonStdMin)-\(nonStdMax) vs \(canonicalMin)-\(canonicalMax))"
         )
     } else if nonStdMin > canonicalMax {
         return TemporalValidationResult(
             decision: "PREVENT",
             confidence: 0.7,
-            reasoning: "Non-standard appears after canonical ended (possible new model)"
+            reasoning: "Non-standard appears after canonical ended (\(nonStdMin)+ vs \(canonicalMin)-\(canonicalMax)) - likely new model"
         )
     } else {
         return TemporalValidationResult(
             decision: "PREVENT",
             confidence: 0.8,
-            reasoning: "No year overlap (\(nonStdMin)-\(nonStdMax) vs \(canonicalMin)-\(canonicalMax))"
+            reasoning: "No registration year overlap (\(nonStdMin)-\(nonStdMax) vs \(canonicalMin)-\(canonicalMax))"
         )
     }
 }
 
 // MARK: - AI Analysis
 func analyzeWithAI(nonStdPair: MakeModelPair, canonicalPair: MakeModelPair) async -> AIAnalysisResult {
+    // Format year information for prompt
+    let nonStdYears = formatYearRange(nonStdPair.minRegistrationYear, nonStdPair.maxRegistrationYear)
+    let canonicalYears = formatYearRange(canonicalPair.minRegistrationYear, canonicalPair.maxRegistrationYear)
+
     let prompt = """
-    Vehicle data quality task: Compare two vehicle make/model codes from government database.
+    You are the third validation layer in a vehicle database regularization pipeline.
 
-    Record A (2023-2024 data): \(nonStdPair.make) / \(nonStdPair.model)
-    Record B (2011-2022 data): \(canonicalPair.make) / \(canonicalPair.model)
+    CONTEXT:
+    - Record A (2023-2024) contains typos, truncations, and genuinely new models mixed together
+    - Record B (2011-2022) is cleaned, quality-assured canonical reference data
+    - These records were matched with 40%+ string similarity as potential variants
+    - CVS and temporal validators run before you and can override your decision
 
-    Are these the same vehicle with spelling variation (spellingVariant), truncated text (truncationVariant), genuinely different models (newModel), or uncertain?
+    YOUR TASK:
+    Determine if Record A is a VARIANT of Record B (same vehicle, different spelling/format).
 
-    Respond with: classification | should_standardize (yes/no) | confidence (0-1) | brief_reason
+    Record A: \(nonStdPair.make) / \(nonStdPair.model) [registered: \(nonStdYears)]
+    Record B: \(canonicalPair.make) / \(canonicalPair.model) [registered: \(canonicalYears)]
+
+    ANSWER "yes" (should_regularize: yes) ONLY if this is the SAME vehicle with:
+    1. spellingVariant - Typo or misspelling (VOLV0→VOLVO, HOND→HONDA, SUSUK→SUZUKI)
+    2. truncationVariant - Format difference (CX3→CX-3, HRV→HR-V, C300→C-CLASS)
+
+    ANSWER "no" (should_regularize: no) if:
+    3. newModel - Different models even if similar names (X4≠X3, UX≠GX, CARNI≠CADEN, C300≠B200, CBR≠CR-V)
+    4. uncertain - Insufficient information to confidently determine
+
+    CRITICAL EXAMPLES:
+    ✓ VOLV0 / XC90 vs VOLVO / XC90 → spellingVariant | yes | 1.0 | typo: zero instead of letter O
+    ✓ MAZDA / CX3 vs MAZDA / CX-3 → truncationVariant | yes | 0.99 | hyphen formatting variant
+    ✓ HOND / CIVIC vs HONDA / CIVIC → spellingVariant | yes | 0.95 | missing final A
+    ✗ BMW / X4 vs BMW / X3 → newModel | no | 1.0 | X4 is different SUV model (larger than X3)
+    ✗ LEXUS / UX vs LEXUS / GX → newModel | no | 1.0 | UX and GX are completely different model lines
+    ✗ MERCE / C300 vs MERCE / B200 → newModel | no | 1.0 | C-Class and B-Class are different vehicle series
+    ✗ KIA / CARNI vs KIA / CADEN → newModel | no | 0.9 | CARNIVAL and CADENZA are different models
+    ✗ HONDA / CBR vs HONDA / CR-V → newModel | no | 1.0 | CBR is motorcycle, CR-V is SUV
+
+    IMPORTANT: If you classify as "newModel", you MUST answer "no" for should_regularize.
+
+    Respond with: classification | should_regularize (yes/no) | confidence (0-1) | brief_reason
     """
 
     do {
@@ -456,7 +348,7 @@ func analyzeWithAI(nonStdPair: MakeModelPair, canonicalPair: MakeModelPair) asyn
         let content = response.content.lowercased()
 
         var classification = "uncertain"
-        var shouldStandardize = false
+        var shouldRegularize = false
         var confidence = 0.5
         var reasoning = content
 
@@ -470,10 +362,10 @@ func analyzeWithAI(nonStdPair: MakeModelPair, canonicalPair: MakeModelPair) asyn
         }
 
         // Check for yes/no (must not be part of "yes/no" phrase)
-        if content.contains("should_standardize: yes") || content.contains("should standardize: yes") || (content.contains("yes") && !content.contains("yes/no")) {
-            shouldStandardize = true
-        } else if content.contains("should_standardize: no") || content.contains("should standardize: no") || content.contains(": no") {
-            shouldStandardize = false
+        if content.contains("should_regularize: yes") || content.contains("should regularize: yes") || (content.contains("yes") && !content.contains("yes/no")) {
+            shouldRegularize = true
+        } else if content.contains("should_regularize: no") || content.contains("should regularize: no") || content.contains(": no") {
+            shouldRegularize = false
         }
 
         // Extract confidence - try pipe-delimited format first
@@ -507,18 +399,18 @@ func analyzeWithAI(nonStdPair: MakeModelPair, canonicalPair: MakeModelPair) asyn
         }
 
         // Return result based on AI decision
-        if shouldStandardize && confidence >= 0.7 {
+        if shouldRegularize && confidence >= 0.7 {
             return AIAnalysisResult(
                 classification: classification,
                 confidence: confidence,
-                shouldStandardize: true,
+                shouldRegularize: true,
                 reasoning: reasoning
             )
         } else {
             return AIAnalysisResult(
                 classification: classification,
                 confidence: confidence,
-                shouldStandardize: false,
+                shouldRegularize: false,
                 reasoning: reasoning
             )
         }
@@ -526,19 +418,29 @@ func analyzeWithAI(nonStdPair: MakeModelPair, canonicalPair: MakeModelPair) asyn
         return AIAnalysisResult(
             classification: "uncertain",
             confidence: 0.5,
-            shouldStandardize: false,
+            shouldRegularize: false,
             reasoning: "AI analysis error: \(error.localizedDescription)"
         )
+    }
+}
+
+// MARK: - Helper Functions
+func formatYearRange(_ minYear: Int?, _ maxYear: Int?) -> String {
+    guard let min = minYear, let max = maxYear else { return "years unknown" }
+    if min == max {
+        return "\(min)"
+    } else {
+        return "\(min)-\(max)"
     }
 }
 
 // MARK: - Main Logic
 @MainActor
 func main() async throws {
-    print("=== Priority-Filtered Make/Model Standardization ===\n")
+    print("=== AI-Validated Make/Model Regularization ===\n")
 
     guard CommandLine.arguments.count == 4 else {
-        print("Usage: PriorityFilteredStandardization <saaq_db_path> <cvs_db_path> <output_report_path>")
+        print("Usage: AIRegularizeMakeModel <saaq_db_path> <cvs_db_path> <output_report_path>")
         return
     }
 
@@ -555,7 +457,9 @@ func main() async throws {
     SELECT
         make_enum.name as make,
         model_enum.name as model,
-        GROUP_CONCAT(DISTINCT classification_enum.code) as types
+        GROUP_CONCAT(DISTINCT classification_enum.code) as types,
+        MIN(year) as min_reg_year,
+        MAX(year) as max_reg_year
     FROM vehicles
     JOIN make_enum ON vehicles.make_id = make_enum.id
     JOIN model_enum ON vehicles.model_id = model_enum.id
@@ -571,35 +475,38 @@ func main() async throws {
         guard let make = row["make"], let model = row["model"], let typesStr = row["types"] else { continue }
 
         let types = Set(typesStr.split(separator: ",").map { String($0) })
-        let isPauCau = !types.isDisjoint(with: PAU_CAU_CODES)
+        let minRegYear = row["min_reg_year"].flatMap { Int($0) }
+        let maxRegYear = row["max_reg_year"].flatMap { Int($0) }
 
         canonicalPairs.append(CanonicalPair(
-            pair: MakeModelPair(make: make, model: model, minModelYear: nil, maxModelYear: nil, minRegistrationYear: nil, maxRegistrationYear: nil),
-            vehicleTypes: types,
-            isPauCau: isPauCau
+            pair: MakeModelPair(make: make, model: model, minModelYear: nil, maxModelYear: nil, minRegistrationYear: minRegYear, maxRegistrationYear: maxRegYear),
+            vehicleTypes: types
         ))
     }
 
-    print("  Found \(canonicalPairs.count) canonical Make/Model pairs")
-    print("  PAU/CAU pairs: \(canonicalPairs.filter { $0.isPauCau }.count)")
-    print("  Specialty pairs: \(canonicalPairs.filter { !$0.isPauCau }.count)")
+    print("  Found \(canonicalPairs.count) canonical Make/Model pairs from 2011-2022")
 
     // Load non-standard pairs (2023-2024)
     print("\nLoading non-standard pairs (2023-2024)...")
     let nonStdSQL = """
-    SELECT DISTINCT
+    SELECT
         make_enum.name as make,
-        model_enum.name as model
+        model_enum.name as model,
+        MIN(year) as min_reg_year,
+        MAX(year) as max_reg_year
     FROM vehicles
     JOIN make_enum ON vehicles.make_id = make_enum.id
     JOIN model_enum ON vehicles.model_id = model_enum.id
-    WHERE year IN (2023, 2024);
+    WHERE year IN (2023, 2024)
+    GROUP BY make_enum.name, model_enum.name;
     """
 
     let nonStdResults = try saaqDB.query(nonStdSQL)
     let allNonStdPairs = Set(nonStdResults.compactMap { row -> MakeModelPair? in
         guard let make = row["make"], let model = row["model"] else { return nil }
-        return MakeModelPair(make: make, model: model, minModelYear: nil, maxModelYear: nil, minRegistrationYear: nil, maxRegistrationYear: nil)
+        let minRegYear = row["min_reg_year"].flatMap { Int($0) }
+        let maxRegYear = row["max_reg_year"].flatMap { Int($0) }
+        return MakeModelPair(make: make, model: model, minModelYear: nil, maxModelYear: nil, minRegistrationYear: minRegYear, maxRegistrationYear: maxRegYear)
     })
 
     // Filter to only non-canonical pairs
@@ -608,51 +515,19 @@ func main() async throws {
 
     print("  Found \(allNonStdPairs.count) total pairs, \(nonStdPairs.count) are non-standard")
 
-    // Classify all non-standard pairs by priority
-    print("\n=== Classifying Non-Standard Pairs by Priority ===")
-    var classified: [(pair: MakeModelPair, classification: ClassificationResult)] = []
+    print("\n=== Processing Non-Standard Pairs ===")
+    var decisions: [RegularizationDecision] = []
 
-    for pair in nonStdPairs {
-        let classification = classifyPair(nonStdPair: pair, saaqDBPath: saaqDBPath, cvsDBPath: cvsDBPath)
-        classified.append((pair: pair, classification: classification))
-    }
+    // Process all non-standard pairs against all canonical pairs
+    for nonStdPair in nonStdPairs {
+        // Format year range for display
+        let nonStdYears = formatYearRange(nonStdPair.minRegistrationYear, nonStdPair.maxRegistrationYear)
+        print("\n\(nonStdPair.make) \(nonStdPair.model) [\(nonStdYears)]")
 
-    // Sort by priority
-    classified.sort { $0.classification.priority < $1.classification.priority }
-
-    // Print distribution
-    let priorityCounts = Dictionary(grouping: classified, by: { $0.classification.priority })
-    for priority in [Priority.canonicalPauCau, .cvsNewPauCau, .canonicalSpecialty, .unknown] {
-        let count = priorityCounts[priority]?.count ?? 0
-        print("  Priority \(priority.rawValue): \(count) pairs")
-    }
-
-    print("\n=== Processing Pairs (Priority Order) ===")
-    var decisions: [StandardizationDecision] = []
-
-    // Process in priority order
-    for (nonStdPair, classification) in classified {
-        print("\n[\(classification.priority.rawValue)] \(nonStdPair.make) \(nonStdPair.model) - \(classification.reasoning)")
-
-        // Filter canonical candidates by vehicle type
-        var candidatePool = canonicalPairs
-
-        if classification.priority == .canonicalPauCau || classification.priority == .cvsNewPauCau {
-            // Only match against PAU/CAU pairs
-            candidatePool = canonicalPairs.filter { $0.isPauCau }
-            print("  → Filtering to \(candidatePool.count) PAU/CAU canonical pairs only")
-        } else if classification.priority == .canonicalSpecialty, let types = classification.canonicalTypes {
-            // Match against same specialty type
-            candidatePool = canonicalPairs.filter { canonical in
-                !canonical.vehicleTypes.isDisjoint(with: types)
-            }
-            print("  → Filtering to \(candidatePool.count) canonical pairs with types \(types.joined(separator: ","))")
-        }
-
-        // Find best candidate
+        // Find best candidate from ALL canonical pairs
         var candidates: [Candidate] = []
 
-        for canonical in candidatePool {
+        for canonical in canonicalPairs {
             var similarity = stringSimilarity(
                 nonStdPair.make + nonStdPair.model,
                 canonical.pair.make + canonical.pair.model
@@ -671,7 +546,8 @@ func main() async throws {
         candidates.sort { $0.similarity > $1.similarity }
 
         if let topCandidate = candidates.first {
-            print("  → Best match: \(topCandidate.pair.pair.make) \(topCandidate.pair.pair.model) (similarity: \(String(format: "%.2f", topCandidate.similarity)))")
+            let canonicalYears = formatYearRange(topCandidate.pair.pair.minRegistrationYear, topCandidate.pair.pair.maxRegistrationYear)
+            print("  → Evaluating closest match: \(topCandidate.pair.pair.make) \(topCandidate.pair.pair.model) [\(canonicalYears)] (similarity: \(String(format: "%.2f", topCandidate.similarity)))")
 
             // Validate with CVS, Temporal, AI
             let cvsValidation = validateWithCVS(
@@ -682,8 +558,7 @@ func main() async throws {
 
             let temporalValidation = validateWithTemporal(
                 nonStdPair: nonStdPair,
-                canonicalPair: topCandidate.pair.pair,
-                saaqDBPath: saaqDBPath
+                canonicalPair: topCandidate.pair.pair
             )
 
             let aiAnalysis = await analyzeWithAI(
@@ -692,44 +567,44 @@ func main() async throws {
             )
 
             // Override logic
-            var shouldStandardize = aiAnalysis.shouldStandardize
+            var shouldRegularize = aiAnalysis.shouldRegularize
             var reasoning = aiAnalysis.reasoning
 
             if cvsValidation.confidence >= 0.9 && cvsValidation.decision == "PREVENT" {
-                shouldStandardize = false
+                shouldRegularize = false
                 reasoning = "CVS override: \(cvsValidation.reasoning)"
             }
 
             if temporalValidation.confidence >= 0.8 && temporalValidation.decision == "PREVENT" {
-                shouldStandardize = false
+                shouldRegularize = false
                 reasoning = "Temporal override: \(temporalValidation.reasoning)"
             }
 
-            decisions.append(StandardizationDecision(
+            decisions.append(RegularizationDecision(
                 nonStdPair: nonStdPair,
                 canonicalPair: topCandidate.pair,
-                priority: classification.priority,
-                shouldStandardize: shouldStandardize,
+                shouldRegularize: shouldRegularize,
                 reasoning: reasoning,
                 similarity: topCandidate.similarity,
-                classification: classification,
                 cvsValidation: cvsValidation,
                 temporalValidation: temporalValidation,
                 aiAnalysis: aiAnalysis
             ))
 
-            print("  → Decision: \(shouldStandardize ? "STANDARDIZE" : "PRESERVE")")
+            if shouldRegularize {
+                print("  ✓ Decision: REGULARIZE → \(topCandidate.pair.pair.make) \(topCandidate.pair.pair.model)")
+            } else {
+                print("  ✗ Decision: PRESERVE (keep as \(nonStdPair.make) \(nonStdPair.model))")
+            }
         } else {
             print("  → No candidates found")
 
-            decisions.append(StandardizationDecision(
+            decisions.append(RegularizationDecision(
                 nonStdPair: nonStdPair,
                 canonicalPair: nil,
-                priority: classification.priority,
-                shouldStandardize: false,
+                shouldRegularize: false,
                 reasoning: "No similar canonical pair found",
                 similarity: 0.0,
-                classification: classification,
                 cvsValidation: nil,
                 temporalValidation: nil,
                 aiAnalysis: nil
@@ -740,11 +615,11 @@ func main() async throws {
     // Generate report
     print("\n=== Generating Report ===")
 
-    let standardizations = decisions.filter { $0.shouldStandardize }
-    let preservations = decisions.filter { !$0.shouldStandardize }
+    let regularizations = decisions.filter { $0.shouldRegularize }
+    let preservations = decisions.filter { !$0.shouldRegularize }
 
     var report = """
-    # Priority-Filtered Make/Model Standardization Report
+    # Make/Model Regularization Report
 
     **Date:** \(Date())
     **Database:** \(saaqDBPath)
@@ -753,30 +628,20 @@ func main() async throws {
     ## Summary
 
     - **Canonical pairs (2011-2022):** \(canonicalPairs.count)
-      - PAU/CAU: \(canonicalPairs.filter { $0.isPauCau }.count)
-      - Specialty: \(canonicalPairs.filter { !$0.isPauCau }.count)
     - **Non-standard pairs (2023-2024):** \(nonStdPairs.count)
-    - **Standardizations recommended:** \(standardizations.count)
+    - **Regularizations recommended:** \(regularizations.count)
     - **Preservations recommended:** \(preservations.count)
 
-    ## Priority Distribution
+    ---
+
+    ## Regularizations (\(regularizations.count))
 
     """
 
-    for priority in [Priority.canonicalPauCau, .cvsNewPauCau, .canonicalSpecialty, .unknown] {
-        let count = priorityCounts[priority]?.count ?? 0
-        let std = standardizations.filter { $0.priority == priority }.count
-        let pres = preservations.filter { $0.priority == priority }.count
-        report += "- **Priority \(priority.rawValue)**: \(count) pairs (\(std) standardizations, \(pres) preservations)\n"
-    }
-
-    report += "\n---\n\n## Standardizations (\(standardizations.count))\n\n"
-
-    for decision in standardizations.sorted(by: { $0.priority < $1.priority }) {
+    for decision in regularizations {
         report += """
-        ### [\(decision.priority.rawValue)] \(decision.nonStdPair.make) \(decision.nonStdPair.model) → \(decision.canonicalPair?.pair.make ?? "N/A") \(decision.canonicalPair?.pair.model ?? "N/A")
+        ### \(decision.nonStdPair.make) \(decision.nonStdPair.model) → \(decision.canonicalPair?.pair.make ?? "N/A") \(decision.canonicalPair?.pair.model ?? "N/A")
 
-        - **Classification:** \(decision.classification?.reasoning ?? "N/A")
         - **Canonical Types:** \(decision.canonicalPair?.vehicleTypes.joined(separator: ", ") ?? "N/A")
         - **Similarity:** \(String(format: "%.2f", decision.similarity))
         - **AI:** \(decision.aiAnalysis?.classification ?? "N/A") (\(String(format: "%.2f", decision.aiAnalysis?.confidence ?? 0.0)))
@@ -789,13 +654,13 @@ func main() async throws {
     }
 
     report += "---\n\n## Preservations (\(preservations.count))\n\n"
+    report += "*Showing first 50 preservations*\n\n"
 
-    for decision in preservations.sorted(by: { $0.priority < $1.priority }).prefix(50) {
+    for decision in preservations.prefix(50) {
         report += """
-        ### [\(decision.priority.rawValue)] \(decision.nonStdPair.make) \(decision.nonStdPair.model) (preserved)
+        ### \(decision.nonStdPair.make) \(decision.nonStdPair.model) (preserved)
 
-        - **Classification:** \(decision.classification?.reasoning ?? "N/A")
-        - **Best candidate:** \(decision.canonicalPair?.pair.make ?? "N/A") \(decision.canonicalPair?.pair.model ?? "N/A")
+        - **Best candidate:** \(decision.canonicalPair?.pair.make ?? "none") \(decision.canonicalPair?.pair.model ?? "")
         - **Similarity:** \(String(format: "%.2f", decision.similarity))
         - **Reasoning:** \(decision.reasoning)
 
@@ -806,12 +671,8 @@ func main() async throws {
     try report.write(toFile: reportPath, atomically: true, encoding: .utf8)
     print("  Report written to: \(reportPath)")
 
-    print("\n✅ Standardization complete!")
-    print("   Priority 1 (PAU/CAU canonical): \(priorityCounts[.canonicalPauCau]?.count ?? 0)")
-    print("   Priority 2 (CVS new PAU/CAU): \(priorityCounts[.cvsNewPauCau]?.count ?? 0)")
-    print("   Priority 3 (Specialty canonical): \(priorityCounts[.canonicalSpecialty]?.count ?? 0)")
-    print("   Priority 4 (Unknown): \(priorityCounts[.unknown]?.count ?? 0)")
-    print("   Standardizations: \(standardizations.count)")
+    print("\n✅ Regularization complete!")
+    print("   Regularizations: \(regularizations.count)")
     print("   Preservations: \(preservations.count)")
 }
 
