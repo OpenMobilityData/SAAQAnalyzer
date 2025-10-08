@@ -121,15 +121,34 @@ struct UncuratedPairsListView: View {
                     .help("When enabled, shows Make/Model pairs that exist in both curated and uncurated years. Useful for adding FuelType/VehicleType disambiguation.")
 
                 // Summary
-                HStack {
-                    Text("\(filteredAndSortedPairs.count) pairs")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    if let selected = viewModel.selectedPair {
-                        Text("Selected: \(selected.makeName)/\(selected.modelName)")
+                VStack(spacing: 4) {
+                    HStack {
+                        Text("\(filteredAndSortedPairs.count) pairs")
                             .font(.caption)
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if let selected = viewModel.selectedPair {
+                            Text("Selected: \(selected.makeName)/\(selected.modelName)")
+                                .font(.caption)
+                                .foregroundStyle(.blue)
+                        }
+                    }
+
+                    // Regularization progress
+                    let progress = viewModel.regularizationProgress
+                    if progress.totalRecords > 0 {
+                        HStack(spacing: 4) {
+                            Text("Regularization Progress:")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text("\(progress.regularizedRecords.formatted()) / \(progress.totalRecords.formatted()) records")
+                                .font(.caption)
+                                .foregroundStyle(.primary)
+                            Text("(\(progress.percentage, specifier: "%.1f")%)")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .foregroundStyle(progress.percentage >= 100 ? .green : (progress.percentage >= 50 ? .orange : .red))
+                        }
                     }
                 }
             }
@@ -400,49 +419,10 @@ struct MappingFormView: View {
             .background(Color.gray.opacity(0.05))
             .cornerRadius(8)
 
-            // Step 3: Select Fuel Type (optional)
+            // Step 3: Select Vehicle Type (optional)
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("3. Select Fuel Type (Optional)")
-                        .font(.headline)
-                    Spacer()
-                    if viewModel.selectedFuelType != nil {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                    }
-                }
-
-                Text("Leave unset if uncertain or multiple fuel types exist")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let model = viewModel.selectedCanonicalModel {
-                    Picker("Fuel Type", selection: $viewModel.selectedFuelType) {
-                        Text("Not Specified").tag(nil as MakeModelHierarchy.FuelTypeInfo?)
-                        ForEach(model.fuelTypes) { fuelType in
-                            HStack {
-                                Text(fuelType.description)
-                                Text("(\(fuelType.recordCount.formatted()))")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .tag(fuelType as MakeModelHierarchy.FuelTypeInfo?)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                } else {
-                    Text("Select a model first")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding()
-            .background(Color.gray.opacity(0.05))
-            .cornerRadius(8)
-
-            // Step 4: Select Vehicle Type (optional)
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("4. Select Vehicle Type (Optional)")
+                    Text("3. Select Vehicle Type (Optional)")
                         .font(.headline)
                     Spacer()
                     if viewModel.selectedVehicleType != nil {
@@ -465,6 +445,45 @@ struct MappingFormView: View {
                                     .foregroundStyle(.secondary)
                             }
                             .tag(vehicleType as MakeModelHierarchy.VehicleTypeInfo?)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                } else {
+                    Text("Select a model first")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding()
+            .background(Color.gray.opacity(0.05))
+            .cornerRadius(8)
+
+            // Step 4: Select Fuel Type (optional)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("4. Select Fuel Type (Optional)")
+                        .font(.headline)
+                    Spacer()
+                    if viewModel.selectedFuelType != nil {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    }
+                }
+
+                Text("Leave unset if uncertain or multiple fuel types exist")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let model = viewModel.selectedCanonicalModel {
+                    Picker("Fuel Type", selection: $viewModel.selectedFuelType) {
+                        Text("Not Specified").tag(nil as MakeModelHierarchy.FuelTypeInfo?)
+                        ForEach(model.fuelTypes) { fuelType in
+                            HStack {
+                                Text(fuelType.description)
+                                Text("(\(fuelType.recordCount.formatted()))")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .tag(fuelType as MakeModelHierarchy.FuelTypeInfo?)
                         }
                     }
                     .pickerStyle(.menu)
@@ -555,6 +574,23 @@ class RegularizationViewModel: ObservableObject {
         selectedPair != nil &&
         selectedCanonicalMake != nil &&
         selectedCanonicalModel != nil
+    }
+
+    /// Calculate regularization progress based on total records
+    var regularizationProgress: (regularizedRecords: Int, totalRecords: Int, percentage: Double) {
+        let totalRecords = uncuratedPairs.reduce(0) { $0 + $1.recordCount }
+
+        // Count records that have mappings
+        var regularizedRecords = 0
+        for pair in uncuratedPairs {
+            let key = "\(pair.makeId)_\(pair.modelId)"
+            if existingMappings[key] != nil {
+                regularizedRecords += pair.recordCount
+            }
+        }
+
+        let percentage = totalRecords > 0 ? (Double(regularizedRecords) / Double(totalRecords)) * 100.0 : 0.0
+        return (regularizedRecords, totalRecords, percentage)
     }
 
     init(databaseManager: DatabaseManager, yearConfig: RegularizationYearConfiguration) {
@@ -672,11 +708,11 @@ class RegularizationViewModel: ObservableObject {
             print("✅ Saved mapping: \(pair.makeModelDisplay) → \(canonicalMake.name)/\(canonicalModel.name)")
 
             // Reload existing mappings to update status indicators
+            // This will trigger UI updates for status badges without rebuilding the pairs array
             await loadExistingMappings()
 
-            // Clear selection and refresh pairs
-            clearMappingSelection()
-            await loadUncuratedPairs()
+            // Reload the mapping for the current pair to show updated form fields
+            await loadMappingForSelectedPair()
 
         } catch {
             print("❌ Error saving mapping: \(error)")
@@ -686,6 +722,11 @@ class RegularizationViewModel: ObservableObject {
     }
 
     func clearMappingSelection() {
+        selectedPair = nil
+        clearMappingFormFields()
+    }
+
+    func clearMappingFormFields() {
         selectedCanonicalMake = nil
         selectedCanonicalModel = nil
         selectedFuelType = nil
@@ -721,9 +762,20 @@ class RegularizationViewModel: ObservableObject {
             }
         }
 
+        // Fetch ALL uncurated pairs including exact matches for auto-regularization
+        // Don't rely on the uncuratedPairs array since it may have exact matches filtered out
+        let allUncuratedPairs: [UnverifiedMakeModelPair]
+        do {
+            allUncuratedPairs = try await manager.findUncuratedPairs(includeExactMatches: true)
+        } catch {
+            print("❌ Error fetching uncurated pairs for auto-regularization: \(error)")
+            isAutoRegularizing = false
+            return
+        }
+
         // Find uncurated pairs that exactly match
         var autoRegularizedCount = 0
-        for pair in uncuratedPairs {
+        for pair in allUncuratedPairs {
             let pairKey = "\(pair.makeName)/\(pair.modelName)"
 
             // Check if this pair already has a mapping
@@ -783,34 +835,76 @@ class RegularizationViewModel: ObservableObject {
             return
         }
 
-        let key = "\(pair.makeId)_\(pair.modelId)"
-        guard let mapping = existingMappings[key],
-              let hierarchy = canonicalHierarchy else {
-            clearMappingSelection()
-            return
-        }
-
-        // Find the canonical make from the mapping
-        // Note: We need to look up by the canonical Make/Model names since we have those
-        if let make = hierarchy.makes.first(where: { $0.name == mapping.canonicalMake }) {
-            selectedCanonicalMake = make
-
-            // Find the canonical model
-            if let model = make.models.first(where: { $0.name == mapping.canonicalModel }) {
-                selectedCanonicalModel = model
-
-                // Find the fuel type if assigned
-                if let fuelTypeName = mapping.fuelType {
-                    selectedFuelType = model.fuelTypes.first { $0.description == fuelTypeName }
-                }
-
-                // Find the vehicle type if assigned
-                if let vehicleTypeName = mapping.vehicleType {
-                    selectedVehicleType = model.vehicleTypes.first { $0.code == vehicleTypeName }
-                }
+        // Ensure hierarchy is loaded
+        var hierarchy = canonicalHierarchy
+        if hierarchy == nil {
+            await generateHierarchy()
+            hierarchy = canonicalHierarchy
+            guard hierarchy != nil else {
+                print("❌ Failed to generate hierarchy for mapping lookup")
+                clearMappingSelection()
+                return
             }
         }
 
-        print("📋 Loaded existing mapping for \(pair.makeModelDisplay)")
+        let key = "\(pair.makeId)_\(pair.modelId)"
+        let mapping = existingMappings[key]
+
+        // Try to find canonical Make/Model for this pair
+        // First check if there's an existing mapping
+        var canonicalMakeName: String?
+        var canonicalModelName: String?
+
+        if let mapping = mapping {
+            // Use mapping's canonical values
+            canonicalMakeName = mapping.canonicalMake
+            canonicalModelName = mapping.canonicalModel
+        } else {
+            // Check if this is an exact match to a canonical pair
+            let pairKey = "\(pair.makeName)/\(pair.modelName)"
+            for make in hierarchy!.makes {
+                for model in make.models {
+                    if "\(make.name)/\(model.name)" == pairKey {
+                        canonicalMakeName = make.name
+                        canonicalModelName = model.name
+                        break
+                    }
+                }
+                if canonicalMakeName != nil { break }
+            }
+        }
+
+        // Pre-populate dropdowns if we found canonical values
+        if let canonicalMakeName = canonicalMakeName,
+           let canonicalModelName = canonicalModelName {
+
+            if let make = hierarchy!.makes.first(where: { $0.name == canonicalMakeName }) {
+                selectedCanonicalMake = make
+
+                // Find the canonical model
+                if let model = make.models.first(where: { $0.name == canonicalModelName }) {
+                    selectedCanonicalModel = model
+
+                    // Find the fuel type if assigned (only from existing mapping)
+                    if let mapping = mapping, let fuelTypeName = mapping.fuelType {
+                        selectedFuelType = model.fuelTypes.first { $0.description == fuelTypeName }
+                    }
+
+                    // Find the vehicle type if assigned (only from existing mapping)
+                    if let mapping = mapping, let vehicleTypeName = mapping.vehicleType {
+                        selectedVehicleType = model.vehicleTypes.first { $0.code == vehicleTypeName }
+                    }
+                }
+            }
+
+            if mapping != nil {
+                print("📋 Loaded existing mapping for \(pair.makeModelDisplay)")
+            } else {
+                print("📋 Pre-populated exact match for \(pair.makeModelDisplay)")
+            }
+        } else {
+            // No mapping and no exact match - clear selection
+            clearMappingSelection()
+        }
     }
 }
