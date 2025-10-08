@@ -476,6 +476,8 @@ class RegularizationManager {
         let sql = """
         SELECT
             r.id,
+            r.uncurated_make_id,
+            r.uncurated_model_id,
             um.name as uncurated_make,
             umd.name as uncurated_model,
             cm.name as canonical_make,
@@ -505,25 +507,29 @@ class RegularizationManager {
 
                 while sqlite3_step(stmt) == SQLITE_ROW {
                     let id = Int(sqlite3_column_int(stmt, 0))
-                    let uncuratedMake = String(cString: sqlite3_column_text(stmt, 1))
-                    let uncuratedModel = String(cString: sqlite3_column_text(stmt, 2))
-                    let canonicalMake = String(cString: sqlite3_column_text(stmt, 3))
-                    let canonicalModel = String(cString: sqlite3_column_text(stmt, 4))
+                    let uncuratedMakeId = Int(sqlite3_column_int(stmt, 1))
+                    let uncuratedModelId = Int(sqlite3_column_int(stmt, 2))
+                    let uncuratedMake = String(cString: sqlite3_column_text(stmt, 3))
+                    let uncuratedModel = String(cString: sqlite3_column_text(stmt, 4))
+                    let canonicalMake = String(cString: sqlite3_column_text(stmt, 5))
+                    let canonicalModel = String(cString: sqlite3_column_text(stmt, 6))
 
-                    let fuelType: String? = sqlite3_column_type(stmt, 5) != SQLITE_NULL
-                        ? String(cString: sqlite3_column_text(stmt, 5)) : nil
-                    let vehicleType: String? = sqlite3_column_type(stmt, 6) != SQLITE_NULL
-                        ? String(cString: sqlite3_column_text(stmt, 6)) : nil
+                    let fuelType: String? = sqlite3_column_type(stmt, 7) != SQLITE_NULL
+                        ? String(cString: sqlite3_column_text(stmt, 7)) : nil
+                    let vehicleType: String? = sqlite3_column_type(stmt, 8) != SQLITE_NULL
+                        ? String(cString: sqlite3_column_text(stmt, 8)) : nil
 
-                    let recordCount = Int(sqlite3_column_int(stmt, 7))
+                    let recordCount = Int(sqlite3_column_int(stmt, 9))
                     totalRecords += recordCount
 
-                    let yearStart = Int(sqlite3_column_int(stmt, 8))
-                    let yearEnd = Int(sqlite3_column_int(stmt, 9))
+                    let yearStart = Int(sqlite3_column_int(stmt, 10))
+                    let yearEnd = Int(sqlite3_column_int(stmt, 11))
                     let yearRange = "\(yearStart)-\(yearEnd)"
 
                     let mapping = RegularizationMapping(
                         id: id,
+                        uncuratedMakeId: uncuratedMakeId,
+                        uncuratedModelId: uncuratedModelId,
                         unverifiedMake: uncuratedMake,
                         unverifiedModel: uncuratedModel,
                         canonicalMake: canonicalMake,
@@ -542,6 +548,8 @@ class RegularizationManager {
                     mappings = mappings.map { mapping in
                         RegularizationMapping(
                             id: mapping.id,
+                            uncuratedMakeId: mapping.uncuratedMakeId,
+                            uncuratedModelId: mapping.uncuratedModelId,
                             unverifiedMake: mapping.unverifiedMake,
                             unverifiedModel: mapping.unverifiedModel,
                             canonicalMake: mapping.canonicalMake,

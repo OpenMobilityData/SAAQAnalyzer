@@ -1891,8 +1891,7 @@ struct RegularizationSettingsView: View {
             await loadInitialData()
         }
         .sheet(isPresented: $showingRegularizationView) {
-            Text("Regularization View - Coming Soon")
-                .frame(width: 1000, height: 700)
+            RegularizationView(databaseManager: databaseManager, yearConfig: yearConfig)
         }
     }
 

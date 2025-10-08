@@ -1593,6 +1593,8 @@ struct MakeModelRegularization: Codable, Sendable {
 /// In-memory representation of a regularization mapping for UI
 struct RegularizationMapping: Identifiable, Sendable {
     let id: Int
+    let uncuratedMakeId: Int
+    let uncuratedModelId: Int
     let unverifiedMake: String
     let unverifiedModel: String
     let canonicalMake: String
@@ -1606,10 +1608,14 @@ struct RegularizationMapping: Identifiable, Sendable {
     var makeModelKey: String {
         "\(unverifiedMake)/\(unverifiedModel)"
     }
+
+    var uncuratedKey: String {
+        "\(uncuratedMakeId)_\(uncuratedModelId)"
+    }
 }
 
 /// Unverified Make/Model pair requiring regularization
-struct UnverifiedMakeModelPair: Identifiable, Sendable {
+struct UnverifiedMakeModelPair: Identifiable, Sendable, Hashable {
     let id: String  // Composite: "\(makeId)_\(modelId)"
     let makeId: Int
     let modelId: Int
@@ -1628,14 +1634,14 @@ struct UnverifiedMakeModelPair: Identifiable, Sendable {
 /// Hierarchical structure for canonical Make/Model/FuelType/VehicleType combinations
 struct MakeModelHierarchy: Sendable {
     /// Top-level: Make
-    struct Make: Identifiable, Sendable {
+    struct Make: Identifiable, Sendable, Hashable {
         let id: Int
         let name: String
         let models: [Model]
     }
 
     /// Second level: Model (within a Make)
-    struct Model: Identifiable, Sendable {
+    struct Model: Identifiable, Sendable, Hashable {
         let id: Int
         let name: String
         let makeId: Int
@@ -1644,7 +1650,7 @@ struct MakeModelHierarchy: Sendable {
     }
 
     /// Third level: Fuel Type (for a Make/Model combination)
-    struct FuelTypeInfo: Identifiable, Sendable {
+    struct FuelTypeInfo: Identifiable, Sendable, Hashable {
         let id: Int
         let code: String
         let description: String
@@ -1652,7 +1658,7 @@ struct MakeModelHierarchy: Sendable {
     }
 
     /// Third level: Vehicle Type (for a Make/Model combination)
-    struct VehicleTypeInfo: Identifiable, Sendable {
+    struct VehicleTypeInfo: Identifiable, Sendable, Hashable {
         let id: Int
         let code: String
         let description: String
