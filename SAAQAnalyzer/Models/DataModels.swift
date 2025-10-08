@@ -1148,9 +1148,31 @@ struct FilterConfiguration: Equatable, Sendable {
         return displayName
     }
 
+    /// Strips regularization badges from Make display names for querying
+    /// Examples:
+    ///   "VOLVO" → "VOLVO"
+    ///   "VOLV0 [uncurated: 123 records]" → "VOLV0"
+    ///   "VOLV0 → VOLVO (123 records)" → "VOLV0"
+    static func stripMakeBadge(_ displayName: String) -> String {
+        // Check for regularization arrow first: "VOLV0 → VOLVO (123 records)" → "VOLV0"
+        if let arrowRange = displayName.range(of: " → ") {
+            return String(displayName[..<arrowRange.lowerBound])
+        }
+        // Check for uncurated badge: "VOLV0 [uncurated: 123 records]" → "VOLV0"
+        if let bracketRange = displayName.range(of: " [") {
+            return String(displayName[..<bracketRange.lowerBound])
+        }
+        return displayName
+    }
+
     /// Returns vehicle models with badges stripped for database querying
     var cleanVehicleModels: Set<String> {
         Set(vehicleModels.map { FilterConfiguration.stripModelBadge($0) })
+    }
+
+    /// Returns vehicle makes with badges stripped for database querying
+    var cleanVehicleMakes: Set<String> {
+        Set(vehicleMakes.map { FilterConfiguration.stripMakeBadge($0) })
     }
 }
 

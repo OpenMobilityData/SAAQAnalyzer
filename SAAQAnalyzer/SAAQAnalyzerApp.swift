@@ -1721,7 +1721,8 @@ struct RegularizationSettingsView: View {
     @State private var isGeneratingHierarchy = false
     @State private var isFindingUncurated = false
     @State private var showingRegularizationView = false
-    @State private var regularizationEnabled = false
+    @AppStorage("regularizationEnabled") private var regularizationEnabled = false
+    @AppStorage("regularizationCoupling") private var regularizationCoupling = true
     @State private var statistics: (mappingCount: Int, coveredRecords: Int, totalRecords: Int)?
     @State private var isLoadingStats = false
     @State private var cacheNeedsReload = false
@@ -1865,7 +1866,7 @@ struct RegularizationSettingsView: View {
                         .controlSize(.regular)
                         .help("When enabled, queries will merge uncurated Make/Model variants into canonical values")
                         .onChange(of: regularizationEnabled) { oldValue, newValue in
-                            updateRegularizationInQueryManager(newValue)
+                            updateRegularizationInQueryManager(newValue, coupling: regularizationCoupling)
                         }
 
                     if regularizationEnabled {
@@ -1876,6 +1877,20 @@ struct RegularizationSettingsView: View {
                                 .font(.caption)
                                 .foregroundColor(.green)
                         }
+
+                        Toggle("Couple Make/Model in Queries", isOn: $regularizationCoupling)
+                            .controlSize(.small)
+                            .help("When enabled, regularization respects Make/Model relationships. When disabled, Make and Model filters remain independent.")
+                            .onChange(of: regularizationCoupling) { oldValue, newValue in
+                                updateRegularizationInQueryManager(regularizationEnabled, coupling: newValue)
+                            }
+
+                        Text(regularizationCoupling ?
+                             "Coupled: Filtering by Model includes associated Make" :
+                             "Decoupled: Make and Model filters remain independent")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 20)
                     }
 
                     Divider()
@@ -1929,10 +1944,10 @@ struct RegularizationSettingsView: View {
             RegularizationView(databaseManager: databaseManager, yearConfig: yearConfig)
         }
         .onChange(of: showingRegularizationView) { oldValue, newValue in
-            // When RegularizationView closes, flag cache as potentially stale
+            // When RegularizationView closes, automatically reload filter cache
             if oldValue == true && newValue == false {
-                cacheNeedsReload = true
-                print("⚠️ RegularizationView closed - filter cache may need reload")
+                print("⚠️ RegularizationView closed - reloading filter cache automatically")
+                rebuildEnumerations()
             }
         }
     }
@@ -1944,8 +1959,23 @@ struct RegularizationSettingsView: View {
             print("⚠️ RegularizationManager not yet initialized in DatabaseManager")
         }
 
-        // Load current year ranges from manager
-        // For now, use defaults
+        // Check if regularization mappings exist but filter cache hasn't loaded them yet
+        if let manager = databaseManager.regularizationManager {
+            do {
+                let mappings = try await manager.getAllMappings()
+                if !mappings.isEmpty {
+                    // Mappings exist - check if cache knows about them
+                    if let cacheManager = databaseManager.filterCacheManager {
+                        // Invalidate cache to ensure fresh data on launch
+                        // This handles the case where user added mappings and quit before reloading
+                        cacheManager.invalidateCache()
+                        print("✅ Filter cache invalidated on launch - will reload with latest regularization data")
+                    }
+                }
+            } catch {
+                print("⚠️ Could not check regularization mappings: \(error)")
+            }
+        }
 
         // Load statistics
         loadStatistics()
@@ -2004,10 +2034,15 @@ struct RegularizationSettingsView: View {
         }
     }
 
-    private func updateRegularizationInQueryManager(_ enabled: Bool) {
+    private func updateRegularizationInQueryManager(_ enabled: Bool, coupling: Bool) {
         if let queryManager = databaseManager.optimizedQueryManager {
             queryManager.regularizationEnabled = enabled
-            print(enabled ? "✅ Regularization ENABLED in queries" : "⚪️ Regularization DISABLED in queries")
+            queryManager.regularizationCoupling = coupling
+            if enabled {
+                print("✅ Regularization ENABLED in queries (\(coupling ? "coupled" : "decoupled") mode)")
+            } else {
+                print("⚪️ Regularization DISABLED in queries")
+            }
         }
     }
 

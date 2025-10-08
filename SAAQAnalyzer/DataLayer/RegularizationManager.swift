@@ -229,7 +229,7 @@ class RegularizationManager {
     // MARK: - Uncurated Pair Discovery
 
     /// Identifies Make/Model pairs in uncurated years that don't have exact matches in curated years
-    func findUncuratedPairs() async throws -> [UnverifiedMakeModelPair] {
+    func findUncuratedPairs(includeExactMatches: Bool = false) async throws -> [UnverifiedMakeModelPair] {
         guard let db = db else { throw DatabaseError.notConnected }
 
         let curatedYearsList = Array(yearConfig.curatedYears).sorted()
@@ -243,12 +243,16 @@ class RegularizationManager {
         }
 
         print("🔍 Finding uncurated Make/Model pairs in \(uncuratedYearsList.count) uncurated years: \(uncuratedYearsList)")
+        print("   Include exact matches: \(includeExactMatches)")
 
         // Build IN clauses
         let uncuratedPlaceholders = uncuratedYearsList.map { _ in "?" }.joined(separator: ",")
         let curatedPlaceholders = curatedYearsList.map { _ in "?" }.joined(separator: ",")
 
-        // Query to find Make/Model pairs in uncurated years that don't exist in curated years
+        // Query to find Make/Model pairs in uncurated years
+        // If includeExactMatches is false, exclude pairs that exist in curated years
+        let whereClause = includeExactMatches ? "" : "WHERE c.make_id IS NULL"
+
         let sql = """
         WITH uncurated_pairs AS (
             SELECT DISTINCT
@@ -292,7 +296,7 @@ class RegularizationManager {
         FROM uncurated_pairs u
         LEFT JOIN curated_pairs c ON u.make_id = c.make_id AND u.model_id = c.model_id
         CROSS JOIN total_records t
-        WHERE c.make_id IS NULL
+        \(whereClause)
         ORDER BY u.record_count DESC;
         """
 
@@ -378,6 +382,14 @@ class RegularizationManager {
         vehicleTypeId: Int?
     ) async throws {
         guard let db = db else { throw DatabaseError.notConnected }
+
+        // Validate Make consistency - ensure this doesn't conflict with existing mappings
+        if let conflictError = try await validateMakeConsistency(
+            uncuratedMakeId: uncuratedMakeId,
+            canonicalMakeId: canonicalMakeId
+        ) {
+            throw DatabaseError.queryFailed(conflictError)
+        }
 
         // Calculate record count for this mapping
         let recordCount = try await calculateRecordCount(
@@ -662,10 +674,14 @@ class RegularizationManager {
     // MARK: - Query Translation
 
     /// Expands a set of make/model IDs to include all regularized variants
-    /// When regularization is enabled, this translates canonical IDs back to all uncurated variants
+    /// When regularization is enabled, this works bidirectionally:
+    /// - Canonical IDs → Include their uncurated variants
+    /// - Uncurated IDs → Replace with canonical IDs (which may have other uncurated variants)
+    /// - coupling parameter: When true, respects Make/Model relationships; when false, keeps them independent
     func expandMakeModelIDs(
         makeIds: [Int],
-        modelIds: [Int]
+        modelIds: [Int],
+        coupling: Bool = true
     ) async throws -> (makeIds: [Int], modelIds: [Int]) {
         guard let db = db else { throw DatabaseError.notConnected }
         guard !makeIds.isEmpty || !modelIds.isEmpty else {
@@ -676,25 +692,71 @@ class RegularizationManager {
         var expandedMakeIds = Set(makeIds)
         var expandedModelIds = Set(modelIds)
 
-        // Query regularization table for mappings where canonical IDs match
-        let sql = """
+        // STEP 1: If any input IDs are UNCURATED, find their CANONICAL equivalents
+        let uncuratedToCanonicalSql = """
+        SELECT DISTINCT uncurated_make_id, uncurated_model_id, canonical_make_id, canonical_model_id
+        FROM make_model_regularization
+        WHERE uncurated_make_id IN (\(makeIds.map { String($0) }.joined(separator: ",")))
+           OR uncurated_model_id IN (\(modelIds.map { String($0) }.joined(separator: ",")));
+        """
+
+        var stmt1: OpaquePointer?
+        defer { sqlite3_finalize(stmt1) }
+
+        if sqlite3_prepare_v2(db, uncuratedToCanonicalSql, -1, &stmt1, nil) == SQLITE_OK {
+            while sqlite3_step(stmt1) == SQLITE_ROW {
+                let uncuratedMakeId = Int(sqlite3_column_int(stmt1, 0))
+                let uncuratedModelId = Int(sqlite3_column_int(stmt1, 1))
+                let canonicalMakeId = Int(sqlite3_column_int(stmt1, 2))
+                let canonicalModelId = Int(sqlite3_column_int(stmt1, 3))
+
+                // If user selected an uncurated ID, add its canonical equivalent
+                if makeIds.contains(uncuratedMakeId) {
+                    expandedMakeIds.insert(canonicalMakeId)
+                    print("   🔄 Uncurated Make \(uncuratedMakeId) → Canonical \(canonicalMakeId)")
+                }
+                if modelIds.contains(uncuratedModelId) {
+                    expandedModelIds.insert(canonicalModelId)
+                    print("   🔄 Uncurated Model \(uncuratedModelId) → Canonical \(canonicalModelId)")
+                }
+            }
+        }
+
+        // STEP 2: For all IDs (including newly added canonical ones), find their uncurated variants
+        let currentMakeIds = Array(expandedMakeIds)
+        let currentModelIds = Array(expandedModelIds)
+
+        let canonicalToUncuratedSql = """
         SELECT DISTINCT uncurated_make_id, uncurated_model_id
         FROM make_model_regularization
-        WHERE canonical_make_id IN (\(makeIds.map { String($0) }.joined(separator: ",")))
-           OR canonical_model_id IN (\(modelIds.map { String($0) }.joined(separator: ",")));
+        WHERE canonical_make_id IN (\(currentMakeIds.map { String($0) }.joined(separator: ",")))
+           OR canonical_model_id IN (\(currentModelIds.map { String($0) }.joined(separator: ",")));
         """
 
         return try await withCheckedThrowingContinuation { continuation in
-            var stmt: OpaquePointer?
-            defer { sqlite3_finalize(stmt) }
+            var stmt2: OpaquePointer?
+            defer { sqlite3_finalize(stmt2) }
 
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                while sqlite3_step(stmt) == SQLITE_ROW {
-                    let uncuratedMakeId = Int(sqlite3_column_int(stmt, 0))
-                    let uncuratedModelId = Int(sqlite3_column_int(stmt, 1))
+            if sqlite3_prepare_v2(db, canonicalToUncuratedSql, -1, &stmt2, nil) == SQLITE_OK {
+                while sqlite3_step(stmt2) == SQLITE_ROW {
+                    let uncuratedMakeId = Int(sqlite3_column_int(stmt2, 0))
+                    let uncuratedModelId = Int(sqlite3_column_int(stmt2, 1))
 
-                    expandedMakeIds.insert(uncuratedMakeId)
-                    expandedModelIds.insert(uncuratedModelId)
+                    // With coupling: Add both Make and Model IDs (respects relationships)
+                    // Without coupling: Only add IDs for types that were originally filtered
+                    if coupling {
+                        expandedMakeIds.insert(uncuratedMakeId)
+                        expandedModelIds.insert(uncuratedModelId)
+                    } else {
+                        // Only add Make IDs if Makes were part of the original filter
+                        if !makeIds.isEmpty {
+                            expandedMakeIds.insert(uncuratedMakeId)
+                        }
+                        // Only add Model IDs if Models were part of the original filter
+                        if !modelIds.isEmpty {
+                            expandedModelIds.insert(uncuratedModelId)
+                        }
+                    }
                 }
 
                 let makeArray = Array(expandedMakeIds).sorted()
@@ -710,6 +772,163 @@ class RegularizationManager {
             } else {
                 let error = String(cString: sqlite3_errmsg(db))
                 continuation.resume(throwing: DatabaseError.queryFailed("Failed to expand IDs: \(error)"))
+            }
+        }
+    }
+
+    /// Expands a set of make IDs to include all regularized variants (derived from Make/Model mappings)
+    /// When regularization is enabled, this works bidirectionally:
+    /// - Canonical Make IDs → Include their uncurated variants
+    /// - Uncurated Make IDs → Replace with canonical IDs (which may have other uncurated variants)
+    func expandMakeIDs(makeIds: [Int]) async throws -> [Int] {
+        guard let db = db else { throw DatabaseError.notConnected }
+        guard !makeIds.isEmpty else { return makeIds }
+
+        // Start with original IDs
+        var expandedMakeIds = Set(makeIds)
+
+        // STEP 1: If any input IDs are UNCURATED Makes, find their CANONICAL equivalents
+        let placeholders1 = makeIds.map { _ in "?" }.joined(separator: ",")
+        let uncuratedToCanonicalSql = """
+        SELECT DISTINCT uncurated_make_id, canonical_make_id
+        FROM make_model_regularization
+        WHERE uncurated_make_id IN (\(placeholders1));
+        """
+
+        var stmt1: OpaquePointer?
+        defer { sqlite3_finalize(stmt1) }
+
+        if sqlite3_prepare_v2(db, uncuratedToCanonicalSql, -1, &stmt1, nil) == SQLITE_OK {
+            for (index, makeId) in makeIds.enumerated() {
+                sqlite3_bind_int(stmt1, Int32(index + 1), Int32(makeId))
+            }
+
+            while sqlite3_step(stmt1) == SQLITE_ROW {
+                let uncuratedMakeId = Int(sqlite3_column_int(stmt1, 0))
+                let canonicalMakeId = Int(sqlite3_column_int(stmt1, 1))
+
+                if makeIds.contains(uncuratedMakeId) {
+                    expandedMakeIds.insert(canonicalMakeId)
+                    print("   🔄 Uncurated Make \(uncuratedMakeId) → Canonical \(canonicalMakeId)")
+                }
+            }
+        }
+
+        // STEP 2: For all IDs (including newly added canonical ones), find their uncurated variants
+        let currentMakeIds = Array(expandedMakeIds)
+        let placeholders2 = currentMakeIds.map { _ in "?" }.joined(separator: ",")
+        let canonicalToUncuratedSql = """
+        SELECT DISTINCT uncurated_make_id
+        FROM make_model_regularization
+        WHERE canonical_make_id IN (\(placeholders2));
+        """
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt2: OpaquePointer?
+            defer { sqlite3_finalize(stmt2) }
+
+            if sqlite3_prepare_v2(db, canonicalToUncuratedSql, -1, &stmt2, nil) == SQLITE_OK {
+                for (index, makeId) in currentMakeIds.enumerated() {
+                    sqlite3_bind_int(stmt2, Int32(index + 1), Int32(makeId))
+                }
+
+                while sqlite3_step(stmt2) == SQLITE_ROW {
+                    let uncuratedMakeId = Int(sqlite3_column_int(stmt2, 0))
+                    expandedMakeIds.insert(uncuratedMakeId)
+                }
+
+                let makeArray = Array(expandedMakeIds).sorted()
+
+                if makeArray.count > makeIds.count {
+                    print("🔄 Make regularization expanded \(makeIds.count) → \(makeArray.count) IDs")
+                }
+
+                continuation.resume(returning: makeArray)
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to expand Make IDs: \(error)"))
+            }
+        }
+    }
+
+    /// Gets Make regularization info derived from Make/Model mappings
+    /// Returns dictionary mapping "uncuratedMakeId" → (canonicalMake, recordCount)
+    func getMakeRegularizationDisplayInfo() async throws -> [String: (canonicalMake: String, recordCount: Int)] {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        // Group by uncurated_make_id and canonical_make_id, sum record counts
+        let sql = """
+        SELECT
+            mmr.uncurated_make_id,
+            me.name as canonical_make,
+            SUM(mmr.record_count) as total_records
+        FROM make_model_regularization mmr
+        JOIN make_enum me ON mmr.canonical_make_id = me.id
+        GROUP BY mmr.uncurated_make_id, mmr.canonical_make_id;
+        """
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            var result: [String: (canonicalMake: String, recordCount: Int)] = [:]
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let uncuratedMakeId = Int(sqlite3_column_int(stmt, 0))
+                    let canonicalMake = String(cString: sqlite3_column_text(stmt, 1))
+                    let recordCount = Int(sqlite3_column_int(stmt, 2))
+
+                    let key = String(uncuratedMakeId)
+                    result[key] = (canonicalMake: canonicalMake, recordCount: recordCount)
+                }
+
+                if !result.isEmpty {
+                    print("✅ Loaded derived Make regularization info for \(result.count) Makes")
+                }
+
+                continuation.resume(returning: result)
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to get Make regularization info: \(error)"))
+            }
+        }
+    }
+
+    /// Validates that a new Make/Model mapping doesn't conflict with existing Make regularization
+    /// Returns nil if valid, or error message if conflicts exist
+    func validateMakeConsistency(
+        uncuratedMakeId: Int,
+        canonicalMakeId: Int
+    ) async throws -> String? {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        // Check if this uncurated_make_id already maps to a DIFFERENT canonical_make_id
+        let sql = """
+        SELECT DISTINCT canonical_make_id, me.name as canonical_make
+        FROM make_model_regularization mmr
+        JOIN make_enum me ON mmr.canonical_make_id = me.id
+        WHERE uncurated_make_id = ? AND canonical_make_id != ?;
+        """
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                sqlite3_bind_int(stmt, 1, Int32(uncuratedMakeId))
+                sqlite3_bind_int(stmt, 2, Int32(canonicalMakeId))
+
+                if sqlite3_step(stmt) == SQLITE_ROW {
+                    let existingCanonicalMake = String(cString: sqlite3_column_text(stmt, 1))
+                    let errorMessage = "This uncurated Make already maps to '\(existingCanonicalMake)'. All models from the same Make must map to the same canonical Make."
+                    continuation.resume(returning: errorMessage)
+                } else {
+                    continuation.resume(returning: nil)
+                }
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to validate Make consistency: \(error)"))
             }
         }
     }

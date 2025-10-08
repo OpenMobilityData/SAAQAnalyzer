@@ -28,6 +28,11 @@ class OptimizedQueryManager {
     /// Flag to enable/disable regularization in queries
     var regularizationEnabled: Bool = false
 
+    /// Flag to enable/disable Make/Model coupling in regularization
+    /// When true (default): Regularization respects Make/Model relationships
+    /// When false: Make and Model filters remain independent even with regularization
+    var regularizationCoupling: Bool = true
+
     init(databaseManager: DatabaseManager) {
         self.databaseManager = databaseManager
         self.enumManager = CategoricalEnumManager(databaseManager: databaseManager)
@@ -144,7 +149,7 @@ class OptimizedQueryManager {
 
             for make in filters.vehicleMakes {
                 // Strip any badge decoration from make name
-                let cleanMake = FilterConfiguration.stripModelBadge(make)
+                let cleanMake = FilterConfiguration.stripMakeBadge(make)
                 if let id = try await enumManager.getEnumId(table: "make_enum", column: "name", value: cleanMake) {
                     print("🔍 Make '\(make)' (cleaned: '\(cleanMake)') -> ID \(id)")
                     makeIds.append(id)
@@ -165,15 +170,23 @@ class OptimizedQueryManager {
             }
 
             // Apply regularization expansion if enabled
-            if regularizationEnabled && (!makeIds.isEmpty || !modelIds.isEmpty) {
+            if regularizationEnabled {
                 if let regManager = databaseManager?.regularizationManager {
-                    let (expandedMakeIds, expandedModelIds) = try await regManager.expandMakeModelIDs(
-                        makeIds: makeIds,
-                        modelIds: modelIds
-                    )
-                    makeIds = expandedMakeIds
-                    modelIds = expandedModelIds
-                    print("🔄 Regularization expanded Make/Model IDs")
+                    // Expand Make IDs (derived from Make/Model mappings)
+                    if !makeIds.isEmpty {
+                        makeIds = try await regManager.expandMakeIDs(makeIds: makeIds)
+                    }
+
+                    // Expand Make/Model IDs together (only if Models are being filtered)
+                    if !modelIds.isEmpty {
+                        let (expandedMakeIds, expandedModelIds) = try await regManager.expandMakeModelIDs(
+                            makeIds: makeIds,
+                            modelIds: modelIds,
+                            coupling: regularizationCoupling
+                        )
+                        makeIds = expandedMakeIds
+                        modelIds = expandedModelIds
+                    }
                 }
             }
 

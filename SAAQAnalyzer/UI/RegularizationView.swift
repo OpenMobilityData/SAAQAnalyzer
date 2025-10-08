@@ -115,6 +115,11 @@ struct UncuratedPairsListView: View {
                 .pickerStyle(.menu)
                 .labelsHidden()
 
+                // Show exact matches toggle
+                Toggle("Show Exact Matches", isOn: $viewModel.showExactMatches)
+                    .controlSize(.small)
+                    .help("When enabled, shows Make/Model pairs that exist in both curated and uncurated years. Useful for adding FuelType/VehicleType disambiguation.")
+
                 // Summary
                 HStack {
                     Text("\(filteredAndSortedPairs.count) pairs")
@@ -513,6 +518,15 @@ class RegularizationViewModel: ObservableObject {
     @Published var yearConfig: RegularizationYearConfiguration
     @Published var uncuratedPairs: [UnverifiedMakeModelPair] = []
     @Published var canonicalHierarchy: MakeModelHierarchy?
+    @Published var showExactMatches: Bool = false {
+        didSet {
+            if showExactMatches != oldValue {
+                Task { @MainActor in
+                    await loadUncuratedPairs()
+                }
+            }
+        }
+    }
     @Published var selectedPair: UnverifiedMakeModelPair? {
         didSet {
             // Load existing mapping when selection changes
@@ -596,7 +610,7 @@ class RegularizationViewModel: ObservableObject {
         }
 
         do {
-            let pairs = try await manager.findUncuratedPairs()
+            let pairs = try await manager.findUncuratedPairs(includeExactMatches: showExactMatches)
             await MainActor.run {
                 uncuratedPairs = pairs
                 isLoading = false
