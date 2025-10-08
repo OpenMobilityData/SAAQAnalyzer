@@ -28,6 +28,9 @@ class DatabaseManager: ObservableObject {
     /// Optimized query manager
     private(set) var optimizedQueryManager: OptimizedQueryManager?
 
+    /// Regularization manager
+    private(set) var regularizationManager: RegularizationManager?
+
     /// Flag to enable optimized integer-based queries
     private var useOptimizedQueries = true  // Default to optimized after migration
 
@@ -300,6 +303,7 @@ class DatabaseManager: ObservableObject {
             schemaManager = SchemaManager(databaseManager: self)
             optimizedQueryManager = OptimizedQueryManager(databaseManager: self)
             filterCacheManager = FilterCacheManager(databaseManager: self)
+            regularizationManager = RegularizationManager(databaseManager: self)
 
             // Create tables AFTER page_size is set
             createTablesIfNeeded()
@@ -2885,6 +2889,16 @@ class DatabaseManager: ObservableObject {
             try await enumManager.createEnumerationTables()
         } catch {
             print("⚠️ Note: Enumeration tables may already exist or creation failed: \(error)")
+        }
+
+        // Create regularization table if it doesn't exist
+        print("🔧 Ensuring regularization table exists...")
+        do {
+            if let regManager = regularizationManager {
+                try await regManager.createRegularizationTable()
+            }
+        } catch {
+            print("⚠️ Note: Regularization table may already exist or creation failed: \(error)")
         }
 
         // Load bundled geographic data if not already loaded

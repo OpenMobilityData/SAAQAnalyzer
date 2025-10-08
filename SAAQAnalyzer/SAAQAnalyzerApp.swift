@@ -1321,6 +1321,12 @@ struct SettingsView: View {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
                 .tag(3)
+
+            RegularizationSettingsView()
+                .tabItem {
+                    Label("Regularization", systemImage: "arrow.triangle.merge")
+                }
+                .tag(4)
         }
         .frame(width: 550, height: 650)
     }
@@ -1704,6 +1710,257 @@ struct ExportSettingsView: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .padding(20)
+    }
+}
+
+// MARK: - Regularization Settings Tab
+
+struct RegularizationSettingsView: View {
+    @StateObject private var databaseManager = DatabaseManager.shared
+    @State private var yearConfig = RegularizationYearConfiguration.defaultConfiguration()
+    @State private var isGeneratingHierarchy = false
+    @State private var isFindingUncurated = false
+    @State private var showingRegularizationView = false
+    @State private var regularizationEnabled = false
+    @State private var statistics: (mappingCount: Int, coveredRecords: Int, totalRecords: Int)?
+    @State private var isLoadingStats = false
+
+    var body: some View {
+        Form {
+            Section("Year Curation Configuration") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Define which years contain curated (complete) vs uncurated (incomplete) data")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    // Summary
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.caption)
+                            Text("Curated: \(yearConfig.curatedYearRange)")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                        }
+                        HStack {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                                .font(.caption)
+                            Text("Uncurated: \(yearConfig.uncuratedYearRange)")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
+                    }
+                    .padding(8)
+                    .background(Color.gray.opacity(0.05))
+                    .cornerRadius(6)
+
+                    Divider()
+
+                    // Year table with toggles
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Header
+                        HStack {
+                            Text("Year")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 60, alignment: .leading)
+                            Spacer()
+                            Text("Curated")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.gray.opacity(0.1))
+
+                        // Year rows
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                ForEach($yearConfig.years) { $yearStatus in
+                                    HStack {
+                                        Text("\(yearStatus.year)")
+                                            .font(.system(.body, design: .monospaced))
+                                            .frame(width: 60, alignment: .leading)
+                                        Spacer()
+                                        Toggle("", isOn: $yearStatus.isCurated)
+                                            .toggleStyle(.switch)
+                                            .controlSize(.mini)
+                                            .labelsHidden()
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 6)
+                                    .background(yearStatus.isCurated ? Color.green.opacity(0.05) : Color.orange.opacity(0.05))
+
+                                    if yearStatus.year != yearConfig.years.last?.year {
+                                        Divider()
+                                    }
+                                }
+                            }
+                        }
+                        .frame(height: 200)
+                        .border(Color.gray.opacity(0.2), width: 1)
+                    }
+                }
+            }
+
+            Section("Regularization Actions") {
+                VStack(spacing: 12) {
+                    Button(isGeneratingHierarchy ? "Generating Hierarchy..." : "Generate Canonical Hierarchy") {
+                        generateHierarchy()
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.roundedRectangle)
+                    .disabled(isGeneratingHierarchy)
+                    .help("Analyze curated years to build Make/Model/FuelType/VehicleType combinations")
+
+                    Button(isFindingUncurated ? "Finding Uncurated Pairs..." : "Manage Regularization Mappings") {
+                        showingRegularizationView = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.roundedRectangle)
+                    .disabled(isFindingUncurated)
+                    .help("Open the regularization management interface")
+                }
+            }
+
+            Section("Regularization Status") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Enable Regularization in Queries", isOn: $regularizationEnabled)
+                        .controlSize(.regular)
+                        .help("When enabled, queries will merge uncurated Make/Model variants into canonical values")
+
+                    if regularizationEnabled {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("Regularization Active")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                        }
+                    }
+
+                    Divider()
+
+                    if isLoadingStats {
+                        HStack {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Loading statistics...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else if let stats = statistics {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Active Mappings: \(stats.mappingCount)")
+                                .font(.system(.body, design: .monospaced))
+                            Text("Records Covered: \(stats.coveredRecords.formatted())")
+                                .font(.system(.body, design: .monospaced))
+                            Text("Total Uncurated Records: \(stats.totalRecords.formatted())")
+                                .font(.system(.body, design: .monospaced))
+
+                            if stats.totalRecords > 0 {
+                                let percentage = Double(stats.coveredRecords) / Double(stats.totalRecords) * 100.0
+                                Text("Coverage: \(String(format: "%.1f", percentage))%")
+                                    .font(.system(.body, design: .monospaced))
+                                    .foregroundColor(percentage > 50 ? .green : .orange)
+                            }
+                        }
+                    } else {
+                        Text("No statistics available")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button("Refresh Statistics") {
+                        loadStatistics()
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.roundedRectangle)
+                    .controlSize(.small)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .padding(20)
+        .task {
+            await loadInitialData()
+        }
+        .sheet(isPresented: $showingRegularizationView) {
+            Text("Regularization View - Coming Soon")
+                .frame(width: 1000, height: 700)
+        }
+    }
+
+    private func loadInitialData() async {
+        // Initialize regularization manager if needed
+        if databaseManager.regularizationManager == nil {
+            // Will be initialized when we integrate with DatabaseManager
+            print("⚠️ RegularizationManager not yet initialized in DatabaseManager")
+        }
+
+        // Load current year ranges from manager
+        // For now, use defaults
+
+        // Load statistics
+        loadStatistics()
+    }
+
+    private func generateHierarchy() {
+        guard let manager = databaseManager.regularizationManager else {
+            print("❌ RegularizationManager not available")
+            return
+        }
+
+        isGeneratingHierarchy = true
+
+        Task {
+            do {
+                // Update year configuration in manager
+                await manager.setYearConfiguration(yearConfig)
+
+                // Generate hierarchy
+                let hierarchy = try await manager.generateCanonicalHierarchy(forceRefresh: true)
+
+                await MainActor.run {
+                    isGeneratingHierarchy = false
+                    print("✅ Generated hierarchy with \(hierarchy.makes.count) makes")
+                }
+            } catch {
+                await MainActor.run {
+                    isGeneratingHierarchy = false
+                    print("❌ Error generating hierarchy: \(error)")
+                }
+            }
+        }
+    }
+
+    private func loadStatistics() {
+        guard let manager = databaseManager.regularizationManager else {
+            return
+        }
+
+        isLoadingStats = true
+
+        Task {
+            do {
+                let stats = try await manager.getRegularizationStatistics()
+
+                await MainActor.run {
+                    statistics = stats
+                    isLoadingStats = false
+                }
+            } catch {
+                await MainActor.run {
+                    isLoadingStats = false
+                    print("❌ Error loading statistics: \(error)")
+                }
+            }
+        }
     }
 }
 

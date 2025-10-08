@@ -1572,3 +1572,185 @@ extension Color {
         seriesColors[index % seriesColors.count]
     }
 }
+
+// MARK: - Make/Model Regularization Models
+
+/// Represents a mapping between unverified and canonical Make/Model pairs
+struct MakeModelRegularization: Codable, Sendable {
+    let id: Int
+    let unverifiedMakeId: Int
+    let unverifiedModelId: Int
+    let canonicalMakeId: Int
+    let canonicalModelId: Int
+    let fuelTypeId: Int?          // Optional fuel type constraint
+    let vehicleTypeId: Int?        // Optional vehicle type (classification) constraint
+    let recordCount: Int           // Number of records affected by this mapping
+    let yearRangeStart: Int        // First year this mapping applies to
+    let yearRangeEnd: Int          // Last year this mapping applies to
+    let createdDate: Date
+}
+
+/// In-memory representation of a regularization mapping for UI
+struct RegularizationMapping: Identifiable, Sendable {
+    let id: Int
+    let unverifiedMake: String
+    let unverifiedModel: String
+    let canonicalMake: String
+    let canonicalModel: String
+    let fuelType: String?
+    let vehicleType: String?
+    let recordCount: Int
+    let percentageOfTotal: Double
+    let yearRange: String
+
+    var makeModelKey: String {
+        "\(unverifiedMake)/\(unverifiedModel)"
+    }
+}
+
+/// Unverified Make/Model pair requiring regularization
+struct UnverifiedMakeModelPair: Identifiable, Sendable {
+    let id: String  // Composite: "\(makeId)_\(modelId)"
+    let makeId: Int
+    let modelId: Int
+    let makeName: String
+    let modelName: String
+    let recordCount: Int
+    let percentageOfTotal: Double
+    let earliestYear: Int
+    let latestYear: Int
+
+    var makeModelDisplay: String {
+        "\(makeName) / \(modelName)"
+    }
+}
+
+/// Hierarchical structure for canonical Make/Model/FuelType/VehicleType combinations
+struct MakeModelHierarchy: Sendable {
+    /// Top-level: Make
+    struct Make: Identifiable, Sendable {
+        let id: Int
+        let name: String
+        let models: [Model]
+    }
+
+    /// Second level: Model (within a Make)
+    struct Model: Identifiable, Sendable {
+        let id: Int
+        let name: String
+        let makeId: Int
+        let fuelTypes: [FuelTypeInfo]
+        let vehicleTypes: [VehicleTypeInfo]
+    }
+
+    /// Third level: Fuel Type (for a Make/Model combination)
+    struct FuelTypeInfo: Identifiable, Sendable {
+        let id: Int
+        let code: String
+        let description: String
+        let recordCount: Int
+    }
+
+    /// Third level: Vehicle Type (for a Make/Model combination)
+    struct VehicleTypeInfo: Identifiable, Sendable {
+        let id: Int
+        let code: String
+        let description: String
+        let recordCount: Int
+    }
+
+    let makes: [Make]
+
+    /// Find a make by ID
+    func findMake(id: Int) -> Make? {
+        makes.first { $0.id == id }
+    }
+
+    /// Find models for a make
+    func findModels(forMakeId makeId: Int) -> [Model] {
+        guard let make = findMake(id: makeId) else { return [] }
+        return make.models
+    }
+
+    /// Find a specific model
+    func findModel(id: Int, makeId: Int) -> Model? {
+        findModels(forMakeId: makeId).first { $0.id == id }
+    }
+}
+
+/// Configuration for regularization year curation status
+struct RegularizationYearConfiguration: Codable, Sendable {
+    /// Individual year with curation status
+    struct YearStatus: Codable, Identifiable, Sendable {
+        let id: Int  // The year itself
+        var year: Int { id }
+        var isCurated: Bool
+    }
+
+    var years: [YearStatus]
+
+    init(years: [YearStatus] = []) {
+        self.years = years.sorted { $0.year < $1.year }
+    }
+
+    /// Initialize with default configuration (2011-2022 curated, 2023-2024 uncurated)
+    static func defaultConfiguration() -> RegularizationYearConfiguration {
+        var yearStatuses: [YearStatus] = []
+
+        // Curated years: 2011-2022
+        for year in 2011...2022 {
+            yearStatuses.append(YearStatus(id: year, isCurated: true))
+        }
+
+        // Uncurated years: 2023-2024
+        for year in 2023...2024 {
+            yearStatuses.append(YearStatus(id: year, isCurated: false))
+        }
+
+        return RegularizationYearConfiguration(years: yearStatuses)
+    }
+
+    /// Get all curated years
+    var curatedYears: Set<Int> {
+        Set(years.filter { $0.isCurated }.map { $0.year })
+    }
+
+    /// Get all uncurated years
+    var uncuratedYears: Set<Int> {
+        Set(years.filter { !$0.isCurated }.map { $0.year })
+    }
+
+    /// Get range of curated years (min to max, even if non-contiguous)
+    var curatedYearRange: String {
+        let curated = years.filter { $0.isCurated }.map { $0.year }.sorted()
+        guard !curated.isEmpty else { return "None" }
+        if curated.count == 1 {
+            return "\(curated[0])"
+        }
+        return "\(curated.first!)–\(curated.last!) (\(curated.count) years)"
+    }
+
+    /// Get range of uncurated years (min to max, even if non-contiguous)
+    var uncuratedYearRange: String {
+        let uncurated = years.filter { !$0.isCurated }.map { $0.year }.sorted()
+        guard !uncurated.isEmpty else { return "None" }
+        if uncurated.count == 1 {
+            return "\(uncurated[0])"
+        }
+        return "\(uncurated.first!)–\(uncurated.last!) (\(uncurated.count) years)"
+    }
+
+    /// Toggle curation status for a year
+    mutating func toggleCuration(for year: Int) {
+        if let index = years.firstIndex(where: { $0.year == year }) {
+            years[index].isCurated.toggle()
+        }
+    }
+
+    /// Set curation status for a year
+    mutating func setCuration(for year: Int, isCurated: Bool) {
+        if let index = years.firstIndex(where: { $0.year == year }) {
+            years[index].isCurated = isCurated
+        }
+    }
+}
