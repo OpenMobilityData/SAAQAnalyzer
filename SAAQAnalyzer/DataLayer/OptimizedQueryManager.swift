@@ -25,6 +25,9 @@ class OptimizedQueryManager {
     private var db: OpaquePointer? { databaseManager?.db }
     private let enumManager: CategoricalEnumManager
 
+    /// Flag to enable/disable regularization in queries
+    var regularizationEnabled: Bool = false
+
     init(databaseManager: DatabaseManager) {
         self.databaseManager = databaseManager
         self.enumManager = CategoricalEnumManager(databaseManager: databaseManager)
@@ -140,20 +143,37 @@ class OptimizedQueryManager {
             }
 
             for make in filters.vehicleMakes {
-                if let id = try await enumManager.getEnumId(table: "make_enum", column: "name", value: make) {
-                    print("🔍 Make '\(make)' -> ID \(id)")
+                // Strip any badge decoration from make name
+                let cleanMake = FilterConfiguration.stripModelBadge(make)
+                if let id = try await enumManager.getEnumId(table: "make_enum", column: "name", value: cleanMake) {
+                    print("🔍 Make '\(make)' (cleaned: '\(cleanMake)') -> ID \(id)")
                     makeIds.append(id)
                 } else {
-                    print("⚠️ Make '\(make)' not found in enum table")
+                    print("⚠️ Make '\(cleanMake)' not found in enum table")
                 }
             }
 
             for model in filters.vehicleModels {
-                if let id = try await enumManager.getEnumId(table: "model_enum", column: "name", value: model) {
-                    print("🔍 Model '\(model)' -> ID \(id)")
+                // Strip any badge decoration from model name (e.g., "CRV (HONDA) [uncurated: 14 records]" -> "CRV")
+                let cleanModel = FilterConfiguration.stripModelBadge(model)
+                if let id = try await enumManager.getEnumId(table: "model_enum", column: "name", value: cleanModel) {
+                    print("🔍 Model '\(model)' (cleaned: '\(cleanModel)') -> ID \(id)")
                     modelIds.append(id)
                 } else {
-                    print("⚠️ Model '\(model)' not found in enum table")
+                    print("⚠️ Model '\(cleanModel)' not found in enum table")
+                }
+            }
+
+            // Apply regularization expansion if enabled
+            if regularizationEnabled && (!makeIds.isEmpty || !modelIds.isEmpty) {
+                if let regManager = databaseManager?.regularizationManager {
+                    let (expandedMakeIds, expandedModelIds) = try await regManager.expandMakeModelIDs(
+                        makeIds: makeIds,
+                        modelIds: modelIds
+                    )
+                    makeIds = expandedMakeIds
+                    modelIds = expandedModelIds
+                    print("🔄 Regularization expanded Make/Model IDs")
                 }
             }
 

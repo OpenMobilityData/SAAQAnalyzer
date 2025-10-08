@@ -618,6 +618,47 @@ class RegularizationManager {
         }
     }
 
+    /// Gets regularization display info for filter dropdowns
+    /// Returns a dictionary mapping (makeId, modelId) to (canonicalMakeName, canonicalModelName, recordCount)
+    func getRegularizationDisplayInfo() async throws -> [String: (canonicalMake: String, canonicalModel: String, recordCount: Int)] {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        let sql = """
+        SELECT
+            r.uncurated_make_id,
+            r.uncurated_model_id,
+            canonical_make.name as canonical_make_name,
+            canonical_model.name as canonical_model_name,
+            r.record_count
+        FROM make_model_regularization r
+        JOIN make_enum canonical_make ON r.canonical_make_id = canonical_make.id
+        JOIN model_enum canonical_model ON r.canonical_model_id = canonical_model.id;
+        """
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var results: [String: (String, String, Int)] = [:]
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let uncuratedMakeId = Int(sqlite3_column_int(stmt, 0))
+                    let uncuratedModelId = Int(sqlite3_column_int(stmt, 1))
+                    let canonicalMakeName = String(cString: sqlite3_column_text(stmt, 2))
+                    let canonicalModelName = String(cString: sqlite3_column_text(stmt, 3))
+                    let recordCount = Int(sqlite3_column_int(stmt, 4))
+
+                    let key = "\(uncuratedMakeId)_\(uncuratedModelId)"
+                    results[key] = (canonicalMakeName, canonicalModelName, recordCount)
+                }
+                continuation.resume(returning: results)
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to get regularization display info: \(error)"))
+            }
+        }
+    }
+
     // MARK: - Query Translation
 
     /// Expands a set of make/model IDs to include all regularized variants

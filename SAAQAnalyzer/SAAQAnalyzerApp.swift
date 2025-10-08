@@ -1724,6 +1724,8 @@ struct RegularizationSettingsView: View {
     @State private var regularizationEnabled = false
     @State private var statistics: (mappingCount: Int, coveredRecords: Int, totalRecords: Int)?
     @State private var isLoadingStats = false
+    @State private var cacheNeedsReload = false
+    @State private var lastCachedYearConfig: RegularizationYearConfiguration?
 
     var body: some View {
         Form {
@@ -1806,9 +1808,39 @@ struct RegularizationSettingsView: View {
                     }
                 }
             }
+            .onChange(of: yearConfig.curatedYears) { oldValue, newValue in
+                checkCacheStaleness()
+            }
+            .onChange(of: yearConfig.uncuratedYears) { oldValue, newValue in
+                checkCacheStaleness()
+            }
 
             Section("Regularization Actions") {
                 VStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        Button(action: {
+                            rebuildEnumerations()
+                        }) {
+                            HStack(spacing: 6) {
+                                Text("Reload Filter Cache")
+                                if cacheNeedsReload {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundColor(.orange)
+                                        .font(.caption)
+                                }
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.roundedRectangle)
+                        .help("Clear and reload filter cache (fixes missing uncurated Make/Model values in dropdowns)")
+
+                        if cacheNeedsReload {
+                            Text("Settings changed")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
+                    }
+
                     Button(isGeneratingHierarchy ? "Generating Hierarchy..." : "Generate Canonical Hierarchy") {
                         generateHierarchy()
                     }
@@ -1832,6 +1864,9 @@ struct RegularizationSettingsView: View {
                     Toggle("Enable Regularization in Queries", isOn: $regularizationEnabled)
                         .controlSize(.regular)
                         .help("When enabled, queries will merge uncurated Make/Model variants into canonical values")
+                        .onChange(of: regularizationEnabled) { oldValue, newValue in
+                            updateRegularizationInQueryManager(newValue)
+                        }
 
                     if regularizationEnabled {
                         HStack(spacing: 4) {
@@ -1892,6 +1927,13 @@ struct RegularizationSettingsView: View {
         }
         .sheet(isPresented: $showingRegularizationView) {
             RegularizationView(databaseManager: databaseManager, yearConfig: yearConfig)
+        }
+        .onChange(of: showingRegularizationView) { oldValue, newValue in
+            // When RegularizationView closes, flag cache as potentially stale
+            if oldValue == true && newValue == false {
+                cacheNeedsReload = true
+                print("⚠️ RegularizationView closed - filter cache may need reload")
+            }
         }
     }
 
@@ -1959,6 +2001,41 @@ struct RegularizationSettingsView: View {
                     print("❌ Error loading statistics: \(error)")
                 }
             }
+        }
+    }
+
+    private func updateRegularizationInQueryManager(_ enabled: Bool) {
+        if let queryManager = databaseManager.optimizedQueryManager {
+            queryManager.regularizationEnabled = enabled
+            print(enabled ? "✅ Regularization ENABLED in queries" : "⚪️ Regularization DISABLED in queries")
+        }
+    }
+
+    private func rebuildEnumerations() {
+        Task {
+            // The enumeration tables are populated during CSV import.
+            // We just need to invalidate the cache so it reloads fresh data.
+            databaseManager.filterCacheManager?.invalidateCache()
+
+            await MainActor.run {
+                // Update cached year config and clear staleness flag
+                lastCachedYearConfig = yearConfig
+                cacheNeedsReload = false
+            }
+
+            print("✅ Filter cache invalidated - will reload on next filter access")
+            print("💡 Open the Filter panel to trigger cache reload with latest Make/Model values")
+        }
+    }
+
+    private func checkCacheStaleness() {
+        // Check if year configuration has changed since last cache reload
+        if let lastConfig = lastCachedYearConfig {
+            cacheNeedsReload = (yearConfig.curatedYears != lastConfig.curatedYears ||
+                                yearConfig.uncuratedYears != lastConfig.uncuratedYears)
+        } else {
+            // No cache yet, assume stale
+            cacheNeedsReload = true
         }
     }
 }

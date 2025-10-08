@@ -3122,13 +3122,35 @@ class DatabaseManager: ObservableObject {
         return await getClassificationsFromDatabase()
     }
 
-    /// Gets available vehicle makes - queries database directly
+    /// Gets available vehicle makes - uses enumeration cache with badges
     func getAvailableVehicleMakes() async -> [String] {
+        if useOptimizedQueries, let filterCacheManager = filterCacheManager {
+            do {
+                let filterItems = try await filterCacheManager.getAvailableMakes()
+                print("✅ Using enumeration-based makes (\(filterItems.count) items)")
+                return filterItems.map { $0.displayName }
+            } catch {
+                print("⚠️ Failed to load enumeration makes, falling back to database query: \(error)")
+            }
+        }
+
+        // Fall back to database query
         return await getVehicleMakesFromDatabase()
     }
 
-    /// Gets available vehicle models - queries database directly
+    /// Gets available vehicle models - uses enumeration cache with badges
     func getAvailableVehicleModels() async -> [String] {
+        if useOptimizedQueries, let filterCacheManager = filterCacheManager {
+            do {
+                let filterItems = try await filterCacheManager.getAvailableModels()
+                print("✅ Using enumeration-based models (\(filterItems.count) items with badges)")
+                return filterItems.map { $0.displayName }
+            } catch {
+                print("⚠️ Failed to load enumeration models, falling back to database query: \(error)")
+            }
+        }
+
+        // Fall back to database query
         return await getVehicleModelsFromDatabase()
     }
 

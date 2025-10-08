@@ -23,6 +23,12 @@ class FilterCacheManager {
 
     private var isInitialized = false
 
+    // Regularization display info: maps "makeId_modelId" to (canonicalMake, canonicalModel, recordCount)
+    private var regularizationInfo: [String: (canonicalMake: String, canonicalModel: String, recordCount: Int)] = [:]
+
+    // Uncurated Make/Model pairs: maps "makeId_modelId" to record count in uncurated years
+    private var uncuratedPairs: [String: Int] = [:]
+
     init(databaseManager: DatabaseManager) {
         self.databaseManager = databaseManager
     }
@@ -34,6 +40,10 @@ class FilterCacheManager {
         guard !isInitialized else { return }
 
         print("🔄 Loading filter cache from enumeration tables...")
+
+        // Load regularization and curation info first (needed for model display)
+        try await loadRegularizationInfo()
+        try await loadUncuratedPairs()
 
         try await loadYears()
         try await loadRegions()
@@ -53,6 +63,87 @@ class FilterCacheManager {
     }
 
     // MARK: - Individual Cache Loaders
+
+    private func loadRegularizationInfo() async throws {
+        guard let regularizationManager = databaseManager?.regularizationManager else {
+            print("⚠️ RegularizationManager not available - skipping regularization info")
+            regularizationInfo = [:]
+            return
+        }
+
+        do {
+            regularizationInfo = try await regularizationManager.getRegularizationDisplayInfo()
+            print("✅ Loaded regularization info for \(regularizationInfo.count) Make/Model pairs")
+        } catch {
+            print("⚠️ Could not load regularization info: \(error)")
+            regularizationInfo = [:]
+        }
+    }
+
+    private func loadUncuratedPairs() async throws {
+        guard let db = self.db,
+              let regularizationManager = databaseManager?.regularizationManager else {
+            print("⚠️ Cannot load uncurated pairs - database or RegularizationManager not available")
+            uncuratedPairs = [:]
+            return
+        }
+
+        let yearConfig = regularizationManager.getYearConfiguration()
+        let uncuratedYearsList = Array(yearConfig.uncuratedYears).sorted()
+
+        guard !uncuratedYearsList.isEmpty else {
+            print("⚠️ No uncurated years configured")
+            uncuratedPairs = [:]
+            return
+        }
+
+        let uncuratedPlaceholders = uncuratedYearsList.map { _ in "?" }.joined(separator: ",")
+
+        let sql = """
+        SELECT v.make_id, v.model_id, COUNT(*) as record_count
+        FROM vehicles v
+        JOIN year_enum y ON v.year_id = y.id
+        WHERE y.year IN (\(uncuratedPlaceholders))
+        GROUP BY v.make_id, v.model_id;
+        """
+
+        uncuratedPairs = try await withCheckedThrowingContinuation { continuation in
+            var results: [String: Int] = [:]
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                // Bind uncurated years
+                for (index, year) in uncuratedYearsList.enumerated() {
+                    sqlite3_bind_int(stmt, Int32(index + 1), Int32(year))
+                }
+
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let makeId = Int(sqlite3_column_int(stmt, 0))
+                    let modelId = Int(sqlite3_column_int(stmt, 1))
+                    let recordCount = Int(sqlite3_column_int(stmt, 2))
+
+                    let key = "\(makeId)_\(modelId)"
+                    results[key] = recordCount
+                }
+                continuation.resume(returning: results)
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                print("⚠️ Could not load uncurated pairs: \(error)")
+                continuation.resume(returning: [:])
+            }
+        }
+
+        print("✅ Loaded \(uncuratedPairs.count) uncurated Make/Model pairs")
+
+        // Debug: Show first 5 keys
+        if uncuratedPairs.count > 0 {
+            print("   First 5 uncurated pair keys:")
+            for (index, key) in uncuratedPairs.keys.prefix(5).enumerated() {
+                print("   \(index + 1). Key: \(key), Count: \(uncuratedPairs[key] ?? 0)")
+            }
+        }
+    }
 
     private func loadYears() async throws {
         let sql = "SELECT DISTINCT year FROM year_enum ORDER BY year;"
@@ -92,13 +183,54 @@ class FilterCacheManager {
     }
 
     private func loadModels() async throws {
+        guard let db = self.db else { throw DatabaseError.notConnected }
+
         let sql = """
-        SELECT m.id, m.name || ' (' || mk.name || ')' as display_name
+        SELECT m.id, m.name, mk.id as make_id, mk.name as make_name
         FROM model_enum m
         JOIN make_enum mk ON m.make_id = mk.id
         ORDER BY mk.name, m.name;
         """
-        cachedModels = try await executeFilterItemQuery(sql)
+
+        cachedModels = try await withCheckedThrowingContinuation { continuation in
+            var results: [FilterItem] = []
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let modelId = Int(sqlite3_column_int(stmt, 0))
+                    let modelName = String(cString: sqlite3_column_text(stmt, 1))
+                    let makeId = Int(sqlite3_column_int(stmt, 2))
+                    let makeName = String(cString: sqlite3_column_text(stmt, 3))
+
+                    // Base display name: "Model (Make)"
+                    var displayName = "\(modelName) (\(makeName))"
+
+                    let key = "\(makeId)_\(modelId)"
+
+                    // Check if this Make/Model pair has been regularized
+                    if let regInfo = regularizationInfo[key] {
+                        // Regularized: show mapping and record count
+                        let formattedCount = NumberFormatter.localizedString(from: NSNumber(value: regInfo.recordCount), number: .decimal)
+                        displayName += " → \(regInfo.canonicalModel) (\(formattedCount) records)"
+                        print("   🔗 Regularized: \(modelName) (\(makeName)) → \(regInfo.canonicalModel)")
+                    } else if let uncuratedCount = uncuratedPairs[key] {
+                        // Uncurated but not yet regularized: show record count
+                        let formattedCount = NumberFormatter.localizedString(from: NSNumber(value: uncuratedCount), number: .decimal)
+                        displayName += " [uncurated: \(formattedCount) records]"
+                        print("   🔴 Uncurated: \(modelName) (\(makeName)) - \(formattedCount) records")
+                    }
+                    // Otherwise: canonical pair from curated years (no badge)
+
+                    results.append(FilterItem(id: modelId, displayName: displayName))
+                }
+                continuation.resume(returning: results)
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load models: \(error)"))
+            }
+        }
     }
 
     private func loadColors() async throws {
@@ -249,5 +381,7 @@ class FilterCacheManager {
         cachedLicenseTypes.removeAll()
         cachedAgeGroups.removeAll()
         cachedGenders.removeAll()
+        regularizationInfo.removeAll()
+        uncuratedPairs.removeAll()
     }
 }

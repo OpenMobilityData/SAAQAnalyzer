@@ -1074,6 +1074,19 @@ enum CoverageField: String, CaseIterable, Sendable {
 struct FilterItem: Equatable, Identifiable, Sendable {
     let id: Int
     let displayName: String
+
+    /// Extracts the base model name from a display name with badges
+    /// Examples:
+    ///   "CRV (HONDA)" → "CRV"
+    ///   "CRV (HONDA) [uncurated: 14 records]" → "CRV"
+    ///   "CRV (HONDA) → CR-V (14 records)" → "CRV"
+    var baseModelName: String {
+        // Find the first space-paren pattern " (MAKE)"
+        if let firstParenRange = displayName.range(of: " (") {
+            return String(displayName[..<firstParenRange.lowerBound])
+        }
+        return displayName
+    }
 }
 
 // MARK: - Current Filter Configuration (String-based, will migrate to integer-based)
@@ -1120,6 +1133,24 @@ struct FilterConfiguration: Equatable, Sendable {
             }
             return age >= minAge
         }
+    }
+
+    /// Strips regularization badges from model display names for querying
+    /// Examples:
+    ///   "CRV (HONDA)" → "CRV"
+    ///   "CRV (HONDA) [uncurated: 14 records]" → "CRV"
+    ///   "CRV (HONDA) → CR-V (14 records)" → "CRV"
+    static func stripModelBadge(_ displayName: String) -> String {
+        // Find the first space-paren pattern " (MAKE)"
+        if let firstParenRange = displayName.range(of: " (") {
+            return String(displayName[..<firstParenRange.lowerBound])
+        }
+        return displayName
+    }
+
+    /// Returns vehicle models with badges stripped for database querying
+    var cleanVehicleModels: Set<String> {
+        Set(vehicleModels.map { FilterConfiguration.stripModelBadge($0) })
     }
 }
 

@@ -513,7 +513,16 @@ class RegularizationViewModel: ObservableObject {
     @Published var yearConfig: RegularizationYearConfiguration
     @Published var uncuratedPairs: [UnverifiedMakeModelPair] = []
     @Published var canonicalHierarchy: MakeModelHierarchy?
-    @Published var selectedPair: UnverifiedMakeModelPair?
+    @Published var selectedPair: UnverifiedMakeModelPair? {
+        didSet {
+            // Load existing mapping when selection changes
+            if selectedPair != oldValue {
+                Task { @MainActor in
+                    await loadMappingForSelectedPair()
+                }
+            }
+        }
+    }
     @Published var existingMappings: [String: RegularizationMapping] = [:] // Key: "\(makeId)_\(modelId)"
 
     // Mapping form state
@@ -567,7 +576,9 @@ class RegularizationViewModel: ObservableObject {
                 mappingsDict[mapping.uncuratedKey] = mapping
             }
 
-            existingMappings = mappingsDict
+            await MainActor.run {
+                existingMappings = mappingsDict
+            }
             print("✅ Loaded \(mappings.count) existing mappings")
         } catch {
             print("❌ Error loading existing mappings: \(error)")
@@ -580,17 +591,23 @@ class RegularizationViewModel: ObservableObject {
             return
         }
 
-        isLoading = true
+        await MainActor.run {
+            isLoading = true
+        }
 
         do {
             let pairs = try await manager.findUncuratedPairs()
-            uncuratedPairs = pairs
+            await MainActor.run {
+                uncuratedPairs = pairs
+                isLoading = false
+            }
             print("✅ Loaded \(pairs.count) uncurated pairs")
         } catch {
             print("❌ Error loading uncurated pairs: \(error)")
+            await MainActor.run {
+                isLoading = false
+            }
         }
-
-        isLoading = false
     }
 
     func generateHierarchy() async {
@@ -599,17 +616,23 @@ class RegularizationViewModel: ObservableObject {
             return
         }
 
-        isLoadingHierarchy = true
+        await MainActor.run {
+            isLoadingHierarchy = true
+        }
 
         do {
             let hierarchy = try await manager.generateCanonicalHierarchy(forceRefresh: true)
-            canonicalHierarchy = hierarchy
+            await MainActor.run {
+                canonicalHierarchy = hierarchy
+                isLoadingHierarchy = false
+            }
             print("✅ Generated hierarchy with \(hierarchy.makes.count) makes")
         } catch {
             print("❌ Error generating hierarchy: \(error)")
+            await MainActor.run {
+                isLoadingHierarchy = false
+            }
         }
-
-        isLoadingHierarchy = false
     }
 
     func saveMapping() async {
@@ -737,5 +760,43 @@ class RegularizationViewModel: ObservableObject {
         } else {
             return .autoRegularized
         }
+    }
+
+    /// Load existing mapping data for the selected pair
+    func loadMappingForSelectedPair() async {
+        guard let pair = selectedPair else {
+            clearMappingSelection()
+            return
+        }
+
+        let key = "\(pair.makeId)_\(pair.modelId)"
+        guard let mapping = existingMappings[key],
+              let hierarchy = canonicalHierarchy else {
+            clearMappingSelection()
+            return
+        }
+
+        // Find the canonical make from the mapping
+        // Note: We need to look up by the canonical Make/Model names since we have those
+        if let make = hierarchy.makes.first(where: { $0.name == mapping.canonicalMake }) {
+            selectedCanonicalMake = make
+
+            // Find the canonical model
+            if let model = make.models.first(where: { $0.name == mapping.canonicalModel }) {
+                selectedCanonicalModel = model
+
+                // Find the fuel type if assigned
+                if let fuelTypeName = mapping.fuelType {
+                    selectedFuelType = model.fuelTypes.first { $0.description == fuelTypeName }
+                }
+
+                // Find the vehicle type if assigned
+                if let vehicleTypeName = mapping.vehicleType {
+                    selectedVehicleType = model.vehicleTypes.first { $0.code == vehicleTypeName }
+                }
+            }
+        }
+
+        print("📋 Loaded existing mapping for \(pair.makeModelDisplay)")
     }
 }
