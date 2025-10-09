@@ -500,7 +500,7 @@ class RegularizationManager {
             cm.name as canonical_make,
             cmd.name as canonical_model,
             ft.description as fuel_type,
-            cl.code as vehicle_type,
+            cl.description as vehicle_type,
             r.record_count,
             r.year_range_start,
             r.year_range_end

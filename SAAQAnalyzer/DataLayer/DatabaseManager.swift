@@ -947,6 +947,23 @@ class DatabaseManager: ObservableObject {
         }
         print("✅ Created \(enumTables.count) enumeration tables")
 
+        // Insert special "Unknown" values for regularization system
+        // These values never appear in CSV data but are needed for user-driven regularization
+        print("🔧 Inserting special 'Unknown' enum values for regularization...")
+        let unknownInserts = [
+            "INSERT OR IGNORE INTO fuel_type_enum (code, description) VALUES ('U', 'Unknown');",
+            "INSERT OR IGNORE INTO classification_enum (code, description) VALUES ('UNK', 'Unknown');"
+        ]
+
+        for insertSQL in unknownInserts {
+            if sqlite3_exec(db, insertSQL, nil, nil, nil) != SQLITE_OK {
+                if let errorMessage = sqlite3_errmsg(db) {
+                    print("⚠️ Warning: Failed to insert Unknown enum value: \(String(cString: errorMessage))")
+                }
+            }
+        }
+        print("✅ Inserted Unknown enum values for regularization system")
+
         // Create indexes SYNCHRONOUSLY to prevent cache rebuild performance issues
         print("🔧 Creating database indexes for optimal performance...")
         let indexStartTime = Date()

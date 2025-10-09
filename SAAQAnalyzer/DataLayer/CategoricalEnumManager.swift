@@ -238,10 +238,12 @@ class CategoricalEnumManager {
     private func populateClassificationEnum() async throws {
         // Use hardcoded mappings for vehicle classifications to ensure consistent descriptions
         let classifications = [
+            // Personal Use
             ("PAU", "Personal automobile/light truck"),
             ("PMC", "Personal motorcycle"),
             ("PCY", "Personal moped"),
             ("PHM", "Personal motorhome"),
+            // Commercial Use
             ("CAU", "Commercial automobile/light truck"),
             ("CMC", "Commercial motorcycle"),
             ("CCY", "Commercial moped"),
@@ -252,17 +254,26 @@ class CategoricalEnumManager {
             ("BCA", "Truck/road tractor"),
             ("CVO", "Tool vehicle"),
             ("COT", "Other commercial"),
+            // Restricted Circulation
             ("RAU", "Restricted automobile/light truck"),
             ("RMC", "Restricted motorcycle"),
             ("RCY", "Restricted moped"),
             ("RHM", "Restricted motorhome"),
             ("RAB", "Restricted bus"),
             ("RCA", "Restricted truck"),
-            ("RMN", "Snowmobile"),
+            ("RMN", "Restricted snowmobile"),
             ("ROT", "Other restricted"),
+            // Off-Road Use
             ("HAU", "Off-road automobile/light truck"),
             ("HCY", "Off-road moped"),
-            ("HMN", "Other/Unknown classification")
+            ("HAB", "Off-road bus"),
+            ("HCA", "Off-road truck/road tractor"),
+            ("HMN", "Off-road snowmobile"),
+            ("HVT", "Off-road all-terrain vehicle"),
+            ("HVO", "Off-road tool vehicle"),
+            ("HOT", "Other off-road"),
+            // Special value for regularization
+            ("UNK", "Unknown")
         ]
 
         for (code, description) in classifications {
@@ -361,7 +372,8 @@ class CategoricalEnumManager {
             ("M", "Methanol"),
             ("T", "Ethanol"),
             ("A", "Other"),
-            ("S", "Non-powered")
+            ("S", "Non-powered"),
+            ("U", "Unknown")
         ]
 
         for (code, description) in fuelTypes {

@@ -28,10 +28,10 @@ The regularization system allows you to map typos and variants in uncurated data
 When working in the Regularization Editor, each Make/Model pair shows a status badge:
 
 - 🔴 **Unassigned** - No regularization mapping exists yet
-- 🟠 **Partial** - Make/Model assigned, but missing FuelType and/or VehicleType
-- 🟢 **Complete** - All fields assigned (Make, Model, FuelType, and VehicleType)
+- 🟠 **Needs Review** - Mapping exists but FuelType and/or VehicleType are NULL (needs user review)
+- 🟢 **Complete** - Both FuelType AND VehicleType are assigned (including "Unknown" when disambiguation is impossible)
 
-**Note:** The green "Complete" badge requires both FuelType AND VehicleType to be assigned. If either field is unassigned (database NULL), the badge shows orange "Partial".
+**Note:** The green "Complete" badge requires both FuelType AND VehicleType to be non-NULL. Setting a field to "Unknown" counts as assigned (user has made a decision), while "Not Specified" (NULL) means the field hasn't been reviewed yet.
 
 ## Query Behavior
 
@@ -136,8 +136,10 @@ When you open the RegularizationView, the system automatically performs **smart 
 For Make/Model pairs that exist in both curated and uncurated years (e.g., `HONDA CIVIC`):
 
 1. **Make and Model**: Always auto-assigned to matching canonical values
-2. **FuelType**: Auto-assigned if **only one option exists** (excluding "Not Specified")
-3. **VehicleType**: Auto-assigned if **only one option exists** (excluding "Not Specified")
+2. **FuelType**: Auto-assigned if **only one option exists** in the canonical data (excluding "Not Specified" placeholders)
+3. **VehicleType**: Auto-assigned if **only one option exists** in the canonical data (excluding "Not Specified" placeholders)
+
+**Note:** The system only counts actual types found in curated years (Gasoline, Diesel, PAU, COM, etc.). The "Unknown" enum value will never appear in the canonical hierarchy since it wasn't used in curated years (2011-2022).
 
 ### Examples
 
@@ -156,18 +158,30 @@ HONDA ACCORD in curated data has:
 - FuelTypes: ["Gasoline", "Hybrid", "Electric"] (multiple options)
 - VehicleTypes: ["PAU"] (only one option)
 
-Result: ✅ VehicleType auto-assigned, FuelType left NULL → 🟠 Orange "Partial" badge
-User must manually select FuelType to complete the mapping
+Result: ✅ VehicleType auto-assigned, FuelType left NULL → 🟠 Orange "Needs Review" badge
+User must manually select FuelType (or "Unknown") to complete the mapping
 ```
 
-### "Not Specified" in Pickers
+### Picker Options: "Not Specified" vs "Unknown"
 
-When you select a Make/Model pair for editing, the FuelType and VehicleType dropdowns show:
+When you select a Make/Model pair for editing, the FuelType and VehicleType dropdowns show three types of options:
 
-- **"Not Specified"** - This is the UI label for database NULL (no value assigned)
-- **Actual values** - E.g., "Gasoline (1234)", "PAU - Passenger (5678)"
+1. **"Not Specified"** - UI label for database NULL (field hasn't been reviewed yet)
+2. **"Unknown"** - Explicit value when disambiguation is impossible (user has reviewed and determined it's unknowable)
+3. **Actual values** - E.g., "Gasoline (1234)", "PAU - Passenger (5678)"
 
-**Important:** "Not Specified" is not a schema value in the database - it's just the UI label for NULL. When either field shows "Not Specified", the mapping is considered partial and gets an 🟠 orange badge.
+**Key Distinctions:**
+
+| Option | Database Value | Badge Color | Meaning |
+|--------|---------------|-------------|---------|
+| "Not Specified" | NULL | 🟠 Orange "Needs Review" | Field hasn't been reviewed by user |
+| "Unknown" | "Unknown" enum value | 🟢 Green "Complete" | User reviewed and determined field cannot be disambiguated |
+| Actual type (e.g., "Gasoline") | Real enum value | 🟢 Green "Complete" | User successfully identified the type |
+
+**Why this matters:**
+- **Orange badges** signal "needs attention" - user hasn't looked at this pair yet
+- **Green badges** signal "work complete" - user has reviewed and made a decision (even if that decision is "Unknown")
+- You can "undo" an Unknown assignment by setting back to "Not Specified" to flag it for future review
 
 ## Show Exact Matches Toggle
 
