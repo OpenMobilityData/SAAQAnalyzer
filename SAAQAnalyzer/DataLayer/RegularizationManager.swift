@@ -101,6 +101,8 @@ class RegularizationManager {
         // Build IN clause for curated years
         let yearPlaceholders = curatedYearsList.map { _ in "?" }.joined(separator: ",")
 
+        // First, generate the base hierarchy from curated data
+
         // Query to get all Make/Model/FuelType/VehicleType combinations from curated years
         let sql = """
         SELECT
@@ -126,7 +128,7 @@ class RegularizationManager {
         ORDER BY mk.name, md.name, ft.description, cl.code;
         """
 
-        return try await withCheckedThrowingContinuation { continuation in
+        let baseHierarchy = try await withCheckedThrowingContinuation { continuation in
             var stmt: OpaquePointer?
             defer { sqlite3_finalize(stmt) }
 
@@ -213,10 +215,7 @@ class RegularizationManager {
 
                 let hierarchy = MakeModelHierarchy(makes: makes)
 
-                // Cache the hierarchy
-                self.cachedHierarchy = hierarchy
-
-                print("✅ Generated canonical hierarchy: \(makes.count) makes, \(makes.reduce(0) { $0 + $1.models.count }) models")
+                print("✅ Generated base canonical hierarchy: \(makes.count) makes, \(makes.reduce(0) { (total: Int, make: MakeModelHierarchy.Make) -> Int in total + make.models.count }) models")
 
                 continuation.resume(returning: hierarchy)
             } else {
@@ -224,7 +223,13 @@ class RegularizationManager {
                 continuation.resume(throwing: DatabaseError.queryFailed("Failed to generate canonical hierarchy: \(error)"))
             }
         }
+
+        // Cache the hierarchy
+        cachedHierarchy = baseHierarchy
+
+        return baseHierarchy
     }
+
 
     // MARK: - Uncurated Pair Discovery
 

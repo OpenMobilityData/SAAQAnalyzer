@@ -215,7 +215,7 @@ struct UncuratedPairRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Label("\(pair.earliestYear)–\(pair.latestYear)", systemImage: "calendar")
+                    Label(String(format: "%d–%d", pair.earliestYear, pair.latestYear), systemImage: "calendar")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -246,7 +246,7 @@ struct UncuratedPairRow: View {
     private var statusBadge: some View {
         switch regularizationStatus {
         case .none:
-            Text("Not Regularized")
+            Text("Unassigned")
                 .font(.caption2)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
@@ -254,7 +254,7 @@ struct UncuratedPairRow: View {
                 .foregroundColor(.red)
                 .cornerRadius(4)
         case .autoRegularized:
-            Text("Auto (M/M only)")
+            Text("Partial")
                 .font(.caption2)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
@@ -275,9 +275,9 @@ struct UncuratedPairRow: View {
 
 /// Regularization status for an uncurated pair
 enum RegularizationStatus {
-    case none                   // No regularization mapping exists
-    case autoRegularized        // Auto-mapped (Make/Model match), but no FuelType/VehicleType
-    case fullyRegularized       // Complete mapping with FuelType or VehicleType assigned
+    case none                   // 🔴 No fields assigned
+    case autoRegularized        // 🟠 Some fields assigned (Make/Model assigned, but missing FuelType and/or VehicleType)
+    case fullyRegularized       // 🟢 All fields assigned (Make/Model, FuelType, and VehicleType all assigned)
 }
 
 // MARK: - Right Panel: Mapping Editor
@@ -425,9 +425,12 @@ struct MappingFormView: View {
                     Text("3. Select Vehicle Type (Optional)")
                         .font(.headline)
                     Spacer()
-                    if viewModel.selectedVehicleType != nil {
+                    if let vehicleType = viewModel.selectedVehicleType {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
+                            .onAppear {
+                                print("✓ VehicleType checkmark: \(vehicleType.code) - \(vehicleType.description)")
+                            }
                     }
                 }
 
@@ -753,12 +756,12 @@ class RegularizationViewModel: ObservableObject {
 
         isAutoRegularizing = true
 
-        // Build a lookup of canonical Make/Model combinations
-        var canonicalPairs: [String: (makeId: Int, modelId: Int)] = [:]
+        // Build a lookup of canonical Make/Model combinations with their metadata
+        var canonicalPairs: [String: MakeModelHierarchy.Model] = [:]
         for make in hierarchy!.makes {
             for model in make.models {
                 let key = "\(make.name)/\(model.name)"
-                canonicalPairs[key] = (make.id, model.id)
+                canonicalPairs[key] = model
             }
         }
 
@@ -785,18 +788,47 @@ class RegularizationViewModel: ObservableObject {
             }
 
             // Check if there's an exact match
-            if let canonical = canonicalPairs[pairKey] {
+            if let canonicalModel = canonicalPairs[pairKey] {
+                // Filter out "Not Specified" options when counting
+                let validFuelTypes = canonicalModel.fuelTypes.filter { fuelType in
+                    !fuelType.description.localizedCaseInsensitiveContains("not specified") &&
+                    !fuelType.description.localizedCaseInsensitiveContains("non spécifié")
+                }
+                let validVehicleTypes = canonicalModel.vehicleTypes.filter { vehicleType in
+                    !vehicleType.description.localizedCaseInsensitiveContains("not specified") &&
+                    !vehicleType.description.localizedCaseInsensitiveContains("non spécifié")
+                }
+
+                // Auto-assign FuelType if there's only one valid option
+                let fuelTypeId: Int? = validFuelTypes.count == 1
+                    ? validFuelTypes.first?.id
+                    : nil
+
+                // Auto-assign VehicleType if there's only one valid option
+                let vehicleTypeId: Int? = validVehicleTypes.count == 1
+                    ? validVehicleTypes.first?.id
+                    : nil
+
                 do {
                     try await manager.saveMapping(
                         uncuratedMakeId: pair.makeId,
                         uncuratedModelId: pair.modelId,
-                        canonicalMakeId: canonical.makeId,
-                        canonicalModelId: canonical.modelId,
-                        fuelTypeId: nil,  // Not specified in auto-regularization
-                        vehicleTypeId: nil  // Not specified in auto-regularization
+                        canonicalMakeId: canonicalModel.makeId,
+                        canonicalModelId: canonicalModel.id,
+                        fuelTypeId: fuelTypeId,
+                        vehicleTypeId: vehicleTypeId
                     )
                     autoRegularizedCount += 1
-                    print("✅ Auto-regularized: \(pairKey)")
+
+                    // Log what was auto-assigned
+                    var autoAssignedFields: [String] = ["M/M"]
+                    if fuelTypeId != nil {
+                        autoAssignedFields.append("FuelType")
+                    }
+                    if vehicleTypeId != nil {
+                        autoAssignedFields.append("VehicleType")
+                    }
+                    print("✅ Auto-regularized: \(pairKey) [\(autoAssignedFields.joined(separator: ", "))]")
                 } catch {
                     print("❌ Error auto-regularizing \(pairKey): \(error)")
                 }
@@ -820,10 +852,14 @@ class RegularizationViewModel: ObservableObject {
             return .none
         }
 
-        // Check if fuel type or vehicle type is assigned
-        if mapping.fuelType != nil || mapping.vehicleType != nil {
+        // Check if both fuel type AND vehicle type are assigned for full completion
+        let hasFuelType = mapping.fuelType != nil
+        let hasVehicleType = mapping.vehicleType != nil
+
+        if hasFuelType && hasVehicleType {
             return .fullyRegularized
         } else {
+            // Partial assignment (Make/Model only, or only one of FuelType/VehicleType)
             return .autoRegularized
         }
     }
@@ -831,7 +867,7 @@ class RegularizationViewModel: ObservableObject {
     /// Load existing mapping data for the selected pair
     func loadMappingForSelectedPair() async {
         guard let pair = selectedPair else {
-            clearMappingSelection()
+            clearMappingFormFields()
             return
         }
 
@@ -842,7 +878,7 @@ class RegularizationViewModel: ObservableObject {
             hierarchy = canonicalHierarchy
             guard hierarchy != nil else {
                 print("❌ Failed to generate hierarchy for mapping lookup")
-                clearMappingSelection()
+                clearMappingFormFields()
                 return
             }
         }
@@ -885,6 +921,10 @@ class RegularizationViewModel: ObservableObject {
                 if let model = make.models.first(where: { $0.name == canonicalModelName }) {
                     selectedCanonicalModel = model
 
+                    // Reset type selections first (in case mapping has NULL values)
+                    selectedFuelType = nil
+                    selectedVehicleType = nil
+
                     // Find the fuel type if assigned (only from existing mapping)
                     if let mapping = mapping, let fuelTypeName = mapping.fuelType {
                         selectedFuelType = model.fuelTypes.first { $0.description == fuelTypeName }
@@ -903,8 +943,10 @@ class RegularizationViewModel: ObservableObject {
                 print("📋 Pre-populated exact match for \(pair.makeModelDisplay)")
             }
         } else {
-            // No mapping and no exact match - clear selection
-            clearMappingSelection()
+            // No mapping and no exact match - clear form fields but keep pair selected
+            // User can manually select canonical Make/Model for typo corrections
+            clearMappingFormFields()
+            print("📋 No auto-population for \(pair.makeModelDisplay) - manual mapping required")
         }
     }
 }

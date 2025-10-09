@@ -1785,7 +1785,7 @@ struct RegularizationSettingsView: View {
                             VStack(spacing: 0) {
                                 ForEach($yearConfig.years) { $yearStatus in
                                     HStack {
-                                        Text("\(yearStatus.year)")
+                                        Text(String(format: "%d", yearStatus.year))
                                             .font(.system(.body, design: .monospaced))
                                             .frame(width: 60, alignment: .leading)
                                         Spacer()

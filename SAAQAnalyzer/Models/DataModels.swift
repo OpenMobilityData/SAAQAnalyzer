@@ -1784,9 +1784,9 @@ struct RegularizationYearConfiguration: Codable, Sendable {
         let curated = years.filter { $0.isCurated }.map { $0.year }.sorted()
         guard !curated.isEmpty else { return "None" }
         if curated.count == 1 {
-            return "\(curated[0])"
+            return String(format: "%d", curated[0])
         }
-        return "\(curated.first!)–\(curated.last!) (\(curated.count) years)"
+        return String(format: "%d–%d (%d years)", curated.first!, curated.last!, curated.count)
     }
 
     /// Get range of uncurated years (min to max, even if non-contiguous)
@@ -1794,9 +1794,9 @@ struct RegularizationYearConfiguration: Codable, Sendable {
         let uncurated = years.filter { !$0.isCurated }.map { $0.year }.sorted()
         guard !uncurated.isEmpty else { return "None" }
         if uncurated.count == 1 {
-            return "\(uncurated[0])"
+            return String(format: "%d", uncurated[0])
         }
-        return "\(uncurated.first!)–\(uncurated.last!) (\(uncurated.count) years)"
+        return String(format: "%d–%d (%d years)", uncurated.first!, uncurated.last!, uncurated.count)
     }
 
     /// Toggle curation status for a year
