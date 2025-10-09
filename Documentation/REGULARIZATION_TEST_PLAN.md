@@ -297,29 +297,56 @@
 
 ---
 
-### 🧪 Test Group 5: Show Exact Matches Toggle
+### 🧪 Test Group 5: Status Filter Buttons
 
-#### TC5.1: Default View (Exact Matches Hidden)
+#### TC5.1: Default View (All Filters Enabled)
 **Steps:**
 1. Open RegularizationView
-2. Ensure "Show Exact Matches" is OFF
+2. Verify all three status filters are enabled (default)
 3. Check uncurated pairs list
 
 **Expected:**
-- Shows only typos/variants (pairs NOT in 2011-2022)
-- Examples: CANA OUTLA, HONDA CRV, GMC SIE
-- Does NOT show: HONDA CIVIC, TOYOTA COROLLA (exact matches)
+- All three filter buttons shown: 🔴 Unassigned, 🟠 Needs Review, 🟢 Complete
+- All filters enabled (filled circles)
+- Shows ALL pairs including exact matches and typos/variants
+- Examples include: CANA OUTLA (unassigned), HONDA CRV (may have mapping)
 
 ---
 
-#### TC5.2: Show All Pairs (Exact Matches Visible)
+#### TC5.2: Filter Work Needed Only
 **Steps:**
-1. Toggle "Show Exact Matches" ON
-2. Check uncurated pairs list
+1. Disable "Complete" filter (click to toggle off)
+2. Keep "Unassigned" and "Needs Review" enabled
+3. Check pairs list
 
 **Expected:**
-- Shows ALL pairs from 2023-2024, including exact matches
-- Use case: Add FuelType/VehicleType to HONDA CIVIC for disambiguation
+- Only shows pairs with 🔴 or 🟠 status
+- Hides fully regularized pairs (🟢)
+- Use case: Focus on work that needs attention
+
+---
+
+#### TC5.3: Filter Completed Work Only
+**Steps:**
+1. Disable "Unassigned" and "Needs Review" filters
+2. Keep only "Complete" filter enabled
+3. Check pairs list
+
+**Expected:**
+- Only shows pairs with 🟢 status (both FuelType AND VehicleType assigned)
+- Use case: Quality assurance review
+
+---
+
+#### TC5.4: Filter Combinations
+**Steps:**
+1. Try various filter combinations (e.g., only 🟠, only 🔴, etc.)
+2. Verify list updates dynamically
+
+**Expected:**
+- Any combination of filters works
+- List updates immediately when toggling filters
+- Empty states show appropriate message when no pairs match filter
 
 ---
 
@@ -491,7 +518,7 @@
 - [ ] TC4.1-4.2: Coupling toggle behavior
 
 ### UI/UX Features
-- [ ] TC5.1-5.2: Show exact matches toggle
+- [ ] TC5.1-5.4: Status filter buttons and combinations
 - [ ] TC6.1: Badge hiding for exact matches
 - [ ] TC7.1-7.2: Cache invalidation and badge stripping
 

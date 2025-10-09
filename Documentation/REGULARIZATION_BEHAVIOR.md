@@ -183,33 +183,49 @@ When you select a Make/Model pair for editing, the FuelType and VehicleType drop
 - **Green badges** signal "work complete" - user has reviewed and made a decision (even if that decision is "Unknown")
 - You can "undo" an Unknown assignment by setting back to "Not Specified" to flag it for future review
 
-## Show Exact Matches Toggle
+## Status Filters in RegularizationView
 
-By default, the RegularizationView only shows Make/Model pairs that exist in uncurated years (2023-2024) but NOT in curated years (2011-2022). These are typically typos or new variants that need correction.
+The RegularizationView now provides granular filtering by regularization status using three independent filter buttons:
 
-However, you may want to work with **exact matches** - pairs that exist in both curated and uncurated years - to review auto-assignments or manually specify FuelType/VehicleType.
+**Filter Buttons:**
+- 🔴 **Unassigned** - Show/hide pairs with no regularization mapping
+- 🟠 **Needs Review** - Show/hide pairs with mappings but NULL FuelType/VehicleType
+- 🟢 **Complete** - Show/hide pairs with both FuelType AND VehicleType assigned
 
-**Toggle:** `"Show Exact Matches"` in RegularizationView (default: OFF)
+**Default:** All three filters are enabled (all pairs visible)
 
-### Use Cases for Exact Matches
+### Filter Combinations
 
-**Example:** `HONDA ACCORD` exists in both 2022 (curated) and 2023 (uncurated)
+You can enable/disable any combination of filters to focus on specific workflows:
 
-**Without "Show Exact Matches" (Default):**
-- This pair is hidden (not shown in the list)
-- Smart auto-assignment still runs in the background
-- If fully auto-assigned, you don't need to do anything
+**Common Workflows:**
 
-**With "Show Exact Matches" (Enabled):**
-- This pair appears in the list with appropriate badge (🟢 or 🟠)
-- You can review auto-assigned values
-- You can manually complete partial assignments
-- Useful when multiple fuel types or vehicle types exist
+1. **Only show work needed** (🔴 + 🟠):
+   - Uncheck "Complete" filter
+   - Shows only pairs requiring attention
+   - Hides successfully completed mappings
 
-**When to enable:**
-1. Reviewing auto-assigned exact matches
-2. Completing partial assignments (adding FuelType/VehicleType when multiple options exist)
-3. Research or data quality analysis
+2. **Review completed work** (🟢 only):
+   - Uncheck "Unassigned" and "Needs Review"
+   - Shows only fully regularized pairs
+   - Useful for quality assurance
+
+3. **Focus on partial assignments** (🟠 only):
+   - Uncheck "Unassigned" and "Complete"
+   - Shows pairs where Make/Model are mapped but FuelType/VehicleType need review
+   - Prioritize finishing started work
+
+4. **Start fresh work** (🔴 only):
+   - Uncheck "Needs Review" and "Complete"
+   - Shows only unmapped pairs
+   - Good for bulk regularization sessions
+
+### Important Notes
+
+- All filters are independent - you can select any combination
+- Filters apply to **all pairs** including exact matches (pairs that exist in both curated and uncurated years)
+- Smart auto-assignment still runs in the background regardless of filter settings
+- The list dynamically updates as you toggle filters
 
 ## Tips
 

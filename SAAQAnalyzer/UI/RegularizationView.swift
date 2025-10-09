@@ -61,6 +61,9 @@ struct UncuratedPairsListView: View {
     @ObservedObject var viewModel: RegularizationViewModel
     @State private var searchText = ""
     @State private var sortOrder: SortOrder = .recordCountDescending
+    @State private var showUnassigned = true
+    @State private var showNeedsReview = true
+    @State private var showComplete = true
 
     enum SortOrder: String, CaseIterable {
         case recordCountDescending = "Record Count (High to Low)"
@@ -77,6 +80,19 @@ struct UncuratedPairsListView: View {
             pairs = pairs.filter { pair in
                 pair.makeName.localizedCaseInsensitiveContains(searchText) ||
                 pair.modelName.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+
+        // Filter by status
+        pairs = pairs.filter { pair in
+            let status = viewModel.getRegularizationStatus(for: pair)
+            switch status {
+            case .none:
+                return showUnassigned
+            case .needsReview:
+                return showNeedsReview
+            case .fullyRegularized:
+                return showComplete
             }
         }
 
@@ -115,10 +131,32 @@ struct UncuratedPairsListView: View {
                 .pickerStyle(.menu)
                 .labelsHidden()
 
-                // Show exact matches toggle
-                Toggle("Show Exact Matches", isOn: $viewModel.showExactMatches)
-                    .controlSize(.small)
-                    .help("When enabled, shows Make/Model pairs that exist in both curated and uncurated years. Useful for adding FuelType/VehicleType disambiguation.")
+                // Status filters
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Show Status:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 16) {
+                        StatusFilterButton(
+                            isSelected: $showUnassigned,
+                            label: "Unassigned",
+                            color: .red
+                        )
+
+                        StatusFilterButton(
+                            isSelected: $showNeedsReview,
+                            label: "Needs Review",
+                            color: .orange
+                        )
+
+                        StatusFilterButton(
+                            isSelected: $showComplete,
+                            label: "Complete",
+                            color: .green
+                        )
+                    }
+                }
 
                 // Summary
                 VStack(spacing: 4) {
@@ -558,15 +596,6 @@ class RegularizationViewModel: ObservableObject {
     @Published var yearConfig: RegularizationYearConfiguration
     @Published var uncuratedPairs: [UnverifiedMakeModelPair] = []
     @Published var canonicalHierarchy: MakeModelHierarchy?
-    @Published var showExactMatches: Bool = false {
-        didSet {
-            if showExactMatches != oldValue {
-                Task { @MainActor in
-                    await loadUncuratedPairs()
-                }
-            }
-        }
-    }
     @Published var selectedPair: UnverifiedMakeModelPair? {
         didSet {
             // Load existing mapping when selection changes
@@ -667,7 +696,8 @@ class RegularizationViewModel: ObservableObject {
         }
 
         do {
-            let pairs = try await manager.findUncuratedPairs(includeExactMatches: showExactMatches)
+            // Always load all pairs (including exact matches) - filtering is done in UI by status
+            let pairs = try await manager.findUncuratedPairs(includeExactMatches: true)
             await MainActor.run {
                 uncuratedPairs = pairs
                 isLoading = false
@@ -1025,5 +1055,35 @@ class RegularizationViewModel: ObservableObject {
             clearMappingFormFields()
             print("📋 No auto-population for \(pair.makeModelDisplay) - manual mapping required")
         }
+    }
+}
+
+// MARK: - Status Filter Button
+
+struct StatusFilterButton: View {
+    @Binding var isSelected: Bool
+    let label: String
+    let color: Color
+
+    var body: some View {
+        Button(action: {
+            isSelected.toggle()
+        }) {
+            HStack(spacing: 4) {
+                Circle()
+                    .strokeBorder(color, lineWidth: isSelected ? 0 : 1)
+                    .background(Circle().fill(isSelected ? color : Color.clear))
+                    .frame(width: 8, height: 8)
+
+                Text(label)
+                    .font(.caption)
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.roundedRectangle)
+        .controlSize(.small)
+        .help(isSelected ? "Hide \(label.lowercased()) pairs" : "Show \(label.lowercased()) pairs")
     }
 }
