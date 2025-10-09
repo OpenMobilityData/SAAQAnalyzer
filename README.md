@@ -77,6 +77,19 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
 - **Export Options**: PNG export with proper UI appearance matching
 - **Responsive Layout**: Three-panel NavigationSplitView optimized for different screen sizes
 
+### Make/Model Regularization System
+- **Data Quality Correction**: Map typos and variants in uncurated data (2023-2024) to canonical values from curated data (2011-2022)
+- **Smart Auto-Assignment**: Automatically assigns Make/Model pairs and FuelType/VehicleType when only one valid option exists
+- **Bidirectional Mapping**: Query expansion works both ways - select canonical or uncurated value, get merged results
+- **Status Tracking**: Visual badges show regularization completeness (Unassigned, Partial, Complete)
+- **FuelType/VehicleType Disambiguation**: Handle cases where Make/Model match but fuel type or vehicle type varies
+- **Derived Make Regularization**: Make-level mappings automatically derived from Make/Model mappings
+- **Query-Time Translation**: Original data untouched; expansion happens during query execution
+- **Coupling Modes**: Choose between coupled (respects Make/Model relationships) or decoupled (independent filters) behavior
+- **Configuration**: Define curated vs uncurated year ranges in Settings
+
+**See [Regularization User Guide](Documentation/REGULARIZATION_BEHAVIOR.md) for detailed usage instructions.**
+
 ## System Requirements
 
 ### Minimum Requirements

@@ -23,6 +23,16 @@ The regularization system allows you to map typos and variants in uncurated data
 
 **Note:** Badges are hidden when the uncurated name matches the canonical name (e.g., "HONDA → HONDA" is shown as just "HONDA").
 
+### Regularization Status Badges (in RegularizationView)
+
+When working in the Regularization Editor, each Make/Model pair shows a status badge:
+
+- 🔴 **Unassigned** - No regularization mapping exists yet
+- 🟠 **Partial** - Make/Model assigned, but missing FuelType and/or VehicleType
+- 🟢 **Complete** - All fields assigned (Make, Model, FuelType, and VehicleType)
+
+**Note:** The green "Complete" badge requires both FuelType AND VehicleType to be assigned. If either field is unassigned (database NULL), the badge shows orange "Partial".
+
 ## Query Behavior
 
 ### With "Enable Regularization in Queries" = OFF (Default)
@@ -117,11 +127,53 @@ When you create a Make/Model mapping like `VOLV0 XC90 → VOLVO XC90`, the syste
 
 The system will prevent conflicting Make mappings.
 
+## Smart Auto-Assignment
+
+When you open the RegularizationView, the system automatically performs **smart auto-assignment** for exact matches:
+
+### What Gets Auto-Assigned
+
+For Make/Model pairs that exist in both curated and uncurated years (e.g., `HONDA CIVIC`):
+
+1. **Make and Model**: Always auto-assigned to matching canonical values
+2. **FuelType**: Auto-assigned if **only one option exists** (excluding "Not Specified")
+3. **VehicleType**: Auto-assigned if **only one option exists** (excluding "Not Specified")
+
+### Examples
+
+**Full Auto-Assignment:**
+```
+HONDA CIVIC in curated data has:
+- FuelTypes: ["Gasoline"] (only one option)
+- VehicleTypes: ["PAU"] (only one option)
+
+Result: ✅ Fully auto-assigned → 🟢 Green "Complete" badge
+```
+
+**Partial Auto-Assignment:**
+```
+HONDA ACCORD in curated data has:
+- FuelTypes: ["Gasoline", "Hybrid", "Electric"] (multiple options)
+- VehicleTypes: ["PAU"] (only one option)
+
+Result: ✅ VehicleType auto-assigned, FuelType left NULL → 🟠 Orange "Partial" badge
+User must manually select FuelType to complete the mapping
+```
+
+### "Not Specified" in Pickers
+
+When you select a Make/Model pair for editing, the FuelType and VehicleType dropdowns show:
+
+- **"Not Specified"** - This is the UI label for database NULL (no value assigned)
+- **Actual values** - E.g., "Gasoline (1234)", "PAU - Passenger (5678)"
+
+**Important:** "Not Specified" is not a schema value in the database - it's just the UI label for NULL. When either field shows "Not Specified", the mapping is considered partial and gets an 🟠 orange badge.
+
 ## Show Exact Matches Toggle
 
 By default, the RegularizationView only shows Make/Model pairs that exist in uncurated years (2023-2024) but NOT in curated years (2011-2022). These are typically typos or new variants that need correction.
 
-However, you may want to work with **exact matches** - pairs that exist in both curated and uncurated years - to add FuelType or VehicleType disambiguation.
+However, you may want to work with **exact matches** - pairs that exist in both curated and uncurated years - to review auto-assignments or manually specify FuelType/VehicleType.
 
 **Toggle:** `"Show Exact Matches"` in RegularizationView (default: OFF)
 
@@ -131,16 +183,18 @@ However, you may want to work with **exact matches** - pairs that exist in both 
 
 **Without "Show Exact Matches" (Default):**
 - This pair is hidden (not shown in the list)
-- Assumption: If Make/Model match exactly, no regularization needed
+- Smart auto-assignment still runs in the background
+- If fully auto-assigned, you don't need to do anything
 
 **With "Show Exact Matches" (Enabled):**
-- This pair appears in the list
-- You can create mapping: `HONDA ACCORD → HONDA ACCORD` + specify FuelType = "Hybrid"
-- Useful when new fuel types or vehicle types appear in uncurated years
+- This pair appears in the list with appropriate badge (🟢 or 🟠)
+- You can review auto-assigned values
+- You can manually complete partial assignments
+- Useful when multiple fuel types or vehicle types exist
 
 **When to enable:**
-1. Adding FuelType/VehicleType disambiguation for existing Make/Model combinations
-2. Reviewing all uncurated data, not just typos
+1. Reviewing auto-assigned exact matches
+2. Completing partial assignments (adding FuelType/VehicleType when multiple options exist)
 3. Research or data quality analysis
 
 ## Tips
