@@ -120,14 +120,14 @@ struct FilterPanel: View {
                         // Vehicle characteristics section
                         DisclosureGroup(isExpanded: $vehicleSectionExpanded) {
                             VehicleFilterSection(
-                                selectedClassifications: $configuration.vehicleClassifications,
+                                selectedVehicleClasses: $configuration.vehicleClasses,
                                 selectedVehicleMakes: $configuration.vehicleMakes,
                                 selectedVehicleModels: $configuration.vehicleModels,
                                 selectedVehicleColors: $configuration.vehicleColors,
                                 selectedModelYears: $configuration.modelYears,
                                 selectedFuelTypes: $configuration.fuelTypes,
                                 availableYears: availableYears,
-                                availableClassifications: availableClassifications,
+                                availableVehicleClasses: availableClassifications,
                                 availableVehicleMakes: availableVehicleMakes,
                                 availableVehicleModels: availableVehicleModels,
                                 availableVehicleColors: availableVehicleColors,
@@ -359,14 +359,14 @@ struct FilterPanel: View {
         switch configuration.dataEntityType {
         case .vehicle:
             // Load vehicle-specific options in parallel for better performance
-            async let classifications = databaseManager.getAvailableClassifications()
+            async let vehicleClasses = databaseManager.getAvailableVehicleClasses()
             async let vehicleMakes = databaseManager.getAvailableVehicleMakes()
             async let vehicleModels = databaseManager.getAvailableVehicleModels()
             async let vehicleColors = databaseManager.getAvailableVehicleColors()
             async let modelYears = databaseManager.getAvailableModelYears()
 
             // Wait for all to complete
-            let vehicleData = await (classifications, vehicleMakes, vehicleModels, vehicleColors, modelYears)
+            let vehicleData = await (vehicleClasses, vehicleMakes, vehicleModels, vehicleColors, modelYears)
 
             // Update UI state on main thread
             await MainActor.run {
@@ -432,8 +432,8 @@ struct FilterPanel: View {
             print("📊 New years detected, refreshing filter options...")
             availableYears = newYears
 
-            // Also refresh classifications in case new year has different vehicle types
-            availableClassifications = await databaseManager.getAvailableClassifications()
+            // Also refresh vehicleClasses in case new year has different vehicle types
+            availableClassifications = await databaseManager.getAvailableVehicleClasses()
         }
         
         // Geographic data rarely changes after initial load
@@ -476,7 +476,7 @@ struct FilterPanel: View {
 
             case .license:
                 // Clear all vehicle-specific filters when switching to license mode
-                configuration.vehicleClassifications.removeAll()
+                configuration.vehicleClasses.removeAll()
                 configuration.vehicleMakes.removeAll()
                 configuration.vehicleModels.removeAll()
                 configuration.vehicleColors.removeAll()
@@ -658,14 +658,14 @@ struct SimpleGeographicFilterSection: View {
 // MARK: - Vehicle Filter Section
 
 struct VehicleFilterSection: View {
-    @Binding var selectedClassifications: Set<String>
+    @Binding var selectedVehicleClasses: Set<String>
     @Binding var selectedVehicleMakes: Set<String>
     @Binding var selectedVehicleModels: Set<String>
     @Binding var selectedVehicleColors: Set<String>
     @Binding var selectedModelYears: Set<Int>
     @Binding var selectedFuelTypes: Set<String>
     let availableYears: [Int]
-    let availableClassifications: [String]
+    let availableVehicleClasses: [String]
     let availableVehicleMakes: [String]
     let availableVehicleModels: [String]
     let availableVehicleColors: [String]
@@ -678,15 +678,15 @@ struct VehicleFilterSection: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Vehicle classifications (use actual database values)
-            if !availableClassifications.isEmpty {
-                Text("Vehicle Type")
+            // Vehicle classes (use actual database values)
+            if !availableVehicleClasses.isEmpty {
+                Text("Vehicle Class")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 
-                VehicleClassificationFilterList(
-                    availableClassifications: availableClassifications,
-                    selectedClassifications: $selectedClassifications
+                VehicleClassFilterList(
+                    availableVehicleClasses: availableVehicleClasses,
+                    selectedVehicleClasses: $selectedVehicleClasses
                 )
             }
             
@@ -1075,21 +1075,21 @@ struct SearchableFilterList: View {
 
 // MARK: - Vehicle Classification Filter List
 
-struct VehicleClassificationFilterList: View {
-    let availableClassifications: [String]
-    @Binding var selectedClassifications: Set<String>
+struct VehicleClassFilterList: View {
+    let availableVehicleClasses: [String]
+    @Binding var selectedVehicleClasses: Set<String>
     
     @State private var searchText = ""
     @State private var isExpanded = false
     
     private var filteredItems: [String] {
         if searchText.isEmpty {
-            return availableClassifications
+            return availableVehicleClasses
         }
-        return availableClassifications.filter { classification in
-            let displayName = getDisplayName(for: classification)
+        return availableVehicleClasses.filter { vehicleClass in
+            let displayName = getDisplayName(for: vehicleClass)
             return displayName.localizedCaseInsensitiveContains(searchText) || 
-                   classification.localizedCaseInsensitiveContains(searchText)
+              vehicleClass.localizedCaseInsensitiveContains(searchText)
         }
     }
     
@@ -1101,7 +1101,7 @@ struct VehicleClassificationFilterList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Search field
-            if availableClassifications.count > 10 {
+            if availableVehicleClasses.count > 10 {
                 HStack {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
@@ -1120,14 +1120,14 @@ struct VehicleClassificationFilterList: View {
             // Quick action buttons
             HStack {
                 Button("All") {
-                    selectedClassifications = Set(filteredItems)
+                    selectedVehicleClasses = Set(filteredItems)
                 }
                 .buttonStyle(.bordered)
                 .buttonBorderShape(.roundedRectangle)
                 .controlSize(.mini)
 
                 Button("Clear") {
-                    selectedClassifications.removeAll()
+                    selectedVehicleClasses.removeAll()
                 }
                 .buttonStyle(.bordered)
                 .buttonBorderShape(.roundedRectangle)
@@ -1135,8 +1135,8 @@ struct VehicleClassificationFilterList: View {
                 
                 Spacer()
                 
-                if availableClassifications.count > 6 && searchText.isEmpty {
-                    Button(isExpanded ? "Show Less" : "Show All (\(availableClassifications.count))") {
+                if availableVehicleClasses.count > 6 && searchText.isEmpty {
+                    Button(isExpanded ? "Show Less" : "Show All (\(availableVehicleClasses.count))") {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isExpanded.toggle()
                         }
@@ -1149,15 +1149,15 @@ struct VehicleClassificationFilterList: View {
             
             // Filter items
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(displayedItems, id: \.self) { classification in
+                ForEach(displayedItems, id: \.self) { vehicleClass in
                     HStack(alignment: .top, spacing: 8) {
                         Toggle(isOn: Binding(
-                            get: { selectedClassifications.contains(classification) },
+                            get: { selectedVehicleClasses.contains(vehicleClass) },
                             set: { isSelected in
                                 if isSelected {
-                                    selectedClassifications.insert(classification)
+                                    selectedVehicleClasses.insert(vehicleClass)
                                 } else {
-                                    selectedClassifications.remove(classification)
+                                    selectedVehicleClasses.remove(vehicleClass)
                                 }
                             }
                         )) {
@@ -1167,21 +1167,21 @@ struct VehicleClassificationFilterList: View {
                         .controlSize(.mini)
                         
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(getDisplayName(for: classification))
+                            Text(getDisplayName(for: vehicleClass))
                                 .font(.caption)
                                 .multilineTextAlignment(.leading)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                     .padding(.vertical, 1)
-                    .help(getDescription(for: classification))  // Tooltip with description
+                    .help(getDescription(for: vehicleClass))  // Tooltip with description
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: displayedItems.count)
             
             // Search results summary
-            if !searchText.isEmpty && filteredItems.count != availableClassifications.count {
-                Text("Showing \(filteredItems.count) of \(availableClassifications.count) vehicle types")
+            if !searchText.isEmpty && filteredItems.count != availableVehicleClasses.count {
+                Text("Showing \(filteredItems.count) of \(availableVehicleClasses.count) vehicle types")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.top, 4)
@@ -1190,19 +1190,31 @@ struct VehicleClassificationFilterList: View {
         .padding(.vertical, 4)
     }
     
-    // Helper methods for vehicle classification display
-    private func getDisplayName(for classification: String) -> String {
-        if let vehicleClass = VehicleClassification(rawValue: classification) {
-            return "\(classification) - \(vehicleClass.description)"
+    // Helper methods for vehicle vehicleClass display
+    private func getDisplayName(for vehicleClass: String) -> String {
+        // Handle special NULL case (empty string from database)
+        if vehicleClass.isEmpty || vehicleClass.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "NUL - Not Specified"
         }
-        return classification
+
+        // Handle UNK special case
+        if vehicleClass.uppercased() == "UNK" {
+            return "UNK - Unknown"
+        }
+
+        // Handle normal vehicle classes
+        if let vehicleClass = VehicleClass(rawValue: vehicleClass) {
+            return "\(vehicleClass.rawValue.uppercased()) - \(vehicleClass.description)"
+        }
+
+        return vehicleClass
     }
     
-    private func getDescription(for classification: String) -> String {
-        if let vehicleClass = VehicleClassification(rawValue: classification) {
+    private func getDescription(for vehicleClass: String) -> String {
+        if let vehicleClass = VehicleClass(rawValue: vehicleClass) {
             return vehicleClass.description
         }
-        return "Unknown classification: \(classification)"
+        return "Unknown vehicleClass: \(vehicleClass)"
     }
 }
 
@@ -1346,7 +1358,7 @@ struct MetricConfigurationSection: View {
 
     enum FilterCategory: String, CaseIterable {
         case regions = "Admin Region"
-        case vehicleClassifications = "Vehicle Type"
+        case vehicleClasses = "Vehicle Class"
         case fuelTypes = "Fuel Type"
         case vehicleMakes = "Vehicle Make"
         case vehicleModels = "Vehicle Model"
@@ -1359,7 +1371,7 @@ struct MetricConfigurationSection: View {
     private var availableCategories: [FilterCategory] {
         var categories: [FilterCategory] = []
         if !currentFilters.regions.isEmpty { categories.append(.regions) }
-        if !currentFilters.vehicleClassifications.isEmpty { categories.append(.vehicleClassifications) }
+        if !currentFilters.vehicleClasses.isEmpty { categories.append(.vehicleClasses) }
         if !currentFilters.fuelTypes.isEmpty { categories.append(.fuelTypes) }
         if !currentFilters.vehicleMakes.isEmpty { categories.append(.vehicleMakes) }
         if !currentFilters.vehicleModels.isEmpty { categories.append(.vehicleModels) }
@@ -1545,8 +1557,8 @@ struct MetricConfigurationSection: View {
         switch droppingCategory {
         case .regions:
             baseFilters.regions.removeAll()
-        case .vehicleClassifications:
-            baseFilters.vehicleClassifications.removeAll()
+        case .vehicleClasses:
+            baseFilters.vehicleClasses.removeAll()
         case .fuelTypes:
             baseFilters.fuelTypes.removeAll()
         case .vehicleMakes:

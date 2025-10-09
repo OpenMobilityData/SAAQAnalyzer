@@ -27,7 +27,7 @@ class FilterConfigurationAdapter {
         integerConfig.municipalities = try await convertStringsToIds(config.municipalities, table: "municipality_enum", column: "code")
 
         // Vehicle-specific conversions
-        integerConfig.vehicleClassifications = try await convertStringsToIds(config.vehicleClassifications, table: "classification_enum", column: "code")
+        integerConfig.vehicleClasses = try await convertStringsToIds(config.vehicleClasses, table: "vehicle_class_enum", column: "code")
         integerConfig.vehicleMakes = try await convertStringsToIds(config.vehicleMakes, table: "make_enum", column: "name")
         integerConfig.vehicleModels = try await convertStringsToIds(config.vehicleModels, table: "model_enum", column: "name")
         integerConfig.vehicleColors = try await convertStringsToIds(config.vehicleColors, table: "color_enum", column: "name")
@@ -61,7 +61,7 @@ class FilterConfigurationAdapter {
         config.municipalities = try await convertIdsToStrings(integerConfig.municipalities, table: "municipality_enum", column: "code")
 
         // Vehicle-specific conversions
-        config.vehicleClassifications = try await convertIdsToStrings(integerConfig.vehicleClassifications, table: "classification_enum", column: "code")
+        config.vehicleClasses = try await convertIdsToStrings(integerConfig.vehicleClasses, table: "vehicle_class_enum", column: "code")
         config.vehicleMakes = try await convertIdsToStrings(integerConfig.vehicleMakes, table: "make_enum", column: "name")
         config.vehicleModels = try await convertIdsToStrings(integerConfig.vehicleModels, table: "model_enum", column: "name")
         config.vehicleColors = try await convertIdsToStrings(integerConfig.vehicleColors, table: "color_enum", column: "name")

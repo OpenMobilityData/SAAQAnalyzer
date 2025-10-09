@@ -26,7 +26,7 @@ final class SAAQAnalyzerTests: XCTestCase {
 
     func testDataModelTypes() throws {
         // Test that core data model enums are properly configured
-        XCTAssertGreaterThan(VehicleClassification.allCases.count, 0, "VehicleClassification should have cases")
+        XCTAssertGreaterThan(VehicleClass.allCases.count, 0, "VehicleClass should have cases")
         XCTAssertGreaterThan(FuelType.allCases.count, 0, "FuelType should have cases")
         XCTAssertGreaterThan(LicenseType.allCases.count, 0, "LicenseType should have cases")
         XCTAssertGreaterThan(AgeGroup.allCases.count, 0, "AgeGroup should have cases")
@@ -34,7 +34,7 @@ final class SAAQAnalyzerTests: XCTestCase {
         XCTAssertGreaterThan(ExperienceLevel.allCases.count, 0, "ExperienceLevel should have cases")
 
         // Verify critical enum values exist
-        XCTAssertNotNil(VehicleClassification(rawValue: "AUTOMOBILE"), "AUTOMOBILE classification should exist")
+        XCTAssertNotNil(VehicleClass(rawValue: "AUTOMOBILE"), "AUTOMOBILE classification should exist")
         XCTAssertNotNil(FuelType(rawValue: "ESSENCE"), "ESSENCE fuel type should exist")
         XCTAssertNotNil(LicenseType(rawValue: "REGULIER"), "REGULIER license type should exist")
         XCTAssertNotNil(Gender(rawValue: "M"), "Male gender should exist")
@@ -43,10 +43,10 @@ final class SAAQAnalyzerTests: XCTestCase {
 
     func testDataEntityTypes() throws {
         // Test DataEntityType enum functionality
-        let vehicleType = DataEntityType.vehicle
+        let vehicleClass = DataEntityType.vehicle
         let licenseType = DataEntityType.license
 
-        XCTAssertEqual(vehicleType.rawValue, "vehicle", "Vehicle type should have correct raw value")
+        XCTAssertEqual(vehicleClass.rawValue, "vehicle", "Vehicle type should have correct raw value")
         XCTAssertEqual(licenseType.rawValue, "license", "License type should have correct raw value")
 
         // Test that both types exist in all cases

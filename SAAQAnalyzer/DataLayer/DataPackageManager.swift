@@ -301,7 +301,7 @@ class DataPackageManager: ObservableObject {
 
         return (
             mrcs: countRows(in: "mrc_enum"),
-            classifications: countRows(in: "classification_enum"),
+            classifications: countRows(in: "vehicle_class_enum"),
             makes: countRows(in: "make_enum"),
             models: countRows(in: "model_enum"),
             colors: countRows(in: "color_enum"),

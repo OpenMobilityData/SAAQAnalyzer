@@ -61,7 +61,7 @@ class FilterCache {
         static let vehicleRegions = "FilterCache.vehicleRegions"
         static let vehicleMRCs = "FilterCache.vehicleMRCs"
         static let vehicleMunicipalities = "FilterCache.vehicleMunicipalities"
-        static let vehicleClassifications = "FilterCache.vehicleClassifications"
+        static let vehicleClasses = "FilterCache.vehicleClasses"
         static let vehicleMakes = "FilterCache.vehicleMakes"
         static let vehicleModels = "FilterCache.vehicleModels"
         static let vehicleColors = "FilterCache.vehicleColors"
@@ -106,7 +106,7 @@ class FilterCache {
                 CacheKeys.vehicleRegions,
                 CacheKeys.vehicleMRCs,
                 CacheKeys.vehicleMunicipalities,
-                CacheKeys.vehicleClassifications,
+                CacheKeys.vehicleClasses,
                 CacheKeys.vehicleMakes,
                 CacheKeys.vehicleModels,
                 CacheKeys.vehicleColors,
@@ -207,8 +207,8 @@ class FilterCache {
     }
     
     // Vehicle-specific cache methods
-    func getCachedVehicleClassifications() -> [String] {
-        return userDefaults.stringArray(forKey: CacheKeys.vehicleClassifications) ?? []
+    func getCachedvehicleClasses() -> [String] {
+        return userDefaults.stringArray(forKey: CacheKeys.vehicleClasses) ?? []
     }
 
     func getCachedVehicleMakes() -> [String] {
@@ -228,7 +228,7 @@ class FilterCache {
     }
 
     // Legacy vehicle methods for backward compatibility
-    func getCachedClassifications() -> [String] {
+    func getcachedVehicleClasses() -> [String] {
         return userDefaults.stringArray(forKey: CacheKeys.classifications) ?? []
     }
 
@@ -292,7 +292,7 @@ class FilterCache {
         userDefaults.set(regions, forKey: CacheKeys.vehicleRegions)
         userDefaults.set(mrcs, forKey: CacheKeys.vehicleMRCs)
         userDefaults.set(municipalities, forKey: CacheKeys.vehicleMunicipalities)
-        userDefaults.set(classifications, forKey: CacheKeys.vehicleClassifications)
+        userDefaults.set(classifications, forKey: CacheKeys.vehicleClasses)
         userDefaults.set(vehicleMakes, forKey: CacheKeys.vehicleMakes)
         userDefaults.set(vehicleModels, forKey: CacheKeys.vehicleModels)
         userDefaults.set(vehicleColors, forKey: CacheKeys.vehicleColors)

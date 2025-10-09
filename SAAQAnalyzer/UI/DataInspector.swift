@@ -283,12 +283,12 @@ struct FilterSummaryView: View {
                 }
             }
             
-            if !filters.vehicleClassifications.isEmpty {
+            if !filters.vehicleClasses.isEmpty {
                 HStack {
                     Image(systemName: "car")
                         .foregroundStyle(.purple)
                         .frame(width: 16)
-                    Text("Vehicle Types: \(filters.vehicleClassifications.count)")
+                    Text("Vehicle Types: \(filters.vehicleClasses.count)")
                         .font(.caption)
                 }
             }

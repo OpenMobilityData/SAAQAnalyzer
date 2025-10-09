@@ -658,8 +658,8 @@ struct ContentView: View {
 
         // Vehicle-specific filters (show actual values)
         if filters.dataEntityType == .vehicle {
-            if !filters.vehicleClassifications.isEmpty {
-                let classificationList = Array(filters.vehicleClassifications).sorted()
+            if !filters.vehicleClasses.isEmpty {
+                let classificationList = Array(filters.vehicleClasses).sorted()
                 if classificationList.count <= 2 {
                     components.append("Classifications: \(classificationList.joined(separator: ", "))")
                 } else {
@@ -1848,7 +1848,7 @@ struct RegularizationSettingsView: View {
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.roundedRectangle)
                     .disabled(isGeneratingHierarchy)
-                    .help("Analyze curated years to build Make/Model/FuelType/VehicleType combinations")
+                    .help("Analyze curated years to build Make/Model/FuelType/VehicleClass combinations")
 
                     Button(isFindingUncurated ? "Finding Uncurated Pairs..." : "Manage Regularization Mappings") {
                         showingRegularizationView = true

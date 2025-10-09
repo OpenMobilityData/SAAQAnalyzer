@@ -12,7 +12,7 @@ class FilterCacheManager {
     private var cachedRegions: [FilterItem] = []
     private var cachedMRCs: [FilterItem] = []
     private var cachedMunicipalities: [FilterItem] = []
-    private var cachedClassifications: [FilterItem] = []
+    private var cachedVehicleClasses: [FilterItem] = []
     private var cachedMakes: [FilterItem] = []
     private var cachedModels: [FilterItem] = []
     private var cachedColors: [FilterItem] = []
@@ -57,7 +57,7 @@ class FilterCacheManager {
         try await loadRegions()
         try await loadMRCs()
         try await loadMunicipalities()
-        try await loadClassifications()
+        try await loadVehicleClasses()
         try await loadMakes()
         try await loadModels()
         try await loadColors()
@@ -274,9 +274,9 @@ class FilterCacheManager {
         cachedMunicipalities = try await executeFilterItemQuery(sql)
     }
 
-    private func loadClassifications() async throws {
-        let sql = "SELECT id, code FROM classification_enum ORDER BY code;"
-        cachedClassifications = try await executeFilterItemQuery(sql)
+    private func loadVehicleClasses() async throws {
+        let sql = "SELECT id, code FROM vehicle_class_enum ORDER BY code;"
+        cachedVehicleClasses = try await executeFilterItemQuery(sql)
     }
 
     private func loadMakes() async throws {
@@ -431,9 +431,9 @@ class FilterCacheManager {
         return cachedMunicipalities
     }
 
-    func getAvailableClassifications() async throws -> [FilterItem] {
+    func getAvailableVehicleClasses() async throws -> [FilterItem] {
         if !isInitialized { try await initializeCache() }
-        return cachedClassifications
+        return cachedVehicleClasses
     }
 
     func getAvailableMakes() async throws -> [FilterItem] {
@@ -524,7 +524,7 @@ class FilterCacheManager {
         cachedRegions.removeAll()
         cachedMRCs.removeAll()
         cachedMunicipalities.removeAll()
-        cachedClassifications.removeAll()
+        cachedVehicleClasses.removeAll()
         cachedMakes.removeAll()
         cachedModels.removeAll()
         cachedColors.removeAll()

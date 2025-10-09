@@ -63,7 +63,7 @@ class CategoricalEnumManager {
 
     private func createClassificationEnumTable() -> String {
         """
-        CREATE TABLE IF NOT EXISTS classification_enum (
+        CREATE TABLE IF NOT EXISTS vehicle_class_enum (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT UNIQUE NOT NULL,
             description TEXT NOT NULL
@@ -206,7 +206,7 @@ class CategoricalEnumManager {
 
         // Populate in dependency order (referenced tables first)
         try await populateYearEnum()
-        try await populateClassificationEnum()
+        try await populateVehicleClassEnum()
         try await populateMakeEnum()
         try await populateModelEnum()  // Depends on make_enum
         try await populateModelYearEnum()
@@ -235,7 +235,7 @@ class CategoricalEnumManager {
         try await executeSQL(sql, description: "year enum")
     }
 
-    private func populateClassificationEnum() async throws {
+    private func populateVehicleClassEnum() async throws {
         // Use hardcoded mappings for vehicle classifications to ensure consistent descriptions
         let classifications = [
             // Personal Use
@@ -277,16 +277,16 @@ class CategoricalEnumManager {
         ]
 
         for (code, description) in classifications {
-            let sql = "INSERT OR IGNORE INTO classification_enum (code, description) VALUES (?, ?);"
+            let sql = "INSERT OR IGNORE INTO vehicle_class_enum (code, description) VALUES (?, ?);"
             try await executeSQL(sql, parameters: [code, description], description: "classification enum")
         }
 
         // Also populate any classifications found in data that aren't in our hardcoded list
         let sql = """
-        INSERT OR IGNORE INTO classification_enum (code, description)
+        INSERT OR IGNORE INTO vehicle_class_enum (code, description)
         SELECT DISTINCT classification, classification
         FROM vehicles
-        WHERE classification NOT IN (SELECT code FROM classification_enum);
+        WHERE classification NOT IN (SELECT code FROM vehicle_class_enum);
         """
         try await executeSQL(sql, description: "additional classifications")
     }

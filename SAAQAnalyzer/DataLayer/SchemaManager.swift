@@ -33,7 +33,7 @@ class SchemaManager {
         print("🔄 Re-populating integer columns...")
 
         // Check current state
-        let populatedCount = try await getCount("SELECT COUNT(*) FROM vehicles WHERE classification_id IS NOT NULL AND fuel_type_id IS NOT NULL;")
+        let populatedCount = try await getCount("SELECT COUNT(*) FROM vehicles WHERE vehicle_class_id IS NOT NULL AND fuel_type_id IS NOT NULL;")
         let totalCount = try await getCount("SELECT COUNT(*) FROM vehicles;")
 
         print("🔍 Current state: \(populatedCount)/\(totalCount) rows have populated integer columns")
@@ -43,7 +43,7 @@ class SchemaManager {
             try await populateOptimizedColumns()
 
             // Re-check
-            let newPopulatedCount = try await getCount("SELECT COUNT(*) FROM vehicles WHERE classification_id IS NOT NULL AND fuel_type_id IS NOT NULL;")
+            let newPopulatedCount = try await getCount("SELECT COUNT(*) FROM vehicles WHERE vehicle_class_id IS NOT NULL AND fuel_type_id IS NOT NULL;")
             print("✅ After migration: \(newPopulatedCount)/\(totalCount) rows have populated integer columns")
         } else {
             print("✅ Integer columns already fully populated")
@@ -59,7 +59,7 @@ class SchemaManager {
         let vehicleColumnSQL = [
             // TINYINT columns (1 byte)
             "ALTER TABLE vehicles ADD COLUMN year_id INTEGER;",
-            "ALTER TABLE vehicles ADD COLUMN classification_id INTEGER;",
+            "ALTER TABLE vehicles ADD COLUMN vehicle_class_id INTEGER;",
             "ALTER TABLE vehicles ADD COLUMN cylinder_count_id INTEGER;",
             "ALTER TABLE vehicles ADD COLUMN axle_count_id INTEGER;",
             "ALTER TABLE vehicles ADD COLUMN original_color_id INTEGER;",
@@ -128,8 +128,8 @@ class SchemaManager {
 
             // Classification mapping
             """
-            UPDATE vehicles SET classification_id = (
-                SELECT c.id FROM classification_enum c WHERE c.code = vehicles.classification
+            UPDATE vehicles SET vehicle_class_id = (
+                SELECT c.id FROM vehicle_class_enum c WHERE c.code = vehicles.classification
             );
             """,
 
@@ -279,7 +279,7 @@ class SchemaManager {
         let optimizedIndexes = [
             // Vehicles table - single column indexes
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year_id ON vehicles(year_id);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_classification_id ON vehicles(classification_id);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_vehicle_class_id ON vehicles(vehicle_class_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_make_id ON vehicles(make_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_model_id ON vehicles(model_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_model_year_id ON vehicles(model_year_id);",
@@ -292,12 +292,12 @@ class SchemaManager {
             "CREATE INDEX IF NOT EXISTS idx_vehicles_color_id ON vehicles(original_color_id);",
 
             // Vehicles table - composite indexes for common query patterns
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_class_id ON vehicles(year_id, classification_id);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_class_id ON vehicles(year_id, vehicle_class_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year_fuel_id ON vehicles(year_id, fuel_type_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year_region_id ON vehicles(year_id, admin_region_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year_municipality_id ON vehicles(year_id, municipality_id);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_municipality_class_year_id ON vehicles(municipality_id, classification_id, year_id);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_region_class_year_id ON vehicles(admin_region_id, classification_id, year_id);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_municipality_class_year_id ON vehicles(municipality_id, vehicle_class_id, year_id);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_region_class_year_id ON vehicles(admin_region_id, vehicle_class_id, year_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_make_model_year_id ON vehicles(make_id, model_id, year_id);",
 
             // Licenses table - single column indexes
@@ -317,7 +317,7 @@ class SchemaManager {
             "CREATE INDEX IF NOT EXISTS idx_licenses_region_type_year_id ON licenses(admin_region_id, license_type_id, year_id);",
 
             // Enumeration table indexes for fast lookups
-            "CREATE INDEX IF NOT EXISTS idx_classification_enum_code ON classification_enum(code);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicle_class_enum_code ON vehicle_class_enum(code);",
             "CREATE INDEX IF NOT EXISTS idx_make_enum_name ON make_enum(name);",
             "CREATE INDEX IF NOT EXISTS idx_model_enum_name_make ON model_enum(name, make_id);",
             "CREATE INDEX IF NOT EXISTS idx_fuel_type_enum_code ON fuel_type_enum(code);",
@@ -342,7 +342,7 @@ class SchemaManager {
         // Check that enumeration tables are populated
         let enumerationCounts = [
             "SELECT COUNT(*) FROM year_enum;",
-            "SELECT COUNT(*) FROM classification_enum;",
+            "SELECT COUNT(*) FROM vehicle_class_enum;",
             "SELECT COUNT(*) FROM make_enum;",
             "SELECT COUNT(*) FROM model_enum;",
             "SELECT COUNT(*) FROM fuel_type_enum;"
@@ -358,7 +358,7 @@ class SchemaManager {
         // Check that foreign key columns are populated
         let foreignKeyChecks = [
             "SELECT COUNT(*) FROM vehicles WHERE year_id IS NULL;",
-            "SELECT COUNT(*) FROM vehicles WHERE classification_id IS NULL;",
+            "SELECT COUNT(*) FROM vehicles WHERE vehicle_class_id IS NULL;",
             "SELECT COUNT(*) FROM vehicles WHERE admin_region_id IS NULL;",
             "SELECT COUNT(*) FROM licenses WHERE year_id IS NULL;",
             "SELECT COUNT(*) FROM licenses WHERE age_group_id IS NULL;"

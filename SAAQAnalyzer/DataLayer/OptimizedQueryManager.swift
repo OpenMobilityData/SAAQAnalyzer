@@ -50,7 +50,7 @@ class OptimizedQueryManager {
         print("   Regions: \(filters.regions)")
         print("   MRCs: \(filters.mrcs)")
         print("   Municipalities: \(filters.municipalities)")
-        print("   Vehicle Classifications: \(filters.vehicleClassifications)")
+        print("   Vehicle Classifications: \(filters.vehicleClasses)")
         print("   Vehicle Makes: \(filters.vehicleMakes)")
         print("   Vehicle Models: \(filters.vehicleModels)")
         print("   Vehicle Colors: \(filters.vehicleColors)")
@@ -134,16 +134,16 @@ class OptimizedQueryManager {
         if isVehicle {
             // Classifications: UI shows descriptions, need to extract codes
             // e.g., "Personal automobile/light truck" -> lookup by description in DB
-            for classification in filters.vehicleClassifications {
+            for vehicleClass in filters.vehicleClasses {
                 // Try direct lookup first (if user selected by code)
-                if let id = try await enumManager.getEnumId(table: "classification_enum", column: "code", value: classification) {
-                    print("🔍 Classification '\(classification)' -> ID \(id)")
+                if let id = try await enumManager.getEnumId(table: "vehicle_class_enum", column: "code", value: vehicleClass) {
+                    print("🔍 Classification '\(vehicleClass)' -> ID \(id)")
                     classificationIds.append(id)
-                } else if let id = try await enumManager.getEnumId(table: "classification_enum", column: "description", value: classification) {
-                    print("🔍 Classification '\(classification)' (by description) -> ID \(id)")
+                } else if let id = try await enumManager.getEnumId(table: "vehicle_class_enum", column: "description", value: vehicleClass) {
+                    print("🔍 Classification '\(vehicleClass)' (by description) -> ID \(id)")
                     classificationIds.append(id)
                 } else {
-                    print("⚠️ Classification '\(classification)' not found in enum table")
+                    print("⚠️ Classification '\(vehicleClass)' not found in enum table")
                 }
             }
 
@@ -314,10 +314,10 @@ class OptimizedQueryManager {
                     }
                 }
 
-                // Classification filter using classification_id
+                // Classification filter using vehicle_class_id
                 if !filterIds.classificationIds.isEmpty {
                     let placeholders = Array(repeating: "?", count: filterIds.classificationIds.count).joined(separator: ",")
-                    whereClause += " AND classification_id IN (\(placeholders))"
+                    whereClause += " AND vehicle_class_id IN (\(placeholders))"
                     for id in filterIds.classificationIds {
                         bindValues.append((bindIndex, id))
                         bindIndex += 1
@@ -821,11 +821,11 @@ class OptimizedQueryManager {
                 }
 
                 // Classification filter using string column
-                if !filters.vehicleClassifications.isEmpty {
-                    let placeholders = Array(repeating: "?", count: filters.vehicleClassifications.count).joined(separator: ",")
-                    whereClause += " AND classification IN (\(placeholders))"
-                    for classification in filters.vehicleClassifications {
-                        bindValues.append((bindIndex, classification))
+                if !filters.vehicleClasses.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filters.vehicleClasses.count).joined(separator: ",")
+                    whereClause += " AND vehicle_class_id IN (\(placeholders))"
+                    for vehicleClass in filters.vehicleClasses {
+                        bindValues.append((bindIndex, vehicleClass))
                         bindIndex += 1
                     }
                 }

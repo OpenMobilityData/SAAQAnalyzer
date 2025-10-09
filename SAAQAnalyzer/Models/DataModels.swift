@@ -10,7 +10,7 @@ struct VehicleRegistration: Codable, Sendable {
     let year: Int                       // AN
     let vehicleSequence: String         // NOSEQ_VEH
     let classification: String          // CLAS (PAU, CMC, etc.)
-    let vehicleType: String            // TYP_VEH_CATEG_USA
+    let vehicleClass: String            // TYP_VEH_CATEG_USA
     let make: String                   // MARQ_VEH
     let model: String                  // MODEL_VEH
     let modelYear: Int?                // ANNEE_MOD
@@ -32,7 +32,7 @@ struct VehicleRegistration: Codable, Sendable {
 }
 
 /// Vehicle classification types
-enum VehicleClassification: String, CaseIterable, Sendable {
+enum VehicleClass: String, CaseIterable, Sendable {
     // Personal use
     case pau = "PAU"  // Automobile ou camion léger
     case pmc = "PMC"  // Motocyclette
@@ -411,7 +411,7 @@ class CategoricalLookupCache {
         try await loadYears(from: databaseManager)
         await MainActor.run { loadingProgress = 0.1 }
 
-        try await loadClassifications(from: databaseManager)
+        try await loadVehicleClasses(from: databaseManager)
         await MainActor.run { loadingProgress = 0.2 }
 
         try await loadMakes(from: databaseManager)
@@ -472,14 +472,14 @@ class CategoricalLookupCache {
         }
     }
 
-    private func loadClassifications(from databaseManager: DatabaseManager) async throws {
+    private func loadVehicleClasses(from databaseManager: DatabaseManager) async throws {
         guard let db = databaseManager.db else { throw DatabaseError.notConnected }
 
         return try await withCheckedThrowingContinuation { continuation in
             var stmt: OpaquePointer?
             defer { sqlite3_finalize(stmt) }
 
-            let sql = "SELECT id, code, description FROM classification_enum ORDER BY code;"
+            let sql = "SELECT id, code, description FROM vehicle_class_enum ORDER BY code;"
 
             if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
                 while sqlite3_step(stmt) == SQLITE_ROW {
@@ -1016,7 +1016,7 @@ enum AdministrativeRegion: String, CaseIterable, Sendable {
 enum CoverageField: String, CaseIterable, Sendable {
     // Vehicle-specific fields
     case fuelType = "Fuel Type"
-    case vehicleClassification = "Vehicle Type"
+    case vehicleClass = "Vehicle Class"
     case vehicleMake = "Vehicle Make"
     case vehicleModel = "Vehicle Model"
     case vehicleColor = "Vehicle Color"
@@ -1038,7 +1038,7 @@ enum CoverageField: String, CaseIterable, Sendable {
     var databaseColumn: String {
         switch self {
         case .fuelType: return "fuel_type_id"
-        case .vehicleClassification: return "classification_id"
+        case .vehicleClass: return "vehicle_class_id"
         case .vehicleMake: return "make_id"
         case .vehicleModel: return "model_id"
         case .vehicleColor: return "original_color_id"
@@ -1058,7 +1058,7 @@ enum CoverageField: String, CaseIterable, Sendable {
     /// Returns true if this field is applicable to the given data entity type
     func isApplicable(to entityType: DataEntityType) -> Bool {
         switch self {
-        case .fuelType, .vehicleClassification, .vehicleMake, .vehicleModel, .vehicleColor,
+        case .fuelType, .vehicleClass, .vehicleMake, .vehicleModel, .vehicleColor,
              .modelYear, .netMass, .displacement, .cylinderCount:
             return entityType == .vehicle
         case .licenseType, .ageGroup, .gender:
@@ -1101,7 +1101,7 @@ struct FilterConfiguration: Equatable, Sendable {
     var municipalities: Set<String> = []
 
     // Vehicle-specific filters
-    var vehicleClassifications: Set<String> = []
+    var vehicleClasses: Set<String> = []
     var vehicleMakes: Set<String> = []
     var vehicleModels: Set<String> = []
     var vehicleColors: Set<String> = []
@@ -1188,7 +1188,7 @@ struct IntegerFilterConfiguration: Equatable, Sendable {
     var municipalities: Set<Int> = []  // Now uses municipality_enum IDs
 
     // Vehicle-specific filters
-    var vehicleClassifications: Set<Int> = []  // Now uses classification_enum IDs
+    var vehicleClasses: Set<Int> = []  // Now uses vehicle_class_enum IDs
     var vehicleMakes: Set<Int> = []  // Now uses make_enum IDs
     var vehicleModels: Set<Int> = []  // Now uses model_enum IDs
     var vehicleColors: Set<Int> = []  // Now uses color_enum IDs
@@ -1224,7 +1224,7 @@ struct PercentageBaseFilters: Equatable, Sendable {
     var municipalities: Set<String> = []
 
     // Vehicle-specific filters
-    var vehicleClassifications: Set<String> = []
+    var vehicleClasses: Set<String> = []
     var vehicleMakes: Set<String> = []
     var vehicleModels: Set<String> = []
     var vehicleColors: Set<String> = []
@@ -1247,7 +1247,7 @@ struct PercentageBaseFilters: Equatable, Sendable {
         config.regions = regions
         config.mrcs = mrcs
         config.municipalities = municipalities
-        config.vehicleClassifications = vehicleClassifications
+        config.vehicleClasses = vehicleClasses
         config.vehicleMakes = vehicleMakes
         config.vehicleModels = vehicleModels
         config.vehicleColors = vehicleColors
@@ -1271,7 +1271,7 @@ struct PercentageBaseFilters: Equatable, Sendable {
         base.regions = config.regions
         base.mrcs = config.mrcs
         base.municipalities = config.municipalities
-        base.vehicleClassifications = config.vehicleClassifications
+        base.vehicleClasses = config.vehicleClasses
         base.vehicleMakes = config.vehicleMakes
         base.vehicleModels = config.vehicleModels
         base.vehicleColors = config.vehicleColors
@@ -1571,7 +1571,7 @@ struct IntegerPercentageBaseFilters: Equatable, Sendable {
     var municipalities: Set<Int> = []
 
     // Vehicle-specific filters
-    var vehicleClassifications: Set<Int> = []
+    var vehicleClasses: Set<Int> = []
     var vehicleMakes: Set<Int> = []
     var vehicleModels: Set<Int> = []
     var vehicleColors: Set<Int> = []
@@ -1594,7 +1594,7 @@ struct IntegerPercentageBaseFilters: Equatable, Sendable {
         config.regions = regions
         config.mrcs = mrcs
         config.municipalities = municipalities
-        config.vehicleClassifications = vehicleClassifications
+        config.vehicleClasses = vehicleClasses
         config.vehicleMakes = vehicleMakes
         config.vehicleModels = vehicleModels
         config.vehicleColors = vehicleColors
@@ -1636,7 +1636,7 @@ struct MakeModelRegularization: Codable, Sendable {
     let canonicalMakeId: Int
     let canonicalModelId: Int
     let fuelTypeId: Int?          // Optional fuel type constraint
-    let vehicleTypeId: Int?        // Optional vehicle type (classification) constraint
+    let vehicleClassId: Int?        // Optional vehicle class (vehicleClass) constraint
     let recordCount: Int           // Number of records affected by this mapping
     let yearRangeStart: Int        // First year this mapping applies to
     let yearRangeEnd: Int          // Last year this mapping applies to
@@ -1653,7 +1653,7 @@ struct RegularizationMapping: Identifiable, Sendable {
     let canonicalMake: String
     let canonicalModel: String
     let fuelType: String?
-    let vehicleType: String?
+    let vehicleClass: String?
     let recordCount: Int
     let percentageOfTotal: Double
     let yearRange: String
@@ -1684,7 +1684,7 @@ struct UnverifiedMakeModelPair: Identifiable, Sendable, Hashable {
     }
 }
 
-/// Hierarchical structure for canonical Make/Model/FuelType/VehicleType combinations
+/// Hierarchical structure for canonical Make/Model/FuelType/VehicleClass combinations
 struct MakeModelHierarchy: Sendable {
     /// Top-level: Make
     struct Make: Identifiable, Sendable, Hashable {
@@ -1699,7 +1699,7 @@ struct MakeModelHierarchy: Sendable {
         let name: String
         let makeId: Int
         let fuelTypes: [FuelTypeInfo]
-        let vehicleTypes: [VehicleTypeInfo]
+        let vehicleClasses: [VehicleClassInfo]
     }
 
     /// Third level: Fuel Type (for a Make/Model combination)
@@ -1711,7 +1711,7 @@ struct MakeModelHierarchy: Sendable {
     }
 
     /// Third level: Vehicle Type (for a Make/Model combination)
-    struct VehicleTypeInfo: Identifiable, Sendable, Hashable {
+    struct VehicleClassInfo: Identifiable, Sendable, Hashable {
         let id: Int
         let code: String
         let description: String

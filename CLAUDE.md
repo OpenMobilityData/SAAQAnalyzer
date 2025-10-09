@@ -127,7 +127,7 @@ The CSV importer handles French characters by trying multiple encodings (UTF-8, 
 
 ### Performance Considerations
 - SQLite WAL mode enabled for concurrent reads
-- Indexes on year, classification, geographic fields, and fuel_type
+- Indexes on year, vehicle_class_id, geographic fields, and fuel_type
 - 64MB cache size for database operations
 - Batch processing for large imports
 

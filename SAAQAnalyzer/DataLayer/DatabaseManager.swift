@@ -186,9 +186,9 @@ class DatabaseManager: ObservableObject {
                 
                 // Show sample of data
                 let sampleQuery = """
-                    SELECT year, classification, admin_region, mrc, COUNT(*) as count
+                    SELECT year, class, admin_region, mrc, COUNT(*) as count
                     FROM vehicles
-                    GROUP BY year, classification, admin_region, mrc
+                    GROUP BY year, class, admin_region, mrc
                     LIMIT 10
                     """
                 
@@ -497,11 +497,11 @@ class DatabaseManager: ObservableObject {
             }
         }
 
-        if !filters.vehicleClassifications.isEmpty && filters.dataEntityType == .vehicle {
-            let placeholders = Array(repeating: "?", count: filters.vehicleClassifications.count).joined(separator: ",")
-            query += " AND classification IN (\(placeholders))"
-            for classification in filters.vehicleClassifications.sorted() {
-                bindValues.append((bindIndex, classification))
+        if !filters.vehicleClasses.isEmpty && filters.dataEntityType == .vehicle {
+            let placeholders = Array(repeating: "?", count: filters.vehicleClasses.count).joined(separator: ",")
+            query += " AND vehicle_class IN (\(placeholders))"
+            for vehicle_class in filters.vehicleClasses.sorted() {
+                bindValues.append((bindIndex, vehicle_class))
                 bindIndex += 1
             }
         }
@@ -577,12 +577,12 @@ class DatabaseManager: ObservableObject {
         return try await filterCacheManager.getAvailableMunicipalities()
     }
 
-    /// Get available classifications as FilterItems (ID + display name)
-    func getAvailableClassificationItems() async throws -> [FilterItem] {
+    /// Get available classes as FilterItems (ID + display name)
+    func getAvailableClassItems() async throws -> [FilterItem] {
         guard let filterCacheManager = filterCacheManager else {
             throw DatabaseError.notConnected
         }
-        return try await filterCacheManager.getAvailableClassifications()
+        return try await filterCacheManager.getAvailableVehicleClasses()
     }
 
     /// Get available fuel types as FilterItems (ID + display name)
@@ -740,7 +740,7 @@ class DatabaseManager: ObservableObject {
 
                 -- Integer foreign key columns (TINYINT 1-byte)
                 year_id INTEGER,
-                classification_id INTEGER,
+                vehicle_class_id INTEGER,
                 cylinder_count_id INTEGER,
                 axle_count_id INTEGER,
                 original_color_id INTEGER,
@@ -843,7 +843,7 @@ class DatabaseManager: ObservableObject {
 
             // Vehicles table - single column integer indexes
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year_id ON vehicles(year_id);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_classification_id ON vehicles(classification_id);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_class_id ON vehicles(vehicle_class_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_make_id ON vehicles(make_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_model_id ON vehicles(model_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_model_year_id ON vehicles(model_year_id);",
@@ -856,12 +856,12 @@ class DatabaseManager: ObservableObject {
             "CREATE INDEX IF NOT EXISTS idx_vehicles_color_id ON vehicles(original_color_id);",
 
             // Vehicles table - composite integer indexes for common query patterns
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_class_id ON vehicles(year_id, classification_id);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_class_id ON vehicles(year_id, vehicle_class_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year_fuel_id ON vehicles(year_id, fuel_type_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year_region_id ON vehicles(year_id, admin_region_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year_municipality_id ON vehicles(year_id, municipality_id);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_municipality_class_year_id ON vehicles(municipality_id, classification_id, year_id);",
-            "CREATE INDEX IF NOT EXISTS idx_vehicles_region_class_year_id ON vehicles(admin_region_id, classification_id, year_id);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_municipality_class_year_id ON vehicles(municipality_id, vehicle_class_id, year_id);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_region_class_year_id ON vehicles(admin_region_id, vehicle_class_id, year_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_make_model_year_id ON vehicles(make_id, model_id, year_id);",
 
             // Licenses table - single column integer indexes
@@ -882,7 +882,7 @@ class DatabaseManager: ObservableObject {
 
             // Enumeration table indexes for fast reverse lookups
             "CREATE INDEX IF NOT EXISTS idx_year_enum_year ON year_enum(year);",
-            "CREATE INDEX IF NOT EXISTS idx_classification_enum_code ON classification_enum(code);",
+            "CREATE INDEX IF NOT EXISTS idx_class_enum_code ON vehicle_class_enum(code);",
             "CREATE INDEX IF NOT EXISTS idx_make_enum_name ON make_enum(name);",
             "CREATE INDEX IF NOT EXISTS idx_model_enum_name_make ON model_enum(name, make_id);",
             "CREATE INDEX IF NOT EXISTS idx_fuel_type_enum_code ON fuel_type_enum(code);",
@@ -908,8 +908,8 @@ class DatabaseManager: ObservableObject {
         let enumTables = [
             // Year enumeration
             "CREATE TABLE IF NOT EXISTS year_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER UNIQUE NOT NULL);",
-            // Classification enumeration
-            "CREATE TABLE IF NOT EXISTS classification_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, description TEXT);",
+            // Class enumeration
+            "CREATE TABLE IF NOT EXISTS vehicle_class_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, description TEXT);",
             // Cylinder count enumeration
             "CREATE TABLE IF NOT EXISTS cylinder_count_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, count INTEGER UNIQUE NOT NULL);",
             // Axle count enumeration
@@ -952,7 +952,7 @@ class DatabaseManager: ObservableObject {
         print("🔧 Inserting special 'Unknown' enum values for regularization...")
         let unknownInserts = [
             "INSERT OR IGNORE INTO fuel_type_enum (code, description) VALUES ('U', 'Unknown');",
-            "INSERT OR IGNORE INTO classification_enum (code, description) VALUES ('UNK', 'Unknown');"
+            "INSERT OR IGNORE INTO vehicle_class_enum (code, description) VALUES ('UNK', 'Unknown');"
         ]
 
         for insertSQL in unknownInserts {
@@ -1207,12 +1207,12 @@ class DatabaseManager: ObservableObject {
                     }
                 }
 
-                // Add vehicle classification filter
-                if !filters.vehicleClassifications.isEmpty {
-                    let placeholders = Array(repeating: "?", count: filters.vehicleClassifications.count).joined(separator: ",")
-                    query += " AND classification IN (\(placeholders))"
-                    for classification in filters.vehicleClassifications.sorted() {
-                        bindValues.append((Int32(bindIndex), classification))
+                // Add vehicle class filter
+                if !filters.vehicleClasses.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filters.vehicleClasses.count).joined(separator: ",")
+                    query += " AND vehicle_class IN (\(placeholders))"
+                    for vehicle_class in filters.vehicleClasses.sorted() {
+                        bindValues.append((Int32(bindIndex), vehicle_class))
                         bindIndex += 1
                     }
                 }
@@ -1833,7 +1833,7 @@ class DatabaseManager: ObservableObject {
                 var bindIndex = 1
                 var bindValues: [(Int32, Any)] = []
 
-                // Add all filter conditions (years, regions, classifications, etc.)
+                // Add all filter conditions (years, regions, classes, etc.)
                 query += self?.buildVehicleWhereClause(filters: filters, bindIndex: &bindIndex, bindValues: &bindValues) ?? ""
 
                 // Add GROUP BY and ORDER BY
@@ -1998,12 +1998,12 @@ class DatabaseManager: ObservableObject {
             }
         }
 
-        // Add vehicle classification filter
-        if !filters.vehicleClassifications.isEmpty {
-            let placeholders = Array(repeating: "?", count: filters.vehicleClassifications.count).joined(separator: ",")
-            whereClause += " AND classification IN (\(placeholders))"
-            for classification in filters.vehicleClassifications.sorted() {
-                bindValues.append((Int32(bindIndex), classification))
+        // Add vehicle class filter
+        if !filters.vehicleClasses.isEmpty {
+            let placeholders = Array(repeating: "?", count: filters.vehicleClasses.count).joined(separator: ",")
+            whereClause += " AND vehicle_class IN (\(placeholders))"
+            for vehicle_class in filters.vehicleClasses.sorted() {
+                bindValues.append((Int32(bindIndex), vehicle_class))
                 bindIndex += 1
             }
         }
@@ -2171,12 +2171,12 @@ class DatabaseManager: ObservableObject {
                 var filterComponents: [String] = []
 
                 // Collect all active filters
-                if !filters.vehicleClassifications.isEmpty {
-                    let classifications = filters.vehicleClassifications
-                        .compactMap { VehicleClassification(rawValue: $0)?.description }
+                if !filters.vehicleClasses.isEmpty {
+                    let vehicle_classes = filters.vehicleClasses
+                        .compactMap { VehicleClass(rawValue: $0)?.description }
                         .joined(separator: " OR ")
-                    if !classifications.isEmpty {
-                        filterComponents.append("[\(classifications)]")
+                    if !vehicle_classes.isEmpty {
+                        filterComponents.append("[\(vehicle_classes)]")
                     }
                 }
 
@@ -2274,12 +2274,12 @@ class DatabaseManager: ObservableObject {
                     // Build filter context
                     var filterComponents: [String] = []
 
-                    if !filters.vehicleClassifications.isEmpty {
-                        let classifications = filters.vehicleClassifications
-                            .compactMap { VehicleClassification(rawValue: $0)?.description }
+                    if !filters.vehicleClasses.isEmpty {
+                        let vehicle_classes = filters.vehicleClasses
+                            .compactMap { VehicleClass(rawValue: $0)?.description }
                             .joined(separator: " OR ")
-                        if !classifications.isEmpty {
-                            filterComponents.append("[\(classifications)]")
+                        if !vehicle_classes.isEmpty {
+                            filterComponents.append("[\(vehicle_classes)]")
                         }
                     }
 
@@ -2307,12 +2307,12 @@ class DatabaseManager: ObservableObject {
             }
         }
 
-        if !filters.vehicleClassifications.isEmpty {
-            let classifications = filters.vehicleClassifications
-                .compactMap { VehicleClassification(rawValue: $0)?.description }
+        if !filters.vehicleClasses.isEmpty {
+            let vehicle_classes = filters.vehicleClasses
+                .compactMap { VehicleClass(rawValue: $0)?.description }
                 .joined(separator: " OR ")
-            if !classifications.isEmpty {
-                components.append("[\(classifications)]")
+            if !vehicle_classes.isEmpty {
+                components.append("[\(vehicle_classes)]")
             }
         }
 
@@ -2443,9 +2443,9 @@ class DatabaseManager: ObservableObject {
         // Determine which category was dropped by comparing baseline with original
         let _ = determineDifference(original: originalFilters, baseline: baseFilters)
 
-        if !baseFilters.vehicleClassifications.isEmpty {
-            let classifications = baseFilters.vehicleClassifications
-                .compactMap { VehicleClassification(rawValue: $0)?.description }
+        if !baseFilters.vehicleClasses.isEmpty {
+            let classifications = baseFilters.vehicleClasses
+                .compactMap { VehicleClass(rawValue: $0)?.description }
                 .joined(separator: " OR ")
             if !classifications.isEmpty {
                 baseComponents.append("[\(classifications)]")
@@ -2560,7 +2560,7 @@ class DatabaseManager: ObservableObject {
         if !original.fuelTypes.isEmpty && baseline.fuelTypes.isEmpty {
             return "fuel types"
         }
-        if !original.vehicleClassifications.isEmpty && baseline.vehicleClassifications.isEmpty {
+        if !original.vehicleClasses.isEmpty && baseline.vehicleClasses.isEmpty {
             return "vehicle types"
         }
         if !original.regions.isEmpty && baseline.regions.isEmpty {
@@ -2619,10 +2619,10 @@ class DatabaseManager: ObservableObject {
                 return fuels.isEmpty ? nil : fuels
             }
         case "vehicle types":
-            if filters.vehicleClassifications.count == 1, let classification = filters.vehicleClassifications.first {
-                return VehicleClassification(rawValue: classification)?.description ?? classification
-            } else if !filters.vehicleClassifications.isEmpty {
-                let classifications = filters.vehicleClassifications.compactMap { VehicleClassification(rawValue: $0)?.description }.joined(separator: " & ")
+            if filters.vehicleClasses.count == 1, let classification = filters.vehicleClasses.first {
+                return VehicleClass(rawValue: classification)?.description ?? classification
+            } else if !filters.vehicleClasses.isEmpty {
+                let classifications = filters.vehicleClasses.compactMap { VehicleClass(rawValue: $0)?.description }.joined(separator: " & ")
                 return classifications.isEmpty ? nil : classifications
             }
         case "regions":
@@ -2730,9 +2730,9 @@ class DatabaseManager: ObservableObject {
             components.append(metricLabel)
         }
 
-        if !filters.vehicleClassifications.isEmpty {
-            let classifications = filters.vehicleClassifications
-                .compactMap { VehicleClassification(rawValue: $0)?.description }
+        if !filters.vehicleClasses.isEmpty {
+            let classifications = filters.vehicleClasses
+                .compactMap { VehicleClass(rawValue: $0)?.description }
                 .joined(separator: " OR ")
             if !classifications.isEmpty {
                 components.append("[\(classifications)]")
@@ -3121,22 +3121,22 @@ class DatabaseManager: ObservableObject {
             }
         }
     }
-    
-    /// Gets available classifications - uses enumeration tables
-    func getAvailableClassifications() async -> [String] {
+
+    /// Gets available vehicle classes - uses enumeration tables
+    func getAvailableVehicleClasses() async -> [String] {
         // Use enumeration-based data
         if useOptimizedQueries, let filterCacheManager = filterCacheManager {
             do {
-                let filterItems = try await filterCacheManager.getAvailableClassifications()
-                print("✅ Using enumeration-based classifications (\(filterItems.count) items)")
+                let filterItems = try await filterCacheManager.getAvailableVehicleClasses()
+                print("✅ Using enumeration-based vehicle classes (\(filterItems.count) items)")
                 return filterItems.map { $0.displayName }
             } catch {
-                print("⚠️ Failed to load enumeration classifications, falling back to database query: \(error)")
+                print("⚠️ Failed to load enumeration vehicle classes, falling back to database query: \(error)")
             }
         }
 
         // Fall back to database query
-        return await getClassificationsFromDatabase()
+        return await getClassesFromDatabase()
     }
 
     /// Gets available vehicle makes - uses enumeration cache with badges
@@ -3708,8 +3708,8 @@ class DatabaseManager: ObservableObject {
         }
     }
     
-    /// Internal method to query classifications directly from database
-    private func getClassificationsFromDatabase() async -> [String] {
+    /// Internal method to query classes directly from database
+    private func getClassesFromDatabase() async -> [String] {
         await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
                 guard let db = self?.db else {
@@ -3717,7 +3717,7 @@ class DatabaseManager: ObservableObject {
                     return
                 }
                 
-                let query = "SELECT DISTINCT classification FROM vehicles ORDER BY classification"
+                let query = "SELECT DISTINCT class FROM vehicles ORDER BY class"
                 var stmt: OpaquePointer?
                 
                 defer {
@@ -3726,16 +3726,16 @@ class DatabaseManager: ObservableObject {
                     }
                 }
                 
-                var classifications: [String] = []
+                var vehicle_classes: [String] = []
                 if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
                     while sqlite3_step(stmt) == SQLITE_ROW {
                         if let classPtr = sqlite3_column_text(stmt, 0) {
-                            classifications.append(String(cString: classPtr))
+                            vehicle_classes.append(String(cString: classPtr))
                         }
                     }
                 }
                 
-                continuation.resume(returning: classifications)
+                continuation.resume(returning: vehicle_classes)
             }
         }
     }
@@ -4079,7 +4079,7 @@ class DatabaseManager: ObservableObject {
                     INSERT OR REPLACE INTO vehicles (
                         year, vehicle_sequence, model_year, net_mass, cylinder_count,
                         displacement, max_axles,
-                        year_id, classification_id, make_id, model_id, model_year_id,
+                        year_id, vehicle_class_id, make_id, model_id, model_year_id,
                         cylinder_count_id, axle_count_id, original_color_id, fuel_type_id,
                         admin_region_id, mrc_id, municipality_id,
                         net_mass_int, displacement_int
@@ -4109,7 +4109,7 @@ class DatabaseManager: ObservableObject {
                 // Build enumeration lookup caches for fast in-memory lookups (preserves performance)
                 print("🔄 Building enumeration caches for batch...")
                 var yearEnumCache: [Int: Int] = [:]
-                var classificationEnumCache: [String: Int] = [:]
+                var classEnumCache: [String: Int] = [:]
                 var makeEnumCache: [String: Int] = [:]
                 var modelEnumCache: [String: Int] = [:]  // Key: "make|model"
                 var modelYearEnumCache: [Int: Int] = [:]
@@ -4150,7 +4150,7 @@ class DatabaseManager: ObservableObject {
 
                 // Load all enum caches
                 loadIntEnumCache(table: "year_enum", keyColumn: "year", cache: &yearEnumCache)
-                loadEnumCache(table: "classification_enum", keyColumn: "code", cache: &classificationEnumCache)
+                loadEnumCache(table: "vehicle_class_enum", keyColumn: "code", cache: &classEnumCache)
                 loadEnumCache(table: "make_enum", keyColumn: "name", cache: &makeEnumCache)
                 loadIntEnumCache(table: "model_year_enum", keyColumn: "year", cache: &modelYearEnumCache)
                 loadIntEnumCache(table: "cylinder_count_enum", keyColumn: "count", cache: &cylinderCountEnumCache)
@@ -4251,12 +4251,12 @@ class DatabaseManager: ObservableObject {
                     return nil
                 }
 
-                // Helper to get or create classification enum ID (requires code and description)
-                func getOrCreateClassificationEnumId(code: String, description: String, cache: inout [String: Int]) -> Int? {
+                // Helper to get or create class enum ID (requires code and description)
+                func getOrCreateClassEnumId(code: String, description: String, cache: inout [String: Int]) -> Int? {
                     if let id = cache[code] { return id }
 
                     // Try INSERT with both code and description
-                    let insertSql = "INSERT OR IGNORE INTO classification_enum (code, description) VALUES (?, ?);"
+                    let insertSql = "INSERT OR IGNORE INTO vehicle_class_enum (code, description) VALUES (?, ?);"
                     var insertStmt: OpaquePointer?
                     defer { sqlite3_finalize(insertStmt) }
                     if sqlite3_prepare_v2(db, insertSql, -1, &insertStmt, nil) == SQLITE_OK {
@@ -4268,7 +4268,7 @@ class DatabaseManager: ObservableObject {
                     }
 
                     // Try SELECT
-                    let selectSql = "SELECT id FROM classification_enum WHERE code = ?;"
+                    let selectSql = "SELECT id FROM vehicle_class_enum WHERE code = ?;"
                     var selectStmt: OpaquePointer?
                     defer { sqlite3_finalize(selectStmt) }
                     if sqlite3_prepare_v2(db, selectSql, -1, &selectStmt, nil) == SQLITE_OK {
@@ -4364,12 +4364,12 @@ class DatabaseManager: ObservableObject {
                     }
                 }
 
-                print("✅ Caches built: \(classificationEnumCache.count) classifications, \(makeEnumCache.count) makes, \(fuelTypeEnumCache.count) fuel types, \(municipalityNameCache.count) municipalities")
+                print("✅ Caches built: \(classEnumCache.count) classes, \(makeEnumCache.count) makes, \(fuelTypeEnumCache.count) fuel types, \(municipalityNameCache.count) municipalities")
                 print("Starting batch import: \(records.count) records for year \(year)")
 
                 for record in records {
                     // Extract values from CSV (keep for enum population)
-                    let classification = record["CLAS"] ?? "UNK"
+                    let vehicle_class = record["CLAS"] ?? "UNK"
                     let make = record["MARQ_VEH"]
                     let model = record["MODEL_VEH"]
                     let color = record["COUL_ORIG"]
@@ -4406,9 +4406,9 @@ class DatabaseManager: ObservableObject {
                         sqlite3_bind_int(stmt, 8, Int32(yearId))
                     } else { sqlite3_bind_null(stmt, 8) }
 
-                    // classification_id (lookup human-readable description from VehicleClassification enum)
-                    let classDescription = VehicleClassification(rawValue: classification)?.description ?? classification
-                    if let classId = getOrCreateClassificationEnumId(code: classification, description: classDescription, cache: &classificationEnumCache) {
+                    // vehicle_class_id (lookup human-readable description from VehicleClass enum)
+                    let classDescription = VehicleClass(rawValue: vehicle_class)?.description ?? vehicle_class
+                    if let classId = getOrCreateClassEnumId(code: vehicle_class, description: classDescription, cache: &classEnumCache) {
                         sqlite3_bind_int(stmt, 9, Int32(classId))
                     } else { sqlite3_bind_null(stmt, 9) }
 

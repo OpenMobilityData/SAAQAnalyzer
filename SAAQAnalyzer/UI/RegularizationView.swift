@@ -314,7 +314,7 @@ struct UncuratedPairRow: View {
 /// Regularization status for an uncurated pair
 enum RegularizationStatus {
     case none                   // 🔴 No mapping exists
-    case needsReview            // 🟠 Mapping exists but FuelType/VehicleType are NULL (needs user review)
+    case needsReview            // 🟠 Mapping exists but FuelType/VehicleClass are NULL (needs user review)
     case fullyRegularized       // 🟢 Mapping exists with both fields assigned (including "Unknown")
 }
 
@@ -457,44 +457,44 @@ struct MappingFormView: View {
             .background(Color.gray.opacity(0.05))
             .cornerRadius(8)
 
-            // Step 3: Select Vehicle Type (optional)
+            // Step 3: Select Vehicle Class (optional)
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("3. Select Vehicle Type (Optional)")
+                    Text("3. Select Vehicle Class (Optional)")
                         .font(.headline)
                     Spacer()
-                    if let vehicleType = viewModel.selectedVehicleType {
+                    if let vehicleClasses = viewModel.selectedVehicleClass {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
                             .onAppear {
-                                print("✓ VehicleType checkmark: \(vehicleType.code) - \(vehicleType.description)")
+                                print("✓ VehicleClass checkmark: \(vehicleClasses.code) - \(vehicleClasses.description)")
                             }
                     }
                 }
 
-                Text("Leave unset if uncertain or multiple vehicle types exist")
+                Text("Leave unset if uncertain or multiple vehicle classes exist")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 if let model = viewModel.selectedCanonicalModel {
-                    Picker("Vehicle Type", selection: $viewModel.selectedVehicleType) {
-                        Text("Not Specified").tag(nil as MakeModelHierarchy.VehicleTypeInfo?)
+                    Picker("Vehicle Class", selection: $viewModel.selectedVehicleClass) {
+                        Text("Not Assigned").tag(nil as MakeModelHierarchy.VehicleClassInfo?)
 
                         // Special "Unknown" option (not in hierarchy since it doesn't appear in curated years)
-                        Text("Unknown").tag(MakeModelHierarchy.VehicleTypeInfo(
+                        Text("Unknown").tag(MakeModelHierarchy.VehicleClassInfo(
                             id: -1,  // Placeholder ID - will be looked up from enum table when saving
                             code: "UNK",
                             description: "Unknown",
                             recordCount: 0
-                        ) as MakeModelHierarchy.VehicleTypeInfo?)
+                        ) as MakeModelHierarchy.VehicleClassInfo?)
 
-                        ForEach(model.vehicleTypes) { vehicleType in
+                        ForEach(model.vehicleClasses) { vehicleClass in
                             HStack {
-                                Text("\(vehicleType.code) - \(vehicleType.description)")
-                                Text("(\(vehicleType.recordCount.formatted()))")
+                                Text("\(vehicleClass.code) - \(vehicleClass.description)")
+                                Text("(\(vehicleClass.recordCount.formatted()))")
                                     .foregroundStyle(.secondary)
                             }
-                            .tag(vehicleType as MakeModelHierarchy.VehicleTypeInfo?)
+                            .tag(vehicleClass as MakeModelHierarchy.VehicleClassInfo?)
                         }
                     }
                     .pickerStyle(.menu)
@@ -526,7 +526,7 @@ struct MappingFormView: View {
 
                 if let model = viewModel.selectedCanonicalModel {
                     Picker("Fuel Type", selection: $viewModel.selectedFuelType) {
-                        Text("Not Specified").tag(nil as MakeModelHierarchy.FuelTypeInfo?)
+                        Text("Not Assigned").tag(nil as MakeModelHierarchy.FuelTypeInfo?)
 
                         // Special "Unknown" option (not in hierarchy since it doesn't appear in curated years)
                         Text("Unknown").tag(MakeModelHierarchy.FuelTypeInfo(
@@ -612,7 +612,7 @@ class RegularizationViewModel: ObservableObject {
     @Published var selectedCanonicalMake: MakeModelHierarchy.Make?
     @Published var selectedCanonicalModel: MakeModelHierarchy.Model?
     @Published var selectedFuelType: MakeModelHierarchy.FuelTypeInfo?
-    @Published var selectedVehicleType: MakeModelHierarchy.VehicleTypeInfo?
+    @Published var selectedVehicleClass: MakeModelHierarchy.VehicleClassInfo?
 
     // Loading states
     @Published var isLoading = false
@@ -749,7 +749,7 @@ class RegularizationViewModel: ObservableObject {
         do {
             // Resolve placeholder IDs for "Unknown" options
             var fuelTypeId = selectedFuelType?.id
-            var vehicleTypeId = selectedVehicleType?.id
+            var vehicleClassId = selectedVehicleClass?.id
 
             // If fuel type has placeholder ID (-1), lookup real ID by code
             if let fuelType = selectedFuelType, fuelType.id == -1 {
@@ -768,20 +768,20 @@ class RegularizationViewModel: ObservableObject {
                 }
             }
 
-            // If vehicle type has placeholder ID (-1), lookup real ID by code
-            if let vehicleType = selectedVehicleType, vehicleType.id == -1 {
-                print("🔍 Resolving placeholder VehicleType ID -1 (code: \(vehicleType.code))")
+            // If vehicle class has placeholder ID (-1), lookup real ID by code
+            if let vehicleClass = selectedVehicleClass, vehicleClass.id == -1 {
+                print("🔍 Resolving placeholder VehicleClass ID -1 (code: \(vehicleClass.code))")
                 let enumManager = CategoricalEnumManager(databaseManager: databaseManager)
                 if let resolvedId = try await enumManager.getEnumId(
-                    table: "classification_enum",
+                    table: "vehicle_class_enum",
                     column: "code",
-                    value: vehicleType.code
+                    value: vehicleClass.code
                 ) {
-                    vehicleTypeId = resolvedId
-                    print("✅ Resolved VehicleType '\(vehicleType.code)' to ID \(resolvedId)")
+                    vehicleClassId = resolvedId
+                    print("✅ Resolved VehicleClass '\(vehicleClass.code)' to ID \(resolvedId)")
                 } else {
-                    print("❌ ERROR: Failed to resolve VehicleType '\(vehicleType.code)' - will save as NULL!")
-                    vehicleTypeId = nil
+                    print("❌ ERROR: Failed to resolve VehicleClass '\(vehicleClass.code)' - will save as NULL!")
+                    vehicleClassId = nil
                 }
             }
 
@@ -791,7 +791,7 @@ class RegularizationViewModel: ObservableObject {
                 canonicalMakeId: canonicalMake.id,
                 canonicalModelId: canonicalModel.id,
                 fuelTypeId: fuelTypeId,
-                vehicleTypeId: vehicleTypeId
+                vehicleClassId: vehicleClassId
             )
 
             print("✅ Saved mapping: \(pair.makeModelDisplay) → \(canonicalMake.name)/\(canonicalModel.name)")
@@ -819,7 +819,7 @@ class RegularizationViewModel: ObservableObject {
         selectedCanonicalMake = nil
         selectedCanonicalModel = nil
         selectedFuelType = nil
-        selectedVehicleType = nil
+        selectedVehicleClass = nil
     }
 
     /// Auto-regularize pairs where Make/Model exactly match curated pairs
@@ -875,15 +875,17 @@ class RegularizationViewModel: ObservableObject {
 
             // Check if there's an exact match
             if let canonicalModel = canonicalPairs[pairKey] {
-                // Filter out "Not Specified" placeholders when counting valid options
+                // Filter out "Not Assigned" placeholders when counting valid options
                 // Note: "Unknown" will never appear in canonical hierarchy (curated years only)
                 let validFuelTypes = canonicalModel.fuelTypes.filter { fuelType in
                     !fuelType.description.localizedCaseInsensitiveContains("not specified") &&
+                    !fuelType.description.localizedCaseInsensitiveContains("not assigned") &&
                     !fuelType.description.localizedCaseInsensitiveContains("non spécifié")
                 }
-                let validVehicleTypes = canonicalModel.vehicleTypes.filter { vehicleType in
-                    !vehicleType.description.localizedCaseInsensitiveContains("not specified") &&
-                    !vehicleType.description.localizedCaseInsensitiveContains("non spécifié")
+                let validVehicleClasses = canonicalModel.vehicleClasses.filter { vehicleClass in
+                    !vehicleClass.description.localizedCaseInsensitiveContains("not specified") &&
+                    !vehicleClass.description.localizedCaseInsensitiveContains("not assigned") &&
+                    !vehicleClass.description.localizedCaseInsensitiveContains("non spécifié")
                 }
 
                 // Auto-assign FuelType if there's only one valid option
@@ -891,9 +893,9 @@ class RegularizationViewModel: ObservableObject {
                     ? validFuelTypes.first?.id
                     : nil
 
-                // Auto-assign VehicleType if there's only one valid option
-                let vehicleTypeId: Int? = validVehicleTypes.count == 1
-                    ? validVehicleTypes.first?.id
+                // Auto-assign VehicleClass if there's only one valid option
+                let vehicleClassId: Int? = validVehicleClasses.count == 1
+                    ? validVehicleClasses.first?.id
                     : nil
 
                 do {
@@ -903,7 +905,7 @@ class RegularizationViewModel: ObservableObject {
                         canonicalMakeId: canonicalModel.makeId,
                         canonicalModelId: canonicalModel.id,
                         fuelTypeId: fuelTypeId,
-                        vehicleTypeId: vehicleTypeId
+                        vehicleClassId: vehicleClassId
                     )
                     autoRegularizedCount += 1
 
@@ -912,8 +914,8 @@ class RegularizationViewModel: ObservableObject {
                     if fuelTypeId != nil {
                         autoAssignedFields.append("FuelType")
                     }
-                    if vehicleTypeId != nil {
-                        autoAssignedFields.append("VehicleType")
+                    if vehicleClassId != nil {
+                        autoAssignedFields.append("VehicleClass")
                     }
                     print("✅ Auto-regularized: \(pairKey) [\(autoAssignedFields.joined(separator: ", "))]")
                 } catch {
@@ -942,9 +944,9 @@ class RegularizationViewModel: ObservableObject {
         // Check if both fuel type AND vehicle type are assigned (non-NULL)
         // "Unknown" counts as assigned (user has made a decision)
         let hasFuelType = mapping.fuelType != nil
-        let hasVehicleType = mapping.vehicleType != nil
+        let hasVehicleClass = mapping.vehicleClass != nil
 
-        if hasFuelType && hasVehicleType {
+        if hasFuelType && hasVehicleClass {
             return .fullyRegularized  // 🟢 Both fields assigned (including "Unknown")
         } else {
             return .needsReview  // 🟠 At least one field is NULL (needs review)
@@ -1010,7 +1012,7 @@ class RegularizationViewModel: ObservableObject {
 
                     // Reset type selections first (in case mapping has NULL values)
                     selectedFuelType = nil
-                    selectedVehicleType = nil
+                    selectedVehicleClass = nil
 
                     // Find the fuel type if assigned (only from existing mapping)
                     if let mapping = mapping, let fuelTypeName = mapping.fuelType {
@@ -1028,17 +1030,17 @@ class RegularizationViewModel: ObservableObject {
                     }
 
                     // Find the vehicle type if assigned (only from existing mapping)
-                    if let mapping = mapping, let vehicleTypeName = mapping.vehicleType {
-                        if vehicleTypeName == "Unknown" {
+                    if let mapping = mapping, let vehicleClassName = mapping.vehicleClass {
+                        if vehicleClassName == "Unknown" {
                             // Create special "Unknown" instance (matches picker option)
-                            selectedVehicleType = MakeModelHierarchy.VehicleTypeInfo(
+                            selectedVehicleClass = MakeModelHierarchy.VehicleClassInfo(
                                 id: -1,
                                 code: "UNK",
                                 description: "Unknown",
                                 recordCount: 0
                             )
                         } else {
-                            selectedVehicleType = model.vehicleTypes.first { $0.description == vehicleTypeName }
+                            selectedVehicleClass = model.vehicleClasses.first { $0.description == vehicleClassName }
                         }
                     }
                 }

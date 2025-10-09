@@ -336,11 +336,11 @@ group.addTask {
 ### SAAQ Database (Enumeration Schema)
 ```sql
 -- Foreign key references to enumeration tables
-SELECT make_enum.name, model_enum.name, classification_enum.code
+SELECT make_enum.name, model_enum.name, vehicle_class_enum.code
 FROM vehicles
 JOIN make_enum ON vehicles.make_id = make_enum.id
 JOIN model_enum ON vehicles.model_id = model_enum.id
-JOIN classification_enum ON vehicles.classification_id = classification_enum.id;
+JOIN vehicle_class_enum ON vehicles.vehicle_class_id = vehicle_class_enum.id;
 ```
 
 ### CVS Database (String Schema)
