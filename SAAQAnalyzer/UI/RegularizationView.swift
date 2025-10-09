@@ -893,10 +893,29 @@ class RegularizationViewModel: ObservableObject {
                     ? validFuelTypes.first?.id
                     : nil
 
-                // Auto-assign VehicleType if there's only one valid option
-                let vehicleTypeId: Int? = validVehicleTypes.count == 1
-                    ? validVehicleTypes.first?.id
-                    : nil
+                // Auto-assign VehicleType using cardinal type matching
+                let vehicleTypeId: Int? = {
+                    // If only one option, auto-assign it
+                    if validVehicleTypes.count == 1 {
+                        return validVehicleTypes.first?.id
+                    }
+
+                    // If multiple options, check for cardinal type matching (if enabled)
+                    if validVehicleTypes.count > 1 && AppSettings.shared.useCardinalTypes {
+                        let cardinalCodes = AppSettings.shared.cardinalVehicleTypeCodes
+
+                        // Find the first cardinal type (by priority order) that matches
+                        for cardinalCode in cardinalCodes {
+                            if let matchingType = validVehicleTypes.first(where: { $0.code == cardinalCode }) {
+                                print("   🎯 Cardinal type match: \(cardinalCode) found among \(validVehicleTypes.map { $0.code }.joined(separator: ", "))")
+                                return matchingType.id
+                            }
+                        }
+                    }
+
+                    // No single option and no cardinal match - leave NULL
+                    return nil
+                }()
 
                 do {
                     try await manager.saveMapping(
@@ -914,8 +933,18 @@ class RegularizationViewModel: ObservableObject {
                     if fuelTypeId != nil {
                         autoAssignedFields.append("FuelType")
                     }
-                    if vehicleTypeId != nil {
-                        autoAssignedFields.append("VehicleType")
+                    if let vtId = vehicleTypeId {
+                        // Check if this was assigned via cardinal type matching
+                        let wasCardinalMatch = validVehicleTypes.count > 1 &&
+                            AppSettings.shared.useCardinalTypes &&
+                            validVehicleTypes.contains(where: {
+                                $0.id == vtId && AppSettings.shared.cardinalVehicleTypeCodes.contains($0.code)
+                            })
+                        if wasCardinalMatch {
+                            autoAssignedFields.append("VehicleType(Cardinal)")
+                        } else {
+                            autoAssignedFields.append("VehicleType")
+                        }
                     }
                     print("✅ Auto-regularized: \(pairKey) [\(autoAssignedFields.joined(separator: ", "))]")
                 } catch {

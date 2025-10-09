@@ -139,13 +139,51 @@ For Make/Model pairs that exist in both curated and uncurated years (e.g., `HOND
 
 1. **Make and Model**: Always auto-assigned to matching canonical values
 2. **FuelType**: Auto-assigned if **only one option exists** in the canonical data (excluding "Not Specified" placeholders)
-3. **VehicleType**: Auto-assigned if **only one option exists** in the canonical data (excluding "Not Specified" placeholders)
+3. **VehicleType**: Uses **Cardinal Type Matching** (see below) when multiple options exist, or auto-assigns if only one option exists
 
 **Note:** The system only counts actual types found in curated years (Gasoline, Diesel for FuelType; AU, CA, MC, etc. for VehicleType). The "Unknown" enum value will never appear in the canonical hierarchy since it wasn't used in curated years (2011-2022).
 
+### Cardinal Type Auto-Assignment
+
+**Problem:** Many Make/Model pairs have multiple vehicle types in the canonical data, making automatic assignment impossible with simple logic.
+
+**Example - GMC Sierra:**
+```
+GMC SIERRA in curated data has:
+- VehicleTypes: ["AU - Automobile or Light Truck", "CA - Truck or Road Tractor", "VO - Tool Vehicle"]
+
+Without cardinal types: VehicleType left NULL → 🟠 Orange "Needs Review" (manual review required)
+With cardinal types:    VehicleType auto-assigned to AU → 🟢 Green "Complete" ✅
+```
+
+**Solution:** Cardinal types are designated "priority" vehicle types. When multiple types exist, the system automatically assigns the first matching cardinal type based on priority order.
+
+**Default Cardinal Types:**
+1. **AU** (Automobile or Light Truck) - Highest priority, covers ~90% of passenger vehicles
+2. **MC** (Motorcycle) - Second priority, covers most two-wheeled vehicles
+
+**How It Works:**
+1. System finds all valid vehicle types for the Make/Model pair in canonical data
+2. If multiple types exist, checks if any match a cardinal type
+3. Assigns the **first matching** cardinal type based on priority order
+4. If no cardinal type matches, leaves VehicleType NULL (requires manual review)
+
+**Configuration:**
+- Settings → Regularization tab → "Cardinal Type Auto-Assignment" section
+- Toggle to enable/disable (enabled by default)
+- View priority order and type descriptions
+- Future: Add/remove/reorder cardinal types as needed
+
+**Logging:**
+Auto-assignment logs distinguish between cardinal and single-option assignments:
+```
+✅ Auto-regularized: HONDA CIVIC [M/M, FuelType, VehicleType]
+✅ Auto-regularized: GMC SIERRA [M/M, VehicleType(Cardinal)]
+```
+
 ### Examples
 
-**Full Auto-Assignment:**
+**Full Auto-Assignment (Single Options):**
 ```
 HONDA CIVIC in curated data has:
 - FuelTypes: ["Gasoline"] (only one option)
@@ -154,7 +192,20 @@ HONDA CIVIC in curated data has:
 Result: ✅ Fully auto-assigned → 🟢 Green "Complete" badge
 ```
 
-**Partial Auto-Assignment:**
+**Cardinal Type Auto-Assignment (Multiple Vehicle Types):**
+```
+GMC SIERRA in curated data has:
+- FuelTypes: ["Gasoline", "Diesel"] (multiple options)
+- VehicleTypes: ["AU", "CA", "VO"] (multiple options)
+- Cardinal types: ["AU", "MC"]
+
+Result: ✅ VehicleType auto-assigned to AU (cardinal match)
+        ⚠️  FuelType left NULL (no cardinal fuel types yet)
+        → 🟠 Orange "Needs Review" badge
+User must manually select FuelType (or "Unknown") to complete the mapping
+```
+
+**Partial Auto-Assignment (Multiple Fuel Types):**
 ```
 HONDA ACCORD in curated data has:
 - FuelTypes: ["Gasoline", "Hybrid", "Electric"] (multiple options)
@@ -162,6 +213,16 @@ HONDA ACCORD in curated data has:
 
 Result: ✅ VehicleType auto-assigned, FuelType left NULL → 🟠 Orange "Needs Review" badge
 User must manually select FuelType (or "Unknown") to complete the mapping
+```
+
+**No Cardinal Match:**
+```
+SCHOOL BUS in curated data has:
+- VehicleTypes: ["AB - Bus", "TAS - School Bus"] (multiple options)
+- Cardinal types: ["AU", "MC"] (no match)
+
+Result: ⚠️  VehicleType left NULL → 🟠 Orange "Needs Review" badge
+User must manually select VehicleType (consider adding "AB" as cardinal type for buses)
 ```
 
 ### Picker Options: "Not Specified" vs "Unknown"

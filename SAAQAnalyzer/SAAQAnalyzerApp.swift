@@ -1860,6 +1860,60 @@ struct RegularizationSettingsView: View {
                 }
             }
 
+            Section("Cardinal Type Auto-Assignment") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle("Enable Cardinal Type Matching", isOn: Binding(
+                        get: { AppSettings.shared.useCardinalTypes },
+                        set: { AppSettings.shared.useCardinalTypes = $0 }
+                    ))
+                    .controlSize(.regular)
+                    .help("When enabled, auto-assignment will use cardinal types for ambiguous Make/Model pairs")
+
+                    if AppSettings.shared.useCardinalTypes {
+                        Text("Cardinal types are used during auto-regularization when multiple vehicle types exist for a Make/Model pair. The first matching type (by priority order) is assigned.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Divider()
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Cardinal Type Priority")
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                Spacer()
+                                Text("(higher = more priority)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            ForEach(Array(AppSettings.shared.cardinalVehicleTypeCodes.enumerated()), id: \.offset) { index, code in
+                                HStack {
+                                    Image(systemName: "\(index + 1).circle.fill")
+                                        .foregroundColor(.blue)
+                                    Text(code)
+                                        .font(.system(.body, design: .monospaced))
+                                        .fontWeight(.medium)
+                                    Spacer()
+                                    Text(vehicleTypeDescription(for: code))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
+                                .background(Color.blue.opacity(0.05))
+                                .cornerRadius(6)
+                            }
+
+                            Text("Higher priority types are checked first. For example, if both AU and CA exist, AU will be assigned.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 4)
+                        }
+                    }
+                }
+            }
+
             Section("Regularization Status") {
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle("Enable Regularization in Queries", isOn: $regularizationEnabled)
@@ -2071,6 +2125,25 @@ struct RegularizationSettingsView: View {
         } else {
             // No cache yet, assume stale
             cacheNeedsReload = true
+        }
+    }
+
+    /// Helper to get vehicle type description from code
+    private func vehicleTypeDescription(for code: String) -> String {
+        switch code {
+        case "AU": return "Automobile or Light Truck"
+        case "MC": return "Motorcycle"
+        case "CA": return "Truck or Road Tractor"
+        case "AB": return "Bus"
+        case "CY": return "Moped"
+        case "HM": return "Motorhome"
+        case "MN": return "Snowmobile"
+        case "VT": return "All-Terrain Vehicle"
+        case "VO": return "Tool Vehicle"
+        case "NV": return "Other Off-Road Vehicle"
+        case "SN": return "Snow Blower"
+        case "AT": return "No Specific Type"
+        default: return "Unknown"
         }
     }
 }

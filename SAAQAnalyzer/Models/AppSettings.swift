@@ -88,7 +88,24 @@ class AppSettings {
             UserDefaults.standard.set(updateDatabaseStatisticsOnLaunch, forKey: "updateDatabaseStatisticsOnLaunch")
         }
     }
-    
+
+    // MARK: - Regularization Settings
+
+    /// Whether to use cardinal types for auto-assignment when multiple vehicle types exist
+    var useCardinalTypes: Bool {
+        didSet {
+            UserDefaults.standard.set(useCardinalTypes, forKey: "useCardinalTypes")
+        }
+    }
+
+    /// Ordered list of cardinal vehicle type codes (priority order: first = highest priority)
+    /// When multiple vehicle types exist for a Make/Model pair, the first matching cardinal type is assigned
+    var cardinalVehicleTypeCodes: [String] {
+        didSet {
+            UserDefaults.standard.set(cardinalVehicleTypeCodes, forKey: "cardinalVehicleTypeCodes")
+        }
+    }
+
     // MARK: - Computed Properties
 
     /// Available processor cores on this system
@@ -157,6 +174,10 @@ class AppSettings {
 
         // Load database performance settings (off by default to avoid launch delays)
         self.updateDatabaseStatisticsOnLaunch = UserDefaults.standard.object(forKey: "updateDatabaseStatisticsOnLaunch") as? Bool ?? false
+
+        // Load regularization settings
+        self.useCardinalTypes = UserDefaults.standard.object(forKey: "useCardinalTypes") as? Bool ?? true
+        self.cardinalVehicleTypeCodes = UserDefaults.standard.object(forKey: "cardinalVehicleTypeCodes") as? [String] ?? ["AU", "MC"]
     }
     
     /// Calculates optimal thread count based on system characteristics and workload
@@ -202,5 +223,9 @@ class AppSettings {
 
         // Reset database performance settings
         updateDatabaseStatisticsOnLaunch = false
+
+        // Reset regularization settings
+        useCardinalTypes = true
+        cardinalVehicleTypeCodes = ["AU", "MC"]
     }
 }
