@@ -301,9 +301,17 @@ struct FilterPanel: View {
                 print("📊 Loaded filter options: \(availableYears.count) years, \(availableRegions.count) regions, \(availableMRCs.count) MRCs")
 
                 // Auto-select all years on initial load if none are selected
+                // OR auto-select newly available years during batch imports
                 if configuration.years.isEmpty && !availableYears.isEmpty {
                     configuration.years = Set(availableYears)
                     print("📊 Auto-selected all \(availableYears.count) years on initial load")
+                } else {
+                    // During batch import, auto-select any newly available years
+                    let newYears = Set(availableYears).subtracting(configuration.years)
+                    if !newYears.isEmpty {
+                        configuration.years.formUnion(newYears)
+                        print("📊 Auto-selected \(newYears.count) newly imported year(s): \(newYears.sorted())")
+                    }
                 }
             }
 
@@ -333,9 +341,17 @@ struct FilterPanel: View {
                 availableMunicipalities = municipalities
 
                 // Auto-select all years when switching data types if none are selected
+                // OR auto-select newly available years
                 if configuration.years.isEmpty && !years.isEmpty {
                     configuration.years = Set(years)
                     print("📊 Auto-selected all \(years.count) years after data type switch")
+                } else {
+                    // Auto-select any newly available years
+                    let newYears = Set(years).subtracting(configuration.years)
+                    if !newYears.isEmpty {
+                        configuration.years.formUnion(newYears)
+                        print("📊 Auto-selected \(newYears.count) newly available year(s): \(newYears.sorted())")
+                    }
                 }
             }
         }
