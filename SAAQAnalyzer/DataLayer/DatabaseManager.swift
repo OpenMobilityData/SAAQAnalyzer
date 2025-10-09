@@ -741,6 +741,7 @@ class DatabaseManager: ObservableObject {
                 -- Integer foreign key columns (TINYINT 1-byte)
                 year_id INTEGER,
                 vehicle_class_id INTEGER,
+                vehicle_type_id INTEGER,
                 cylinder_count_id INTEGER,
                 axle_count_id INTEGER,
                 original_color_id INTEGER,
@@ -844,6 +845,7 @@ class DatabaseManager: ObservableObject {
             // Vehicles table - single column integer indexes
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year_id ON vehicles(year_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_class_id ON vehicles(vehicle_class_id);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_type_id ON vehicles(vehicle_type_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_make_id ON vehicles(make_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_model_id ON vehicles(model_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_model_year_id ON vehicles(model_year_id);",
@@ -857,6 +859,7 @@ class DatabaseManager: ObservableObject {
 
             // Vehicles table - composite integer indexes for common query patterns
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year_class_id ON vehicles(year_id, vehicle_class_id);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicles_year_type_id ON vehicles(year_id, vehicle_type_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year_fuel_id ON vehicles(year_id, fuel_type_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year_region_id ON vehicles(year_id, admin_region_id);",
             "CREATE INDEX IF NOT EXISTS idx_vehicles_year_municipality_id ON vehicles(year_id, municipality_id);",
@@ -883,6 +886,7 @@ class DatabaseManager: ObservableObject {
             // Enumeration table indexes for fast reverse lookups
             "CREATE INDEX IF NOT EXISTS idx_year_enum_year ON year_enum(year);",
             "CREATE INDEX IF NOT EXISTS idx_class_enum_code ON vehicle_class_enum(code);",
+            "CREATE INDEX IF NOT EXISTS idx_type_enum_code ON vehicle_type_enum(code);",
             "CREATE INDEX IF NOT EXISTS idx_make_enum_name ON make_enum(name);",
             "CREATE INDEX IF NOT EXISTS idx_model_enum_name_make ON model_enum(name, make_id);",
             "CREATE INDEX IF NOT EXISTS idx_fuel_type_enum_code ON fuel_type_enum(code);",
@@ -908,8 +912,10 @@ class DatabaseManager: ObservableObject {
         let enumTables = [
             // Year enumeration
             "CREATE TABLE IF NOT EXISTS year_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, year INTEGER UNIQUE NOT NULL);",
-            // Class enumeration
+            // Class enumeration (CLAS field - usage-based classification)
             "CREATE TABLE IF NOT EXISTS vehicle_class_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, description TEXT);",
+            // Vehicle Type enumeration (TYP_VEH_CATEG_USA field - physical vehicle type)
+            "CREATE TABLE IF NOT EXISTS vehicle_type_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, description TEXT);",
             // Cylinder count enumeration
             "CREATE TABLE IF NOT EXISTS cylinder_count_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, count INTEGER UNIQUE NOT NULL);",
             // Axle count enumeration
@@ -952,7 +958,8 @@ class DatabaseManager: ObservableObject {
         print("🔧 Inserting special 'Unknown' enum values for regularization...")
         let unknownInserts = [
             "INSERT OR IGNORE INTO fuel_type_enum (code, description) VALUES ('U', 'Unknown');",
-            "INSERT OR IGNORE INTO vehicle_class_enum (code, description) VALUES ('UNK', 'Unknown');"
+            "INSERT OR IGNORE INTO vehicle_class_enum (code, description) VALUES ('UNK', 'Unknown');",
+            "INSERT OR IGNORE INTO vehicle_type_enum (code, description) VALUES ('AT', 'Unknown');"
         ]
 
         for insertSQL in unknownInserts {
@@ -2180,6 +2187,12 @@ class DatabaseManager: ObservableObject {
                     }
                 }
 
+                if !filters.vehicleTypes.isEmpty {
+                    let types = Array(filters.vehicleTypes).sorted().prefix(3).joined(separator: " OR ")
+                    let suffix = filters.vehicleTypes.count > 3 ? " (+\(filters.vehicleTypes.count - 3))" : ""
+                    filterComponents.append("[Type: \(types)\(suffix)]")
+                }
+
                 // Add other filters inline below
                 if !filters.vehicleMakes.isEmpty {
                     let makes = Array(filters.vehicleMakes).sorted().prefix(3).joined(separator: " OR ")
@@ -2283,6 +2296,12 @@ class DatabaseManager: ObservableObject {
                         }
                     }
 
+                    if !filters.vehicleTypes.isEmpty {
+                        let types = Array(filters.vehicleTypes).sorted().prefix(3).joined(separator: " OR ")
+                        let suffix = filters.vehicleTypes.count > 3 ? " (+\(filters.vehicleTypes.count - 3))" : ""
+                        filterComponents.append("[Type: \(types)\(suffix)]")
+                    }
+
                     if !filters.regions.isEmpty {
                         filterComponents.append("[Region: \(filters.regions.joined(separator: " OR "))]")
                     } else if !filters.mrcs.isEmpty {
@@ -2314,6 +2333,12 @@ class DatabaseManager: ObservableObject {
             if !vehicle_classes.isEmpty {
                 components.append("[\(vehicle_classes)]")
             }
+        }
+
+        if !filters.vehicleTypes.isEmpty {
+            let types = Array(filters.vehicleTypes).sorted().prefix(3).joined(separator: " OR ")
+            let suffix = filters.vehicleTypes.count > 3 ? " (+\(filters.vehicleTypes.count - 3))" : ""
+            components.append("[Type: \(types)\(suffix)]")
         }
 
         if !filters.vehicleMakes.isEmpty {
@@ -2452,6 +2477,12 @@ class DatabaseManager: ObservableObject {
             }
         }
 
+        if !baseFilters.vehicleTypes.isEmpty {
+            let types = Array(baseFilters.vehicleTypes).sorted().prefix(3).joined(separator: " OR ")
+            let suffix = baseFilters.vehicleTypes.count > 3 ? " (+\(baseFilters.vehicleTypes.count - 3))" : ""
+            baseComponents.append("[Type: \(types)\(suffix)]")
+        }
+
         if !baseFilters.fuelTypes.isEmpty {
             let fuels = baseFilters.fuelTypes
                 .compactMap { FuelType(rawValue: $0)?.description }
@@ -2561,6 +2592,9 @@ class DatabaseManager: ObservableObject {
             return "fuel types"
         }
         if !original.vehicleClasses.isEmpty && baseline.vehicleClasses.isEmpty {
+            return "vehicle classes"
+        }
+        if !original.vehicleTypes.isEmpty && baseline.vehicleTypes.isEmpty {
             return "vehicle types"
         }
         if !original.regions.isEmpty && baseline.regions.isEmpty {
@@ -2618,12 +2652,18 @@ class DatabaseManager: ObservableObject {
                 let fuels = filters.fuelTypes.compactMap { FuelType(rawValue: $0)?.description }.joined(separator: " & ")
                 return fuels.isEmpty ? nil : fuels
             }
-        case "vehicle types":
+        case "vehicle classes":
             if filters.vehicleClasses.count == 1, let classification = filters.vehicleClasses.first {
                 return VehicleClass(rawValue: classification)?.description ?? classification
             } else if !filters.vehicleClasses.isEmpty {
                 let classifications = filters.vehicleClasses.compactMap { VehicleClass(rawValue: $0)?.description }.joined(separator: " & ")
                 return classifications.isEmpty ? nil : classifications
+            }
+        case "vehicle types":
+            if filters.vehicleTypes.count == 1 {
+                return filters.vehicleTypes.first!
+            } else if !filters.vehicleTypes.isEmpty {
+                return filters.vehicleTypes.joined(separator: " & ")
             }
         case "regions":
             if filters.regions.count == 1 {
@@ -3137,6 +3177,23 @@ class DatabaseManager: ObservableObject {
 
         // Fall back to database query
         return await getClassesFromDatabase()
+    }
+
+    /// Gets available vehicle types - uses enumeration tables
+    func getAvailableVehicleTypes() async -> [String] {
+        // Use enumeration-based data
+        if useOptimizedQueries, let filterCacheManager = filterCacheManager {
+            do {
+                let filterItems = try await filterCacheManager.getAvailableVehicleTypes()
+                print("✅ Using enumeration-based vehicle types (\(filterItems.count) items)")
+                return filterItems.map { $0.displayName }
+            } catch {
+                print("⚠️ Failed to load enumeration vehicle types, falling back to database query: \(error)")
+            }
+        }
+
+        // Fall back to database query
+        return await getVehicleTypesFromDatabase()
     }
 
     /// Gets available vehicle makes - uses enumeration cache with badges
@@ -3716,16 +3773,16 @@ class DatabaseManager: ObservableObject {
                     continuation.resume(returning: [])
                     return
                 }
-                
+
                 let query = "SELECT DISTINCT class FROM vehicles ORDER BY class"
                 var stmt: OpaquePointer?
-                
+
                 defer {
                     if stmt != nil {
                         sqlite3_finalize(stmt)
                     }
                 }
-                
+
                 var vehicle_classes: [String] = []
                 if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
                     while sqlite3_step(stmt) == SQLITE_ROW {
@@ -3734,8 +3791,39 @@ class DatabaseManager: ObservableObject {
                         }
                     }
                 }
-                
+
                 continuation.resume(returning: vehicle_classes)
+            }
+        }
+    }
+
+    private func getVehicleTypesFromDatabase() async -> [String] {
+        await withCheckedContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(returning: [])
+                    return
+                }
+
+                let query = "SELECT DISTINCT code FROM vehicle_type_enum ORDER BY code"
+                var stmt: OpaquePointer?
+
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+
+                var vehicle_types: [String] = []
+                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
+                    while sqlite3_step(stmt) == SQLITE_ROW {
+                        if let typePtr = sqlite3_column_text(stmt, 0) {
+                            vehicle_types.append(String(cString: typePtr))
+                        }
+                    }
+                }
+
+                continuation.resume(returning: vehicle_types)
             }
         }
     }
@@ -4079,11 +4167,11 @@ class DatabaseManager: ObservableObject {
                     INSERT OR REPLACE INTO vehicles (
                         year, vehicle_sequence, model_year, net_mass, cylinder_count,
                         displacement, max_axles,
-                        year_id, vehicle_class_id, make_id, model_id, model_year_id,
+                        year_id, vehicle_class_id, vehicle_type_id, make_id, model_id, model_year_id,
                         cylinder_count_id, axle_count_id, original_color_id, fuel_type_id,
                         admin_region_id, mrc_id, municipality_id,
                         net_mass_int, displacement_int
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """
                 
                 var stmt: OpaquePointer?
@@ -4110,6 +4198,7 @@ class DatabaseManager: ObservableObject {
                 print("🔄 Building enumeration caches for batch...")
                 var yearEnumCache: [Int: Int] = [:]
                 var classEnumCache: [String: Int] = [:]
+                var vehicleTypeEnumCache: [String: Int] = [:]
                 var makeEnumCache: [String: Int] = [:]
                 var modelEnumCache: [String: Int] = [:]  // Key: "make|model"
                 var modelYearEnumCache: [Int: Int] = [:]
@@ -4151,6 +4240,7 @@ class DatabaseManager: ObservableObject {
                 // Load all enum caches
                 loadIntEnumCache(table: "year_enum", keyColumn: "year", cache: &yearEnumCache)
                 loadEnumCache(table: "vehicle_class_enum", keyColumn: "code", cache: &classEnumCache)
+                loadEnumCache(table: "vehicle_type_enum", keyColumn: "code", cache: &vehicleTypeEnumCache)
                 loadEnumCache(table: "make_enum", keyColumn: "name", cache: &makeEnumCache)
                 loadIntEnumCache(table: "model_year_enum", keyColumn: "year", cache: &modelYearEnumCache)
                 loadIntEnumCache(table: "cylinder_count_enum", keyColumn: "count", cache: &cylinderCountEnumCache)
@@ -4282,6 +4372,35 @@ class DatabaseManager: ObservableObject {
                     return nil
                 }
 
+                // Helper to get or create vehicle type enum ID (requires code and description)
+                func getOrCreateVehicleTypeEnumId(code: String, description: String, cache: inout [String: Int]) -> Int? {
+                    if let id = cache[code] { return id }
+
+                    // Try INSERT with both code and description
+                    let insertSql = "INSERT OR IGNORE INTO vehicle_type_enum (code, description) VALUES (?, ?);"
+                    var insertStmt: OpaquePointer?
+                    defer { sqlite3_finalize(insertStmt) }
+                    if sqlite3_prepare_v2(db, insertSql, -1, &insertStmt, nil) == SQLITE_OK {
+                        sqlite3_bind_text(insertStmt, 1, code, -1, SQLITE_TRANSIENT)
+                        sqlite3_bind_text(insertStmt, 2, description, -1, SQLITE_TRANSIENT)
+                        sqlite3_step(insertStmt)
+                    }
+
+                    // Then SELECT to get ID
+                    let selectSql = "SELECT id FROM vehicle_type_enum WHERE code = ?;"
+                    var selectStmt: OpaquePointer?
+                    defer { sqlite3_finalize(selectStmt) }
+                    if sqlite3_prepare_v2(db, selectSql, -1, &selectStmt, nil) == SQLITE_OK {
+                        sqlite3_bind_text(selectStmt, 1, code, -1, SQLITE_TRANSIENT)
+                        if sqlite3_step(selectStmt) == SQLITE_ROW {
+                            let id = Int(sqlite3_column_int(selectStmt, 0))
+                            cache[code] = id
+                            return id
+                        }
+                    }
+                    return nil
+                }
+
                 // Helper to get or create fuel type enum ID (requires code and description)
                 func getOrCreateFuelTypeEnumId(code: String, description: String, cache: inout [String: Int]) -> Int? {
                     if let id = cache[code] { return id }
@@ -4364,12 +4483,13 @@ class DatabaseManager: ObservableObject {
                     }
                 }
 
-                print("✅ Caches built: \(classEnumCache.count) classes, \(makeEnumCache.count) makes, \(fuelTypeEnumCache.count) fuel types, \(municipalityNameCache.count) municipalities")
+                print("✅ Caches built: \(classEnumCache.count) classes, \(vehicleTypeEnumCache.count) types, \(makeEnumCache.count) makes, \(fuelTypeEnumCache.count) fuel types, \(municipalityNameCache.count) municipalities")
                 print("Starting batch import: \(records.count) records for year \(year)")
 
                 for record in records {
                     // Extract values from CSV (keep for enum population)
                     let vehicle_class = record["CLAS"] ?? "UNK"
+                    let vehicle_type = record["TYP_VEH_CATEG_USA"]
                     let make = record["MARQ_VEH"]
                     let model = record["MODEL_VEH"]
                     let color = record["COUL_ORIG"]
@@ -4412,17 +4532,44 @@ class DatabaseManager: ObservableObject {
                         sqlite3_bind_int(stmt, 9, Int32(classId))
                     } else { sqlite3_bind_null(stmt, 9) }
 
+                    // vehicle_type_id (TYP_VEH_CATEG_USA field)
+                    if let vehicleTypeStr = vehicle_type, !vehicleTypeStr.isEmpty {
+                        // Look up description from hardcoded list or use code as description
+                        let typeDescription: String
+                        switch vehicleTypeStr {
+                        case "AB": typeDescription = "Bus"
+                        case "AT": typeDescription = "Unknown"
+                        case "AU": typeDescription = "Automobile or Light Truck"
+                        case "CA": typeDescription = "Truck or Road Tractor"
+                        case "CY": typeDescription = "Moped"
+                        case "HM": typeDescription = "Motorhome"
+                        case "MC": typeDescription = "Motorcycle"
+                        case "MN": typeDescription = "Snowmobile"
+                        case "NV": typeDescription = "Other Off-Road Vehicle"
+                        case "SN": typeDescription = "Snow Blower"
+                        case "VO": typeDescription = "Tool Vehicle"
+                        case "VT": typeDescription = "All-Terrain Vehicle"
+                        default: typeDescription = vehicleTypeStr
+                        }
+
+                        if let typeId = getOrCreateVehicleTypeEnumId(code: vehicleTypeStr, description: typeDescription, cache: &vehicleTypeEnumCache) {
+                            sqlite3_bind_int(stmt, 10, Int32(typeId))
+                        } else { sqlite3_bind_null(stmt, 10) }
+                    } else {
+                        sqlite3_bind_null(stmt, 10)
+                    }
+
                     // make_id
                     if let makeStr = make, !makeStr.isEmpty, let makeId = getOrCreateEnumId(table: "make_enum", column: "name", value: makeStr, cache: &makeEnumCache) {
-                        sqlite3_bind_int(stmt, 10, Int32(makeId))
-                    } else { sqlite3_bind_null(stmt, 10) }
+                        sqlite3_bind_int(stmt, 11, Int32(makeId))
+                    } else { sqlite3_bind_null(stmt, 11) }
 
                     // model_id (requires make_id)
                     if let makeStr = make, !makeStr.isEmpty, let modelStr = model, !modelStr.isEmpty,
                        let makeId = makeEnumCache[makeStr] {
                         let modelKey = "\(makeStr)|\(modelStr)"
                         if let modelId = modelEnumCache[modelKey] {
-                            sqlite3_bind_int(stmt, 11, Int32(modelId))
+                            sqlite3_bind_int(stmt, 12, Int32(modelId))
                         } else {
                             // Create model enum entry
                             let insertModelSql = "INSERT OR IGNORE INTO model_enum (name, make_id) VALUES (?, ?);"
@@ -4442,73 +4589,73 @@ class DatabaseManager: ObservableObject {
                                 if sqlite3_step(modelSelectStmt) == SQLITE_ROW {
                                     let modelId = Int(sqlite3_column_int(modelSelectStmt, 0))
                                     modelEnumCache[modelKey] = modelId
-                                    sqlite3_bind_int(stmt, 11, Int32(modelId))
+                                    sqlite3_bind_int(stmt, 12, Int32(modelId))
                                 } else {
-                                    sqlite3_bind_null(stmt, 11)
+                                    sqlite3_bind_null(stmt, 12)
                                 }
                             } else {
-                                sqlite3_bind_null(stmt, 11)
+                                sqlite3_bind_null(stmt, 12)
                             }
                         }
-                    } else { sqlite3_bind_null(stmt, 11) }
+                    } else { sqlite3_bind_null(stmt, 12) }
 
                     // model_year_id
                     if let myear = modelYear, let modelYearId = getOrCreateIntEnumId(table: "model_year_enum", column: "year", value: Int(myear), cache: &modelYearEnumCache) {
-                        sqlite3_bind_int(stmt, 12, Int32(modelYearId))
-                    } else { sqlite3_bind_null(stmt, 12) }
+                        sqlite3_bind_int(stmt, 13, Int32(modelYearId))
+                    } else { sqlite3_bind_null(stmt, 13) }
 
                     // cylinder_count_id
                     if let cylStr = cylinderCount, let cylInt = Int(cylStr), let cylId = getOrCreateIntEnumId(table: "cylinder_count_enum", column: "count", value: cylInt, cache: &cylinderCountEnumCache) {
-                        sqlite3_bind_int(stmt, 13, Int32(cylId))
-                    } else { sqlite3_bind_null(stmt, 13) }
+                        sqlite3_bind_int(stmt, 14, Int32(cylId))
+                    } else { sqlite3_bind_null(stmt, 14) }
 
                     // axle_count_id
                     if let axleStr = maxAxles, let axleInt = Int(axleStr), let axleId = getOrCreateIntEnumId(table: "axle_count_enum", column: "count", value: axleInt, cache: &axleCountEnumCache) {
-                        sqlite3_bind_int(stmt, 14, Int32(axleId))
-                    } else { sqlite3_bind_null(stmt, 14) }
+                        sqlite3_bind_int(stmt, 15, Int32(axleId))
+                    } else { sqlite3_bind_null(stmt, 15) }
 
                     // original_color_id
                     if let colorStr = color, !colorStr.isEmpty, let colorId = getOrCreateEnumId(table: "color_enum", column: "name", value: colorStr, cache: &colorEnumCache) {
-                        sqlite3_bind_int(stmt, 15, Int32(colorId))
-                    } else { sqlite3_bind_null(stmt, 15) }
+                        sqlite3_bind_int(stmt, 16, Int32(colorId))
+                    } else { sqlite3_bind_null(stmt, 16) }
 
                     // fuel_type_id (lookup human-readable description from FuelType enum)
                     if let fuelStr = fuelType, !fuelStr.isEmpty {
                         let fuelDescription = FuelType(rawValue: fuelStr)?.description ?? fuelStr
                         if let fuelId = getOrCreateFuelTypeEnumId(code: fuelStr, description: fuelDescription, cache: &fuelTypeEnumCache) {
-                            sqlite3_bind_int(stmt, 16, Int32(fuelId))
+                            sqlite3_bind_int(stmt, 17, Int32(fuelId))
                         } else {
-                            sqlite3_bind_null(stmt, 16)
+                            sqlite3_bind_null(stmt, 17)
                         }
-                    } else { sqlite3_bind_null(stmt, 16) }
+                    } else { sqlite3_bind_null(stmt, 17) }
 
                     // admin_region_id - extract name and code from "Region Name (08)" → ("Region Name", "08")
                     if let (regionName, regionCode) = extractNameAndCode(from: adminRegion),
                        let regionId = getOrCreateGeoEnumId(table: "admin_region_enum", name: regionName, code: regionCode, cache: &adminRegionEnumCache) {
-                        sqlite3_bind_int(stmt, 17, Int32(regionId))
-                    } else { sqlite3_bind_null(stmt, 17) }
+                        sqlite3_bind_int(stmt, 18, Int32(regionId))
+                    } else { sqlite3_bind_null(stmt, 18) }
 
                     // mrc_id - extract name and code from "MRC Name (66 )" → ("MRC Name", "66")
                     if let (mrcName, mrcCode) = extractNameAndCode(from: mrc),
                        let mrcId = getOrCreateGeoEnumId(table: "mrc_enum", name: mrcName, code: mrcCode, cache: &mrcEnumCache) {
-                        sqlite3_bind_int(stmt, 18, Int32(mrcId))
-                    } else { sqlite3_bind_null(stmt, 18) }
+                        sqlite3_bind_int(stmt, 19, Int32(mrcId))
+                    } else { sqlite3_bind_null(stmt, 19) }
 
                     // municipality_id - lookup name from geographic_entities, fallback to code
                     let muniName = municipalityNameCache[geoCode] ?? geoCode
                     if let muniId = getOrCreateGeoEnumId(table: "municipality_enum", name: muniName, code: geoCode, cache: &municipalityEnumCache) {
-                        sqlite3_bind_int(stmt, 19, Int32(muniId))
-                    } else { sqlite3_bind_null(stmt, 19) }
+                        sqlite3_bind_int(stmt, 20, Int32(muniId))
+                    } else { sqlite3_bind_null(stmt, 20) }
 
                     // net_mass_int (convert REAL to INTEGER)
                     if let massStr = netMass, let massDouble = Double(massStr) {
-                        sqlite3_bind_int(stmt, 20, Int32(round(massDouble)))
-                    } else { sqlite3_bind_null(stmt, 20) }
+                        sqlite3_bind_int(stmt, 21, Int32(round(massDouble)))
+                    } else { sqlite3_bind_null(stmt, 21) }
 
                     // displacement_int (convert REAL to INTEGER)
                     if let dispStr = displacement, let dispDouble = Double(dispStr) {
-                        sqlite3_bind_int(stmt, 21, Int32(round(dispDouble)))
-                    } else { sqlite3_bind_null(stmt, 21) }
+                        sqlite3_bind_int(stmt, 22, Int32(round(dispDouble)))
+                    } else { sqlite3_bind_null(stmt, 22) }
 
                     if sqlite3_step(stmt) == SQLITE_DONE {
                         successCount += 1

@@ -72,8 +72,11 @@ xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
 ### Database Schema
 
 - **vehicles**: Main table storing vehicle registration data (16 fields for 2017+, 15 for earlier years)
+  - Includes `vehicle_class_id` (CLAS field - usage-based classification like PAU, CAU, PMC)
+  - Includes `vehicle_type_id` (TYP_VEH_CATEG_USA field - physical type like AU, CA, MC)
 - **geographic_entities**: Hierarchical geographic data (regions, MRCs, municipalities)
 - **import_log**: Tracks import operations and success/failure status
+- **Enumeration tables** (16 total): year_enum, vehicle_class_enum, vehicle_type_enum, make_enum, model_enum, fuel_type_enum, color_enum, cylinder_count_enum, axle_count_enum, model_year_enum, admin_region_enum, mrc_enum, municipality_enum, age_group_enum, gender_enum, license_type_enum
 
 ### Key Design Patterns
 
@@ -127,7 +130,7 @@ The CSV importer handles French characters by trying multiple encodings (UTF-8, 
 
 ### Performance Considerations
 - SQLite WAL mode enabled for concurrent reads
-- Indexes on year, vehicle_class_id, geographic fields, and fuel_type
+- Indexes on year, vehicle_class_id, vehicle_type_id, geographic fields, and fuel_type_id
 - 64MB cache size for database operations
 - Batch processing for large imports
 

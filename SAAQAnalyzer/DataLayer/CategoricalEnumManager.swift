@@ -207,6 +207,7 @@ class CategoricalEnumManager {
         // Populate in dependency order (referenced tables first)
         try await populateYearEnum()
         try await populateVehicleClassEnum()
+        try await populateVehicleTypeEnum()
         try await populateMakeEnum()
         try await populateModelEnum()  // Depends on make_enum
         try await populateModelYearEnum()
@@ -289,6 +290,39 @@ class CategoricalEnumManager {
         WHERE classification NOT IN (SELECT code FROM vehicle_class_enum);
         """
         try await executeSQL(sql, description: "additional classifications")
+    }
+
+    private func populateVehicleTypeEnum() async throws {
+        // Use hardcoded mappings for vehicle types (TYP_VEH_CATEG_USA field)
+        let vehicleTypes = [
+            ("AB", "Bus"),
+            ("AT", "Unknown"),  // Special value for regularization
+            ("AU", "Automobile or Light Truck"),
+            ("CA", "Truck or Road Tractor"),
+            ("CY", "Moped"),
+            ("HM", "Motorhome"),
+            ("MC", "Motorcycle"),
+            ("MN", "Snowmobile"),
+            ("NV", "Other Off-Road Vehicle"),
+            ("SN", "Snow Blower"),
+            ("VO", "Tool Vehicle"),
+            ("VT", "All-Terrain Vehicle")
+        ]
+
+        for (code, description) in vehicleTypes {
+            let sql = "INSERT OR IGNORE INTO vehicle_type_enum (code, description) VALUES (?, ?);"
+            try await executeSQL(sql, parameters: [code, description], description: "vehicle type enum")
+        }
+
+        // Also populate any types found in data that aren't in our hardcoded list
+        let sql = """
+        INSERT OR IGNORE INTO vehicle_type_enum (code, description)
+        SELECT DISTINCT vehicle_type, vehicle_type
+        FROM vehicles
+        WHERE vehicle_type IS NOT NULL AND vehicle_type != ''
+        AND vehicle_type NOT IN (SELECT code FROM vehicle_type_enum);
+        """
+        try await executeSQL(sql, description: "additional vehicle types")
     }
 
     private func populateMakeEnum() async throws {

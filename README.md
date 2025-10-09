@@ -21,7 +21,7 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
 ### Advanced Filtering System
 - **Temporal Filters**: Filter by years and model years (vehicle data)
 - **Geographic Filters**: Filter by administrative regions, MRCs, and municipalities (vehicle-only)
-- **Vehicle Characteristics**: Filter by vehicle class, make, model, color, fuel type, and age ranges
+- **Vehicle Characteristics**: Filter by vehicle class, vehicle type, make, model, color, fuel type, and age ranges
 - **Driver Demographics**: Filter by age groups, gender, license types, classes, and experience levels
 - **Data Type Aware**: Dynamic filter panels that adapt based on selected data type
 - **Enumeration-Based Filters**: Filter options loaded directly from database enumeration tables for instant availability
@@ -175,7 +175,7 @@ SAAQAnalyzer includes a comprehensive XCTest-based test suite covering:
 1. Launch SAAQAnalyzer
 2. The app will automatically:
    - Create a unified SQLite database with 32KB page size for optimal performance
-   - Create 15 enumeration tables for integer-based queries
+   - Create 16 enumeration tables for integer-based queries
    - Import bundled geographic reference data (no manual setup required)
    - Load filter options directly from enumeration tables (no cache rebuild needed)
 3. Use the data type selector in the toolbar to choose between Vehicle or Driver data
@@ -267,7 +267,7 @@ Test mode allows you to test data package imports on a separate test database wi
 
 1. **Select Data Type**: Use the toolbar selector to choose Vehicle or Driver data
 2. **Set Filters**: Use the left panel to select years, regions, and data-specific characteristics:
-   - **Vehicle Data**: Classification, make, model, color, fuel type, age ranges
+   - **Vehicle Data**: Vehicle class, vehicle type, make, model, color, fuel type, age ranges
    - **Driver Data**: Age groups, gender, license types, classes, experience levels
 3. **Choose Metrics**: Select count, sum, average, or percentage calculations
 4. **Generate Charts**: Data automatically updates with interactive visualizations

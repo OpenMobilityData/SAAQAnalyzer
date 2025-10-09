@@ -13,6 +13,7 @@ struct FilterPanel: View {
 
     // Vehicle-specific options
     @State private var availableClassifications: [String] = []
+    @State private var availableVehicleTypes: [String] = []
     @State private var availableVehicleMakes: [String] = []
     @State private var availableVehicleModels: [String] = []
     @State private var availableVehicleColors: [String] = []
@@ -121,6 +122,7 @@ struct FilterPanel: View {
                         DisclosureGroup(isExpanded: $vehicleSectionExpanded) {
                             VehicleFilterSection(
                                 selectedVehicleClasses: $configuration.vehicleClasses,
+                                selectedVehicleTypes: $configuration.vehicleTypes,
                                 selectedVehicleMakes: $configuration.vehicleMakes,
                                 selectedVehicleModels: $configuration.vehicleModels,
                                 selectedVehicleColors: $configuration.vehicleColors,
@@ -128,6 +130,7 @@ struct FilterPanel: View {
                                 selectedFuelTypes: $configuration.fuelTypes,
                                 availableYears: availableYears,
                                 availableVehicleClasses: availableClassifications,
+                                availableVehicleTypes: availableVehicleTypes,
                                 availableVehicleMakes: availableVehicleMakes,
                                 availableVehicleModels: availableVehicleModels,
                                 availableVehicleColors: availableVehicleColors,
@@ -360,17 +363,18 @@ struct FilterPanel: View {
         case .vehicle:
             // Load vehicle-specific options in parallel for better performance
             async let vehicleClasses = databaseManager.getAvailableVehicleClasses()
+            async let vehicleTypes = databaseManager.getAvailableVehicleTypes()
             async let vehicleMakes = databaseManager.getAvailableVehicleMakes()
             async let vehicleModels = databaseManager.getAvailableVehicleModels()
             async let vehicleColors = databaseManager.getAvailableVehicleColors()
             async let modelYears = databaseManager.getAvailableModelYears()
 
             // Wait for all to complete
-            let vehicleData = await (vehicleClasses, vehicleMakes, vehicleModels, vehicleColors, modelYears)
+            let vehicleData = await (vehicleClasses, vehicleTypes, vehicleMakes, vehicleModels, vehicleColors, modelYears)
 
             // Update UI state on main thread
             await MainActor.run {
-                (availableClassifications, availableVehicleMakes, availableVehicleModels,
+                (availableClassifications, availableVehicleTypes, availableVehicleMakes, availableVehicleModels,
                  availableVehicleColors, availableModelYears) = vehicleData
 
                 // Clear license options
@@ -407,6 +411,7 @@ struct FilterPanel: View {
 
                 // Clear vehicle options
                 availableClassifications = []
+                availableVehicleTypes = []
                 availableVehicleMakes = []
                 availableVehicleModels = []
                 availableVehicleColors = []
@@ -477,6 +482,7 @@ struct FilterPanel: View {
             case .license:
                 // Clear all vehicle-specific filters when switching to license mode
                 configuration.vehicleClasses.removeAll()
+                configuration.vehicleTypes.removeAll()
                 configuration.vehicleMakes.removeAll()
                 configuration.vehicleModels.removeAll()
                 configuration.vehicleColors.removeAll()
@@ -659,6 +665,7 @@ struct SimpleGeographicFilterSection: View {
 
 struct VehicleFilterSection: View {
     @Binding var selectedVehicleClasses: Set<String>
+    @Binding var selectedVehicleTypes: Set<String>
     @Binding var selectedVehicleMakes: Set<String>
     @Binding var selectedVehicleModels: Set<String>
     @Binding var selectedVehicleColors: Set<String>
@@ -666,6 +673,7 @@ struct VehicleFilterSection: View {
     @Binding var selectedFuelTypes: Set<String>
     let availableYears: [Int]
     let availableVehicleClasses: [String]
+    let availableVehicleTypes: [String]
     let availableVehicleMakes: [String]
     let availableVehicleModels: [String]
     let availableVehicleColors: [String]
@@ -683,13 +691,27 @@ struct VehicleFilterSection: View {
                 Text("Vehicle Class")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                
+
                 VehicleClassFilterList(
                     availableVehicleClasses: availableVehicleClasses,
                     selectedVehicleClasses: $selectedVehicleClasses
                 )
             }
-            
+
+            // Vehicle types (use actual database values)
+            if !availableVehicleTypes.isEmpty {
+                Divider()
+
+                Text("Vehicle Type")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                VehicleTypeFilterList(
+                    availableVehicleTypes: availableVehicleTypes,
+                    selectedVehicleTypes: $selectedVehicleTypes
+                )
+            }
+
             // Vehicle Makes
             if !availableVehicleMakes.isEmpty {
                 Divider()
@@ -1215,6 +1237,174 @@ struct VehicleClassFilterList: View {
             return vehicleClass.description
         }
         return "Unknown vehicleClass: \(vehicleClass)"
+    }
+}
+
+// MARK: - Vehicle Type Filter List
+
+struct VehicleTypeFilterList: View {
+    let availableVehicleTypes: [String]
+    @Binding var selectedVehicleTypes: Set<String>
+
+    @State private var searchText = ""
+    @State private var isExpanded = false
+
+    private var filteredItems: [String] {
+        if searchText.isEmpty {
+            return availableVehicleTypes
+        }
+        return availableVehicleTypes.filter { vehicleType in
+            let displayName = getDisplayName(for: vehicleType)
+            return displayName.localizedCaseInsensitiveContains(searchText) ||
+              vehicleType.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    private var displayedItems: [String] {
+        let sorted = filteredItems.sorted()
+        return isExpanded ? sorted : Array(sorted.prefix(6))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Search field
+            if availableVehicleTypes.count > 10 {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+
+                    TextField("Search vehicle types...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.caption)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
+            }
+
+            // Quick action buttons
+            HStack {
+                Button("All") {
+                    selectedVehicleTypes = Set(filteredItems)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.mini)
+
+                Button("Clear") {
+                    selectedVehicleTypes.removeAll()
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.mini)
+
+                Spacer()
+
+                if availableVehicleTypes.count > 6 && searchText.isEmpty {
+                    Button(isExpanded ? "Show Less" : "Show All (\(availableVehicleTypes.count))") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isExpanded.toggle()
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption2)
+                    .tint(.accentColor)
+                }
+            }
+
+            // Filter items
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(displayedItems, id: \.self) { vehicleType in
+                    HStack(alignment: .top, spacing: 8) {
+                        Toggle(isOn: Binding(
+                            get: { selectedVehicleTypes.contains(vehicleType) },
+                            set: { isSelected in
+                                if isSelected {
+                                    selectedVehicleTypes.insert(vehicleType)
+                                } else {
+                                    selectedVehicleTypes.remove(vehicleType)
+                                }
+                            }
+                        )) {
+                            EmptyView()
+                        }
+                        .toggleStyle(.checkbox)
+                        .controlSize(.mini)
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(getDisplayName(for: vehicleType))
+                                .font(.caption)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.vertical, 1)
+                    .help(getDescription(for: vehicleType))  // Tooltip with description
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: displayedItems.count)
+
+            // Search results summary
+            if !searchText.isEmpty && filteredItems.count != availableVehicleTypes.count {
+                Text("Showing \(filteredItems.count) of \(availableVehicleTypes.count) vehicle types")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    // Helper methods for vehicle type display
+    private func getDisplayName(for vehicleType: String) -> String {
+        // Handle special NULL case (empty string from database)
+        if vehicleType.isEmpty || vehicleType.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "NUL - Not Specified"
+        }
+
+        // Handle AT special case (Unknown)
+        if vehicleType.uppercased() == "AT" {
+            return "AT - Unknown"
+        }
+
+        // Handle normal vehicle types
+        let typeDescription: String
+        switch vehicleType {
+        case "AB": typeDescription = "Bus"
+        case "AU": typeDescription = "Automobile or Light Truck"
+        case "CA": typeDescription = "Truck or Road Tractor"
+        case "CY": typeDescription = "Moped"
+        case "HM": typeDescription = "Motorhome"
+        case "MC": typeDescription = "Motorcycle"
+        case "MN": typeDescription = "Snowmobile"
+        case "NV": typeDescription = "Other Off-Road Vehicle"
+        case "SN": typeDescription = "Snow Blower"
+        case "VO": typeDescription = "Tool Vehicle"
+        case "VT": typeDescription = "All-Terrain Vehicle"
+        default: return vehicleType
+        }
+
+        return "\(vehicleType.uppercased()) - \(typeDescription)"
+    }
+
+    private func getDescription(for vehicleType: String) -> String {
+        switch vehicleType {
+        case "AB": return "Bus"
+        case "AT": return "Unknown / Not specified"
+        case "AU": return "Automobile or Light Truck"
+        case "CA": return "Truck or Road Tractor"
+        case "CY": return "Moped"
+        case "HM": return "Motorhome"
+        case "MC": return "Motorcycle"
+        case "MN": return "Snowmobile"
+        case "NV": return "Other Off-Road Vehicle"
+        case "SN": return "Snow Blower"
+        case "VO": return "Tool Vehicle"
+        case "VT": return "All-Terrain Vehicle"
+        default: return "Unknown vehicle type: \(vehicleType)"
+        }
     }
 }
 

@@ -8,6 +8,7 @@ struct OptimizedFilterIds: Sendable {
     let mrcIds: [Int]
     let municipalityIds: [Int]
     let classificationIds: [Int]
+    let vehicleTypeIds: [Int]
     let makeIds: [Int]
     let modelIds: [Int]
     let colorIds: [Int]
@@ -51,6 +52,7 @@ class OptimizedQueryManager {
         print("   MRCs: \(filters.mrcs)")
         print("   Municipalities: \(filters.municipalities)")
         print("   Vehicle Classifications: \(filters.vehicleClasses)")
+        print("   Vehicle Types: \(filters.vehicleTypes)")
         print("   Vehicle Makes: \(filters.vehicleMakes)")
         print("   Vehicle Models: \(filters.vehicleModels)")
         print("   Vehicle Colors: \(filters.vehicleColors)")
@@ -84,6 +86,7 @@ class OptimizedQueryManager {
         var mrcIds: [Int] = []
         var municipalityIds: [Int] = []
         var classificationIds: [Int] = []
+        var vehicleTypeIds: [Int] = []
         var makeIds: [Int] = []
         var modelIds: [Int] = []
         var colorIds: [Int] = []
@@ -144,6 +147,16 @@ class OptimizedQueryManager {
                     classificationIds.append(id)
                 } else {
                     print("⚠️ Classification '\(vehicleClass)' not found in enum table")
+                }
+            }
+
+            // Vehicle Types: UI shows codes directly
+            for vehicleType in filters.vehicleTypes {
+                if let id = try await enumManager.getEnumId(table: "vehicle_type_enum", column: "code", value: vehicleType) {
+                    print("🔍 Vehicle Type '\(vehicleType)' -> ID \(id)")
+                    vehicleTypeIds.append(id)
+                } else {
+                    print("⚠️ Vehicle Type '\(vehicleType)' not found in enum table")
                 }
             }
 
@@ -250,6 +263,7 @@ class OptimizedQueryManager {
         print("   Municipalities: \(municipalityIds.count) -> \(municipalityIds)")
         if isVehicle {
             print("   Classifications: \(classificationIds.count) -> \(classificationIds)")
+            print("   Vehicle Types: \(vehicleTypeIds.count) -> \(vehicleTypeIds)")
             print("   Makes: \(makeIds.count) -> \(makeIds)")
             print("   Models: \(modelIds.count) -> \(modelIds)")
             print("   Colors: \(colorIds.count) -> \(colorIds)")
@@ -267,6 +281,7 @@ class OptimizedQueryManager {
             mrcIds: mrcIds,
             municipalityIds: municipalityIds,
             classificationIds: classificationIds,
+            vehicleTypeIds: vehicleTypeIds,
             makeIds: makeIds,
             modelIds: modelIds,
             colorIds: colorIds,
@@ -319,6 +334,16 @@ class OptimizedQueryManager {
                     let placeholders = Array(repeating: "?", count: filterIds.classificationIds.count).joined(separator: ",")
                     whereClause += " AND vehicle_class_id IN (\(placeholders))"
                     for id in filterIds.classificationIds {
+                        bindValues.append((bindIndex, id))
+                        bindIndex += 1
+                    }
+                }
+
+                // Vehicle Type filter using vehicle_type_id
+                if !filterIds.vehicleTypeIds.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filterIds.vehicleTypeIds.count).joined(separator: ",")
+                    whereClause += " AND vehicle_type_id IN (\(placeholders))"
+                    for id in filterIds.vehicleTypeIds {
                         bindValues.append((bindIndex, id))
                         bindIndex += 1
                     }

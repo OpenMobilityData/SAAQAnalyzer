@@ -1102,6 +1102,7 @@ struct FilterConfiguration: Equatable, Sendable {
 
     // Vehicle-specific filters
     var vehicleClasses: Set<String> = []
+    var vehicleTypes: Set<String> = []
     var vehicleMakes: Set<String> = []
     var vehicleModels: Set<String> = []
     var vehicleColors: Set<String> = []
@@ -1225,6 +1226,7 @@ struct PercentageBaseFilters: Equatable, Sendable {
 
     // Vehicle-specific filters
     var vehicleClasses: Set<String> = []
+    var vehicleTypes: Set<String> = []
     var vehicleMakes: Set<String> = []
     var vehicleModels: Set<String> = []
     var vehicleColors: Set<String> = []
@@ -1248,6 +1250,7 @@ struct PercentageBaseFilters: Equatable, Sendable {
         config.mrcs = mrcs
         config.municipalities = municipalities
         config.vehicleClasses = vehicleClasses
+        config.vehicleTypes = vehicleTypes
         config.vehicleMakes = vehicleMakes
         config.vehicleModels = vehicleModels
         config.vehicleColors = vehicleColors
@@ -1272,6 +1275,7 @@ struct PercentageBaseFilters: Equatable, Sendable {
         base.mrcs = config.mrcs
         base.municipalities = config.municipalities
         base.vehicleClasses = config.vehicleClasses
+        base.vehicleTypes = config.vehicleTypes
         base.vehicleMakes = config.vehicleMakes
         base.vehicleModels = config.vehicleModels
         base.vehicleColors = config.vehicleColors

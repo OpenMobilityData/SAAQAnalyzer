@@ -13,6 +13,7 @@ class FilterCacheManager {
     private var cachedMRCs: [FilterItem] = []
     private var cachedMunicipalities: [FilterItem] = []
     private var cachedVehicleClasses: [FilterItem] = []
+    private var cachedVehicleTypes: [FilterItem] = []
     private var cachedMakes: [FilterItem] = []
     private var cachedModels: [FilterItem] = []
     private var cachedColors: [FilterItem] = []
@@ -58,6 +59,7 @@ class FilterCacheManager {
         try await loadMRCs()
         try await loadMunicipalities()
         try await loadVehicleClasses()
+        try await loadVehicleTypes()
         try await loadMakes()
         try await loadModels()
         try await loadColors()
@@ -279,6 +281,11 @@ class FilterCacheManager {
         cachedVehicleClasses = try await executeFilterItemQuery(sql)
     }
 
+    private func loadVehicleTypes() async throws {
+        let sql = "SELECT id, code FROM vehicle_type_enum ORDER BY code;"
+        cachedVehicleTypes = try await executeFilterItemQuery(sql)
+    }
+
     private func loadMakes() async throws {
         guard let db = self.db else { throw DatabaseError.notConnected }
 
@@ -436,6 +443,11 @@ class FilterCacheManager {
         return cachedVehicleClasses
     }
 
+    func getAvailableVehicleTypes() async throws -> [FilterItem] {
+        if !isInitialized { try await initializeCache() }
+        return cachedVehicleTypes
+    }
+
     func getAvailableMakes() async throws -> [FilterItem] {
         if !isInitialized { try await initializeCache() }
         return cachedMakes
@@ -525,6 +537,7 @@ class FilterCacheManager {
         cachedMRCs.removeAll()
         cachedMunicipalities.removeAll()
         cachedVehicleClasses.removeAll()
+        cachedVehicleTypes.removeAll()
         cachedMakes.removeAll()
         cachedModels.removeAll()
         cachedColors.removeAll()
