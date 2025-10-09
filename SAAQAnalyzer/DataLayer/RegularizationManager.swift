@@ -30,7 +30,7 @@ class RegularizationManager {
             canonical_make_id INTEGER NOT NULL,
             canonical_model_id INTEGER NOT NULL,
             fuel_type_id INTEGER,
-            vehicle_class_id INTEGER,
+            vehicle_type_id INTEGER,
             record_count INTEGER NOT NULL DEFAULT 0,
             year_range_start INTEGER NOT NULL,
             year_range_end INTEGER NOT NULL,
@@ -40,7 +40,7 @@ class RegularizationManager {
             FOREIGN KEY (canonical_make_id) REFERENCES make_enum(id),
             FOREIGN KEY (canonical_model_id) REFERENCES model_enum(id),
             FOREIGN KEY (fuel_type_id) REFERENCES fuel_type_enum(id),
-            FOREIGN KEY (vehicle_class_id) REFERENCES vehicle_class_enum(id),
+            FOREIGN KEY (vehicle_type_id) REFERENCES vehicle_type_enum(id),
             UNIQUE(uncurated_make_id, uncurated_model_id)
         );
 
@@ -103,7 +103,7 @@ class RegularizationManager {
 
         // First, generate the base hierarchy from curated data
 
-        // Query to get all Make/Model/FuelType/VehicleClass combinations from curated years
+        // Query to get all Make/Model/FuelType/VehicleType combinations from curated years
         let sql = """
         SELECT
             mk.id as make_id,
@@ -113,19 +113,19 @@ class RegularizationManager {
             ft.id as fuel_type_id,
             ft.code as fuel_type_code,
             ft.description as fuel_type_description,
-            cl.id as vehicle_class_id,
-            cl.code as vehicle_class_code,
-            cl.description as vehicle_class_description,
+            vt.id as vehicle_type_id,
+            vt.code as vehicle_type_code,
+            vt.description as vehicle_type_description,
             COUNT(*) as record_count
         FROM vehicles v
         JOIN year_enum y ON v.year_id = y.id
         JOIN make_enum mk ON v.make_id = mk.id
         JOIN model_enum md ON v.model_id = md.id
         LEFT JOIN fuel_type_enum ft ON v.fuel_type_id = ft.id
-        LEFT JOIN vehicle_class_enum cl ON v.vehicle_class_id = cl.id
+        LEFT JOIN vehicle_type_enum vt ON v.vehicle_type_id = vt.id
         WHERE y.year IN (\(yearPlaceholders))
-        GROUP BY mk.id, md.id, ft.id, cl.id
-        ORDER BY mk.name, md.name, ft.description, cl.code;
+        GROUP BY mk.id, md.id, ft.id, vt.id
+        ORDER BY mk.name, md.name, ft.description, vt.code;
         """
 
         let baseHierarchy = try await withCheckedThrowingContinuation { continuation in
@@ -139,7 +139,7 @@ class RegularizationManager {
                 }
 
                 // Temporary storage for building hierarchy
-                var makesDict: [Int: (name: String, models: [Int: (name: String, fuelTypes: [MakeModelHierarchy.FuelTypeInfo], vehicleClasses: [MakeModelHierarchy.VehicleClassInfo])])] = [:]
+                var makesDict: [Int: (name: String, models: [Int: (name: String, fuelTypes: [MakeModelHierarchy.FuelTypeInfo], vehicleTypes: [MakeModelHierarchy.VehicleTypeInfo])])] = [:]
 
                 while sqlite3_step(stmt) == SQLITE_ROW {
                     let makeId = Int(sqlite3_column_int(stmt, 0))
@@ -151,9 +151,9 @@ class RegularizationManager {
                     let fuelTypeCode: String? = sqlite3_column_type(stmt, 5) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 5)) : nil
                     let fuelTypeDesc: String? = sqlite3_column_type(stmt, 6) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 6)) : nil
 
-                    let vehicleClassId: Int? = sqlite3_column_type(stmt, 7) != SQLITE_NULL ? Int(sqlite3_column_int(stmt, 7)) : nil
-                    let vehicleClassCode: String? = sqlite3_column_type(stmt, 8) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 8)) : nil
-                    let vehicleClassDesc: String? = sqlite3_column_type(stmt, 9) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 9)) : nil
+                    let vehicleTypeId: Int? = sqlite3_column_type(stmt, 7) != SQLITE_NULL ? Int(sqlite3_column_int(stmt, 7)) : nil
+                    let vehicleTypeCode: String? = sqlite3_column_type(stmt, 8) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 8)) : nil
+                    let vehicleTypeDesc: String? = sqlite3_column_type(stmt, 9) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 9)) : nil
 
                     let recordCount = Int(sqlite3_column_int(stmt, 10))
 
@@ -164,7 +164,7 @@ class RegularizationManager {
 
                     // Initialize model if needed
                     if makesDict[makeId]!.models[modelId] == nil {
-                        makesDict[makeId]!.models[modelId] = (name: modelName, fuelTypes: [], vehicleClasses: [])
+                        makesDict[makeId]!.models[modelId] = (name: modelName, fuelTypes: [], vehicleTypes: [])
                     }
 
                     // Add fuel type if present and not already added
@@ -180,16 +180,16 @@ class RegularizationManager {
                         }
                     }
 
-                    // Add vehicle class if present and not already added
-                    if let vtId = vehicleClassId, let vtCode = vehicleClassCode, let vtDesc = vehicleClassDesc {
-                        let vehicleClassInfo = MakeModelHierarchy.VehicleClassInfo(
+                    // Add vehicle type if present and not already added
+                    if let vtId = vehicleTypeId, let vtCode = vehicleTypeCode, let vtDesc = vehicleTypeDesc {
+                        let vehicleTypeInfo = MakeModelHierarchy.VehicleTypeInfo(
                             id: vtId,
                             code: vtCode,
                             description: vtDesc,
                             recordCount: recordCount
                         )
-                        if !makesDict[makeId]!.models[modelId]!.vehicleClasses.contains(where: { $0.id == vtId }) {
-                            makesDict[makeId]!.models[modelId]!.vehicleClasses.append(vehicleClassInfo)
+                        if !makesDict[makeId]!.models[modelId]!.vehicleTypes.contains(where: { $0.id == vtId }) {
+                            makesDict[makeId]!.models[modelId]!.vehicleTypes.append(vehicleTypeInfo)
                         }
                     }
                 }
@@ -202,7 +202,7 @@ class RegularizationManager {
                             name: modelData.name,
                             makeId: makeId,
                             fuelTypes: modelData.fuelTypes.sorted { $0.description < $1.description },
-                            vehicleClasses: modelData.vehicleClasses.sorted { $0.code < $1.code }
+                            vehicleTypes: modelData.vehicleTypes.sorted { $0.code < $1.code }
                         )
                     }.sorted { $0.name < $1.name }
 
@@ -377,14 +377,14 @@ class RegularizationManager {
 
     /// Saves a regularization mapping to the database
     /// One mapping per uncurated Make/Model pair
-    /// FuelType and VehicleClass are optional (NULL if user cannot disambiguate)
+    /// FuelType and VehicleType are optional (NULL if user cannot disambiguate)
     func saveMapping(
         uncuratedMakeId: Int,
         uncuratedModelId: Int,
         canonicalMakeId: Int,
         canonicalModelId: Int,
         fuelTypeId: Int?,
-        vehicleClassId: Int?
+        vehicleTypeId: Int?
     ) async throws {
         guard let db = db else { throw DatabaseError.notConnected }
 
@@ -405,7 +405,7 @@ class RegularizationManager {
         let sql = """
         INSERT OR REPLACE INTO make_model_regularization
             (uncurated_make_id, uncurated_model_id, canonical_make_id, canonical_model_id,
-             fuel_type_id, vehicle_class_id, record_count, year_range_start, year_range_end, created_date)
+             fuel_type_id, vehicle_type_id, record_count, year_range_start, year_range_end, created_date)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """
 
@@ -425,7 +425,7 @@ class RegularizationManager {
                     sqlite3_bind_null(stmt, 5)
                 }
 
-                if let vtId = vehicleClassId {
+                if let vtId = vehicleTypeId {
                     sqlite3_bind_int(stmt, 6, Int32(vtId))
                 } else {
                     sqlite3_bind_null(stmt, 6)
@@ -446,7 +446,7 @@ class RegularizationManager {
 
                 if sqlite3_step(stmt) == SQLITE_DONE {
                     print("✅ Saved regularization mapping: Make \(uncuratedMakeId)/Model \(uncuratedModelId) → Make \(canonicalMakeId)/Model \(canonicalModelId)")
-                    print("   FuelType: \(fuelTypeId?.description ?? "NULL"), VehicleClass: \(vehicleClassId?.description ?? "NULL")")
+                    print("   FuelType: \(fuelTypeId?.description ?? "NULL"), VehicleType: \(vehicleTypeId?.description ?? "NULL")")
                     continuation.resume()
                 } else {
                     let error = String(cString: sqlite3_errmsg(db))
@@ -500,7 +500,7 @@ class RegularizationManager {
             cm.name as canonical_make,
             cmd.name as canonical_model,
             ft.description as fuel_type,
-            cl.description as vehicle_class,
+            vt.description as vehicle_type,
             r.record_count,
             r.year_range_start,
             r.year_range_end
@@ -510,7 +510,7 @@ class RegularizationManager {
         JOIN make_enum cm ON r.canonical_make_id = cm.id
         JOIN model_enum cmd ON r.canonical_model_id = cmd.id
         LEFT JOIN fuel_type_enum ft ON r.fuel_type_id = ft.id
-        LEFT JOIN vehicle_class_enum cl ON r.vehicle_class_id = cl.id
+        LEFT JOIN vehicle_type_enum vt ON r.vehicle_type_id = vt.id
         ORDER BY r.record_count DESC;
         """
 
@@ -533,7 +533,7 @@ class RegularizationManager {
 
                     let fuelType: String? = sqlite3_column_type(stmt, 7) != SQLITE_NULL
                         ? String(cString: sqlite3_column_text(stmt, 7)) : nil
-                    let vehicleClass: String? = sqlite3_column_type(stmt, 8) != SQLITE_NULL
+                    let vehicleType: String? = sqlite3_column_type(stmt, 8) != SQLITE_NULL
                         ? String(cString: sqlite3_column_text(stmt, 8)) : nil
 
                     let recordCount = Int(sqlite3_column_int(stmt, 9))
@@ -552,7 +552,7 @@ class RegularizationManager {
                         canonicalMake: canonicalMake,
                         canonicalModel: canonicalModel,
                         fuelType: fuelType,
-                        vehicleClass: vehicleClass,
+                        vehicleType: vehicleType,
                         recordCount: recordCount,
                         percentageOfTotal: 0.0, // Will calculate after we have total
                         yearRange: yearRange
@@ -572,7 +572,7 @@ class RegularizationManager {
                             canonicalMake: mapping.canonicalMake,
                             canonicalModel: mapping.canonicalModel,
                             fuelType: mapping.fuelType,
-                            vehicleClass: mapping.vehicleClass,
+                            vehicleType: mapping.vehicleType,
                             recordCount: mapping.recordCount,
                             percentageOfTotal: Double(mapping.recordCount) / Double(totalRecords) * 100.0,
                             yearRange: mapping.yearRange
@@ -934,6 +934,54 @@ class RegularizationManager {
             } else {
                 let error = String(cString: sqlite3_errmsg(db))
                 continuation.resume(throwing: DatabaseError.queryFailed("Failed to validate Make consistency: \(error)"))
+            }
+        }
+    }
+
+    // MARK: - Vehicle Type Regularization
+
+    /// Gets uncurated Make/Model IDs that should match a given vehicle type filter
+    /// This allows uncurated records (with NULL vehicle_type_id) to be included when filtering by vehicle type
+    func getUncuratedMakeModelIDsForVehicleType(vehicleTypeId: Int) async throws -> (makeIds: [Int], modelIds: [Int]) {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        // Query: Find uncurated Make/Model pairs that map to this vehicle type
+        let sql = """
+        SELECT DISTINCT
+            r.uncurated_make_id,
+            r.uncurated_model_id
+        FROM make_model_regularization r
+        WHERE r.vehicle_type_id = ?;
+        """
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            var makeIds: Set<Int> = []
+            var modelIds: Set<Int> = []
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                sqlite3_bind_int(stmt, 1, Int32(vehicleTypeId))
+
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let makeId = Int(sqlite3_column_int(stmt, 0))
+                    let modelId = Int(sqlite3_column_int(stmt, 1))
+                    makeIds.insert(makeId)
+                    modelIds.insert(modelId)
+                }
+
+                let makeArray = Array(makeIds).sorted()
+                let modelArray = Array(modelIds).sorted()
+
+                if !makeArray.isEmpty {
+                    print("🔄 Vehicle Type regularization: Found \(makeArray.count) makes, \(modelArray.count) models for vehicle type ID \(vehicleTypeId)")
+                }
+
+                continuation.resume(returning: (makeIds: makeArray, modelIds: modelArray))
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to get Make/Model IDs for vehicle type: \(error)"))
             }
         }
     }

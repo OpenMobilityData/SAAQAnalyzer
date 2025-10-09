@@ -1657,7 +1657,7 @@ struct RegularizationMapping: Identifiable, Sendable {
     let canonicalMake: String
     let canonicalModel: String
     let fuelType: String?
-    let vehicleClass: String?
+    let vehicleType: String?
     let recordCount: Int
     let percentageOfTotal: Double
     let yearRange: String
@@ -1688,7 +1688,7 @@ struct UnverifiedMakeModelPair: Identifiable, Sendable, Hashable {
     }
 }
 
-/// Hierarchical structure for canonical Make/Model/FuelType/VehicleClass combinations
+/// Hierarchical structure for canonical Make/Model/FuelType/VehicleType combinations
 struct MakeModelHierarchy: Sendable {
     /// Top-level: Make
     struct Make: Identifiable, Sendable, Hashable {
@@ -1703,7 +1703,7 @@ struct MakeModelHierarchy: Sendable {
         let name: String
         let makeId: Int
         let fuelTypes: [FuelTypeInfo]
-        let vehicleClasses: [VehicleClassInfo]
+        let vehicleTypes: [VehicleTypeInfo]
     }
 
     /// Third level: Fuel Type (for a Make/Model combination)
@@ -1715,7 +1715,7 @@ struct MakeModelHierarchy: Sendable {
     }
 
     /// Third level: Vehicle Type (for a Make/Model combination)
-    struct VehicleClassInfo: Identifiable, Sendable, Hashable {
+    struct VehicleTypeInfo: Identifiable, Sendable, Hashable {
         let id: Int
         let code: String
         let description: String

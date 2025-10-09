@@ -33,6 +33,8 @@ When working in the Regularization Editor, each Make/Model pair shows a status b
 
 **Note:** The green "Complete" badge requires both FuelType AND VehicleType to be non-NULL. Setting a field to "Unknown" counts as assigned (user has made a decision), while "Not Specified" (NULL) means the field hasn't been reviewed yet.
 
+**Terminology Note:** "VehicleType" refers to the physical type of vehicle (TYP_VEH_CATEG_USA field: AU, CA, MC, etc.), not the usage-based classification (CLAS field: PAU, CAU, TAX, etc.).
+
 ## Query Behavior
 
 ### With "Enable Regularization in Queries" = OFF (Default)
@@ -139,7 +141,7 @@ For Make/Model pairs that exist in both curated and uncurated years (e.g., `HOND
 2. **FuelType**: Auto-assigned if **only one option exists** in the canonical data (excluding "Not Specified" placeholders)
 3. **VehicleType**: Auto-assigned if **only one option exists** in the canonical data (excluding "Not Specified" placeholders)
 
-**Note:** The system only counts actual types found in curated years (Gasoline, Diesel, PAU, COM, etc.). The "Unknown" enum value will never appear in the canonical hierarchy since it wasn't used in curated years (2011-2022).
+**Note:** The system only counts actual types found in curated years (Gasoline, Diesel for FuelType; AU, CA, MC, etc. for VehicleType). The "Unknown" enum value will never appear in the canonical hierarchy since it wasn't used in curated years (2011-2022).
 
 ### Examples
 
@@ -147,7 +149,7 @@ For Make/Model pairs that exist in both curated and uncurated years (e.g., `HOND
 ```
 HONDA CIVIC in curated data has:
 - FuelTypes: ["Gasoline"] (only one option)
-- VehicleTypes: ["PAU"] (only one option)
+- VehicleTypes: ["AU - Automobile or Light Truck"] (only one option)
 
 Result: ✅ Fully auto-assigned → 🟢 Green "Complete" badge
 ```
@@ -156,7 +158,7 @@ Result: ✅ Fully auto-assigned → 🟢 Green "Complete" badge
 ```
 HONDA ACCORD in curated data has:
 - FuelTypes: ["Gasoline", "Hybrid", "Electric"] (multiple options)
-- VehicleTypes: ["PAU"] (only one option)
+- VehicleTypes: ["AU - Automobile or Light Truck"] (only one option)
 
 Result: ✅ VehicleType auto-assigned, FuelType left NULL → 🟠 Orange "Needs Review" badge
 User must manually select FuelType (or "Unknown") to complete the mapping
@@ -176,7 +178,7 @@ When you select a Make/Model pair for editing, the FuelType and VehicleType drop
 |--------|---------------|-------------|---------|
 | "Not Specified" | NULL | 🟠 Orange "Needs Review" | Field hasn't been reviewed by user |
 | "Unknown" | "Unknown" enum value | 🟢 Green "Complete" | User reviewed and determined field cannot be disambiguated |
-| Actual type (e.g., "Gasoline") | Real enum value | 🟢 Green "Complete" | User successfully identified the type |
+| Actual type (e.g., "Gasoline", "AU") | Real enum value | 🟢 Green "Complete" | User successfully identified the type |
 
 **Why this matters:**
 - **Orange badges** signal "needs attention" - user hasn't looked at this pair yet

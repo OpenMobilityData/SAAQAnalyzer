@@ -185,6 +185,22 @@ class OptimizedQueryManager {
             // Apply regularization expansion if enabled
             if regularizationEnabled {
                 if let regManager = databaseManager?.regularizationManager {
+                    // Vehicle Type regularization: Find uncurated Make/Model pairs for selected vehicle types
+                    // This allows uncurated records (with NULL vehicle_type_id) to match vehicle type filters
+                    if !vehicleTypeIds.isEmpty {
+                        var regularizedMakeIds: Set<Int> = Set(makeIds)
+                        var regularizedModelIds: Set<Int> = Set(modelIds)
+
+                        for vehicleTypeId in vehicleTypeIds {
+                            let (typeMakeIds, typeModelIds) = try await regManager.getUncuratedMakeModelIDsForVehicleType(vehicleTypeId: vehicleTypeId)
+                            regularizedMakeIds.formUnion(typeMakeIds)
+                            regularizedModelIds.formUnion(typeModelIds)
+                        }
+
+                        makeIds = Array(regularizedMakeIds).sorted()
+                        modelIds = Array(regularizedModelIds).sorted()
+                    }
+
                     // Expand Make IDs (derived from Make/Model mappings)
                     if !makeIds.isEmpty {
                         makeIds = try await regManager.expandMakeIDs(makeIds: makeIds)
@@ -340,12 +356,45 @@ class OptimizedQueryManager {
                 }
 
                 // Vehicle Type filter using vehicle_type_id
+                // Special handling when regularization is enabled:
+                // - Without regularization: Filter by vehicle_type_id (excludes NULL)
+                // - With regularization: Include both vehicle_type_id matches AND NULL vehicle_type_id that have regularization mappings
                 if !filterIds.vehicleTypeIds.isEmpty {
-                    let placeholders = Array(repeating: "?", count: filterIds.vehicleTypeIds.count).joined(separator: ",")
-                    whereClause += " AND vehicle_type_id IN (\(placeholders))"
-                    for id in filterIds.vehicleTypeIds {
-                        bindValues.append((bindIndex, id))
-                        bindIndex += 1
+                    let vtPlaceholders = Array(repeating: "?", count: filterIds.vehicleTypeIds.count).joined(separator: ",")
+
+                    if self.regularizationEnabled {
+                        // With regularization: Include records that either:
+                        // 1. Have matching vehicle_type_id (curated records), OR
+                        // 2. Have NULL vehicle_type_id AND exist in regularization table for this vehicle type (uncurated records)
+                        whereClause += " AND ("
+                        whereClause += "vehicle_type_id IN (\(vtPlaceholders))"
+                        whereClause += " OR (vehicle_type_id IS NULL AND EXISTS ("
+                        whereClause += "SELECT 1 FROM make_model_regularization r "
+                        whereClause += "WHERE r.uncurated_make_id = v.make_id "
+                        whereClause += "AND r.uncurated_model_id = v.model_id "
+                        whereClause += "AND r.vehicle_type_id IN (\(vtPlaceholders))"
+                        whereClause += "))"
+                        whereClause += ")"
+
+                        // Bind vehicle type IDs (first occurrence)
+                        for id in filterIds.vehicleTypeIds {
+                            bindValues.append((bindIndex, id))
+                            bindIndex += 1
+                        }
+                        // Bind vehicle type IDs again (for EXISTS subquery)
+                        for id in filterIds.vehicleTypeIds {
+                            bindValues.append((bindIndex, id))
+                            bindIndex += 1
+                        }
+
+                        print("🔄 Vehicle Type filter with regularization: Using EXISTS subquery to match regularization mappings")
+                    } else {
+                        // Without regularization: Standard vehicle_type_id filter
+                        whereClause += " AND vehicle_type_id IN (\(vtPlaceholders))"
+                        for id in filterIds.vehicleTypeIds {
+                            bindValues.append((bindIndex, id))
+                            bindIndex += 1
+                        }
                     }
                 }
 
