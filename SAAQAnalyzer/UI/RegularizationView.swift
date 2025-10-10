@@ -508,44 +508,25 @@ struct MappingFormView: View {
             .background(Color.gray.opacity(0.05))
             .cornerRadius(8)
 
-            // Step 4: Select Fuel Type (optional)
+            // Step 4: Select Fuel Types by Model Year (Radio Button UI)
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("4. Select Fuel Type (Optional)")
+                    Text("4. Select Fuel Type by Model Year")
                         .font(.headline)
                     Spacer()
-                    if viewModel.selectedFuelType != nil {
+                    if let model = viewModel.selectedCanonicalModel,
+                       viewModel.allFuelTypesAssigned(for: model) {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
                     }
                 }
 
-                Text("Leave unset if uncertain or multiple fuel types exist")
+                Text("Select ONE fuel type for each year. Choose 'Unknown' if the year has multiple fuel types and cannot be disambiguated.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 if let model = viewModel.selectedCanonicalModel {
-                    Picker("Fuel Type", selection: $viewModel.selectedFuelType) {
-                        Text("Not Assigned").tag(nil as MakeModelHierarchy.FuelTypeInfo?)
-
-                        // Special "Unknown" option (not in hierarchy since it doesn't appear in curated years)
-                        Text("Unknown").tag(MakeModelHierarchy.FuelTypeInfo(
-                            id: -1,  // Placeholder ID - will be looked up from enum table when saving
-                            code: "U",
-                            description: "Unknown",
-                            recordCount: 0
-                        ) as MakeModelHierarchy.FuelTypeInfo?)
-
-                        ForEach(model.fuelTypes) { fuelType in
-                            HStack {
-                                Text(fuelType.description)
-                                Text("(\(fuelType.recordCount.formatted()))")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .tag(fuelType as MakeModelHierarchy.FuelTypeInfo?)
-                        }
-                    }
-                    .pickerStyle(.menu)
+                    FuelTypeYearSelectionView(model: model, viewModel: viewModel)
                 } else {
                     Text("Select a model first")
                         .font(.caption)
@@ -584,6 +565,139 @@ struct MappingFormView: View {
     }
 }
 
+// MARK: - Fuel Type Year Selection View
+
+struct FuelTypeYearSelectionView: View {
+    let model: MakeModelHierarchy.Model
+    @ObservedObject var viewModel: RegularizationViewModel
+    @State private var showOnlyNotAssigned = false
+
+    var body: some View {
+        VStack(spacing: 8) {
+            // Filter toggle
+            HStack {
+                Toggle(isOn: $showOnlyNotAssigned) {
+                    HStack(spacing: 4) {
+                        Image(systemName: showOnlyNotAssigned ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                            .foregroundColor(showOnlyNotAssigned ? .blue : .secondary)
+                        Text("Show only Not Assigned")
+                            .font(.caption)
+                            .foregroundStyle(showOnlyNotAssigned ? .primary : .secondary)
+                    }
+                }
+                .toggleStyle(.button)
+                .buttonStyle(.borderless)
+
+                Spacer()
+
+                Text("\(filteredYears.count) of \(sortedYears.count) years")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 4)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(filteredYears, id: \.self) { yearId in
+                        if let yearId = yearId, let fuelTypes = model.modelYearFuelTypes[yearId] {
+                            ModelYearFuelTypeRow(
+                                yearId: yearId,
+                                fuelTypes: fuelTypes,
+                                viewModel: viewModel
+                            )
+                        }
+                    }
+                }
+                .padding(8)
+            }
+            .frame(maxHeight: 400)
+        }
+        .background(Color.gray.opacity(0.03))
+        .cornerRadius(6)
+    }
+
+    private var sortedYears: [Int?] {
+        model.modelYearFuelTypes.keys.sorted { yearId1, yearId2 in
+            guard let id1 = yearId1, let fuelTypes1 = model.modelYearFuelTypes[id1], let year1 = fuelTypes1.first?.modelYear else { return false }
+            guard let id2 = yearId2, let fuelTypes2 = model.modelYearFuelTypes[id2], let year2 = fuelTypes2.first?.modelYear else { return true }
+            return year1 < year2
+        }
+    }
+
+    private var filteredYears: [Int?] {
+        if showOnlyNotAssigned {
+            return sortedYears.filter { yearId in
+                guard let yearId = yearId else { return false }
+                return viewModel.getSelectedFuelType(forYearId: yearId) == nil
+            }
+        } else {
+            return sortedYears
+        }
+    }
+}
+
+struct ModelYearFuelTypeRow: View {
+    let yearId: Int
+    let fuelTypes: [MakeModelHierarchy.FuelTypeInfo]
+    @ObservedObject var viewModel: RegularizationViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Year header
+            Text("Model Year \(String(fuelTypes.first?.modelYear ?? 0))")
+                .font(.system(.body, design: .monospaced))
+                .fontWeight(.semibold)
+                .foregroundColor(.primary)
+
+            // Radio button options
+            VStack(alignment: .leading, spacing: 4) {
+                // Option 1: Not Assigned (default)
+                RadioButtonRow(
+                    label: "Not Assigned",
+                    isSelected: viewModel.getSelectedFuelType(forYearId: yearId) == nil,
+                    action: { viewModel.setFuelType(yearId: yearId, fuelTypeId: nil) }
+                )
+                .foregroundColor(.secondary)
+
+                // Option 2: Unknown
+                RadioButtonRow(
+                    label: "Unknown",
+                    isSelected: viewModel.getSelectedFuelType(forYearId: yearId) == -1,
+                    action: { viewModel.setFuelType(yearId: yearId, fuelTypeId: -1) }
+                )
+                .foregroundColor(.orange)
+
+                Divider()
+
+                // Options 3+: Actual fuel types (filtered)
+                ForEach(validFuelTypes) { fuelType in
+                    RadioButtonRow(
+                        label: "\(fuelType.description) (\(fuelType.recordCount.formatted()))",
+                        isSelected: viewModel.getSelectedFuelType(forYearId: yearId) == fuelType.id,
+                        action: { viewModel.setFuelType(yearId: yearId, fuelTypeId: fuelType.id) }
+                    )
+                }
+            }
+            .padding(.leading, 8)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(Color.gray.opacity(0.05))
+        .cornerRadius(6)
+    }
+
+    private var validFuelTypes: [MakeModelHierarchy.FuelTypeInfo] {
+        fuelTypes.filter { fuelType in
+            !fuelType.description.localizedCaseInsensitiveContains("not specified") &&
+            !fuelType.description.localizedCaseInsensitiveContains("not assigned") &&
+            !fuelType.description.localizedCaseInsensitiveContains("non spécifié")
+        }
+    }
+}
+
 // MARK: - View Model
 
 @MainActor
@@ -606,13 +720,23 @@ class RegularizationViewModel: ObservableObject {
             }
         }
     }
-    @Published var existingMappings: [String: RegularizationMapping] = [:] // Key: "\(makeId)_\(modelId)"
+    @Published var existingMappings: [String: [RegularizationMapping]] = [:] // Key: "\(makeId)_\(modelId)" → Array of mappings (triplets + wildcard)
 
     // Mapping form state
     @Published var selectedCanonicalMake: MakeModelHierarchy.Make?
-    @Published var selectedCanonicalModel: MakeModelHierarchy.Model?
-    @Published var selectedFuelType: MakeModelHierarchy.FuelTypeInfo?
+    @Published var selectedCanonicalModel: MakeModelHierarchy.Model? {
+        didSet {
+            // Clear fuel type selections when model changes
+            if selectedCanonicalModel?.id != oldValue?.id {
+                selectedFuelTypesByYear = [:]
+            }
+        }
+    }
     @Published var selectedVehicleType: MakeModelHierarchy.VehicleTypeInfo?
+
+    // Year-based fuel type selections for table UI (single selection per year)
+    // Dictionary: modelYearId → fuelTypeId (or nil for "Not Assigned", -1 for "Unknown")
+    @Published var selectedFuelTypesByYear: [Int: Int?] = [:]
 
     // Loading states
     @Published var isLoading = false
@@ -630,11 +754,11 @@ class RegularizationViewModel: ObservableObject {
     var regularizationProgress: (regularizedRecords: Int, totalRecords: Int, percentage: Double) {
         let totalRecords = uncuratedPairs.reduce(0) { $0 + $1.recordCount }
 
-        // Count records that have mappings
+        // Count records that have mappings (check if array is non-empty)
         var regularizedRecords = 0
         for pair in uncuratedPairs {
-            let key = "\(pair.makeId)_\(pair.modelId)"
-            if existingMappings[key] != nil {
+            let mappings = getMappingsForPair(pair.makeId, pair.modelId)
+            if !mappings.isEmpty {
                 regularizedRecords += pair.recordCount
             }
         }
@@ -651,7 +775,7 @@ class RegularizationViewModel: ObservableObject {
     func loadInitialData() async {
         // Update year configuration in manager
         if let manager = regularizationManager {
-            await manager.setYearConfiguration(yearConfig)
+            manager.setYearConfiguration(yearConfig)
         }
 
         // Load existing mappings
@@ -669,17 +793,29 @@ class RegularizationViewModel: ObservableObject {
 
         do {
             let mappings = try await manager.getAllMappings()
-            var mappingsDict: [String: RegularizationMapping] = [:]
+            var mappingsDict: [String: [RegularizationMapping]] = [:]
 
+            // Group mappings by Make/Model pair (multiple mappings per pair for triplets)
             for mapping in mappings {
-                // Use uncuratedKey from the mapping
-                mappingsDict[mapping.uncuratedKey] = mapping
+                let key = mapping.uncuratedKey
+                if mappingsDict[key] == nil {
+                    mappingsDict[key] = []
+                }
+                mappingsDict[key]?.append(mapping)
             }
 
             await MainActor.run {
                 existingMappings = mappingsDict
             }
-            print("✅ Loaded \(mappings.count) existing mappings")
+
+            // Count unique pairs vs total mappings (including triplets)
+            let uniquePairs = mappingsDict.count
+            let totalMappings = mappings.count
+            if totalMappings > uniquePairs {
+                print("✅ Loaded \(totalMappings) mappings (\(uniquePairs) pairs, \(totalMappings - uniquePairs) triplets)")
+            } else {
+                print("✅ Loaded \(mappings.count) existing mappings")
+            }
         } catch {
             print("❌ Error loading existing mappings: \(error)")
         }
@@ -747,28 +883,9 @@ class RegularizationViewModel: ObservableObject {
         isSaving = true
 
         do {
-            // Resolve placeholder IDs for "Unknown" options
-            var fuelTypeId = selectedFuelType?.id
+            // Resolve vehicle type ID (handle "Unknown" placeholder)
             var vehicleTypeId = selectedVehicleType?.id
 
-            // If fuel type has placeholder ID (-1), lookup real ID by code
-            if let fuelType = selectedFuelType, fuelType.id == -1 {
-                print("🔍 Resolving placeholder FuelType ID -1 (code: \(fuelType.code))")
-                let enumManager = CategoricalEnumManager(databaseManager: databaseManager)
-                if let resolvedId = try await enumManager.getEnumId(
-                    table: "fuel_type_enum",
-                    column: "code",
-                    value: fuelType.code
-                ) {
-                    fuelTypeId = resolvedId
-                    print("✅ Resolved FuelType '\(fuelType.code)' to ID \(resolvedId)")
-                } else {
-                    print("❌ ERROR: Failed to resolve FuelType '\(fuelType.code)' - will save as NULL!")
-                    fuelTypeId = nil
-                }
-            }
-
-            // If vehicle type has placeholder ID (-1), lookup real ID by code
             if let vehicleType = selectedVehicleType, vehicleType.id == -1 {
                 print("🔍 Resolving placeholder VehicleType ID -1 (code: \(vehicleType.code))")
                 let enumManager = CategoricalEnumManager(databaseManager: databaseManager)
@@ -785,19 +902,77 @@ class RegularizationViewModel: ObservableObject {
                 }
             }
 
+            // STEP 1: Create ONE wildcard mapping with VehicleType only (FuelType = NULL)
             try await manager.saveMapping(
                 uncuratedMakeId: pair.makeId,
                 uncuratedModelId: pair.modelId,
+                modelYearId: nil,  // Wildcard (applies to all years)
                 canonicalMakeId: canonicalMake.id,
                 canonicalModelId: canonicalModel.id,
-                fuelTypeId: fuelTypeId,
+                fuelTypeId: nil,   // FuelType will be set by triplets
                 vehicleTypeId: vehicleTypeId
             )
 
-            print("✅ Saved mapping: \(pair.makeModelDisplay) → \(canonicalMake.name)/\(canonicalModel.name)")
+            print("✅ Saved wildcard mapping: \(pair.makeModelDisplay) → \(canonicalMake.name)/\(canonicalModel.name), VehicleType=\(selectedVehicleType?.description ?? "NULL")")
+
+            // STEP 2: Create triplet mappings for ALL model years (with user selections or NULL)
+            var tripletCount = 0
+            var assignedCount = 0
+            var unknownCount = 0
+
+            if let model = selectedCanonicalModel {
+                for (yearId, fuelTypes) in model.modelYearFuelTypes {
+                    guard let yearId = yearId else { continue }
+
+                    // Get user selection for this year (nil = Not Assigned, -1 = Unknown, or specific ID)
+                    let selectedFuelTypeId = selectedFuelTypesByYear[yearId] ?? nil
+
+                    // Resolve -1 (Unknown placeholder) to actual Unknown fuel type ID
+                    var resolvedFuelTypeId = selectedFuelTypeId
+                    if selectedFuelTypeId == -1 {
+                        // Look up "Unknown" fuel type ID from enum table
+                        let enumManager = CategoricalEnumManager(databaseManager: databaseManager)
+                        resolvedFuelTypeId = try await enumManager.getEnumId(
+                            table: "fuel_type_enum",
+                            column: "code",
+                            value: "U"
+                        )
+                        if resolvedFuelTypeId == nil {
+                            print("⚠️ WARNING: 'Unknown' fuel type (code 'U') not found in enum table - saving as NULL")
+                        } else {
+                            unknownCount += 1
+                        }
+                    } else if selectedFuelTypeId != nil {
+                        assignedCount += 1
+                    }
+
+                    // Create triplet mapping
+                    try await manager.saveMapping(
+                        uncuratedMakeId: pair.makeId,
+                        uncuratedModelId: pair.modelId,
+                        modelYearId: yearId,
+                        canonicalMakeId: canonicalMake.id,
+                        canonicalModelId: canonicalModel.id,
+                        fuelTypeId: resolvedFuelTypeId,
+                        vehicleTypeId: nil  // VehicleType set by wildcard
+                    )
+                    tripletCount += 1
+
+                    // Log triplet creation
+                    let yearValue = fuelTypes.first?.modelYear ?? 0
+                    if let ftId = resolvedFuelTypeId, let fuelType = fuelTypes.first(where: { $0.id == ftId }) {
+                        print("   ✓ Triplet: ModelYear \(yearValue) → FuelType=\(fuelType.code)")
+                    } else if selectedFuelTypeId == -1 {
+                        print("   ✓ Triplet: ModelYear \(yearValue) → FuelType=U (Unknown)")
+                    } else {
+                        print("   ✓ Triplet: ModelYear \(yearValue) → FuelType=NULL (Not Assigned)")
+                    }
+                }
+            }
+
+            print("✅ Saved \(tripletCount) triplet mappings (\(assignedCount) assigned, \(unknownCount) unknown, \(tripletCount - assignedCount - unknownCount) not assigned)")
 
             // Reload existing mappings to update status indicators
-            // This will trigger UI updates for status badges without rebuilding the pairs array
             await loadExistingMappings()
 
             // Reload the mapping for the current pair to show updated form fields
@@ -818,8 +993,35 @@ class RegularizationViewModel: ObservableObject {
     func clearMappingFormFields() {
         selectedCanonicalMake = nil
         selectedCanonicalModel = nil
-        selectedFuelType = nil
         selectedVehicleType = nil
+        selectedFuelTypesByYear = [:]
+    }
+
+    // MARK: - Year-Based Fuel Type Selection Methods
+
+    /// Get the selected fuel type ID for a given model year
+    /// Returns: fuel type ID, -1 for "Unknown", or nil for "Not Assigned"
+    func getSelectedFuelType(forYearId yearId: Int) -> Int? {
+        return selectedFuelTypesByYear[yearId] ?? nil
+    }
+
+    /// Set the fuel type for a specific model year
+    /// Pass nil for "Not Assigned", -1 for "Unknown", or a specific fuel type ID
+    func setFuelType(yearId: Int, fuelTypeId: Int?) {
+        selectedFuelTypesByYear[yearId] = fuelTypeId
+    }
+
+    /// Check if all model years have assigned fuel types (not "Not Assigned")
+    /// Returns true if all years have either a specific fuel type or "Unknown" (-1)
+    func allFuelTypesAssigned(for model: MakeModelHierarchy.Model) -> Bool {
+        for (yearId, _) in model.modelYearFuelTypes {
+            guard let yearId = yearId else { continue }
+            let selection = selectedFuelTypesByYear[yearId] ?? nil
+            if selection == nil {
+                return false  // "Not Assigned" found
+            }
+        }
+        return true
     }
 
     /// Auto-regularize pairs where Make/Model exactly match curated pairs
@@ -867,44 +1069,34 @@ class RegularizationViewModel: ObservableObject {
         for pair in allUncuratedPairs {
             let pairKey = "\(pair.makeName)/\(pair.modelName)"
 
-            // Check if this pair already has a mapping
-            let mappingKey = "\(pair.makeId)_\(pair.modelId)"
-            if existingMappings[mappingKey] != nil {
+            // Check if this pair already has a mapping (check if array is non-empty)
+            let mappings = getMappingsForPair(pair.makeId, pair.modelId)
+            if !mappings.isEmpty {
                 continue  // Already mapped
             }
 
             // Check if there's an exact match
             if let canonicalModel = canonicalPairs[pairKey] {
-                // Filter out "Not Assigned" placeholders when counting valid options
-                // Note: "Unknown" will never appear in canonical hierarchy (curated years only)
-                let validFuelTypes = canonicalModel.fuelTypes.filter { fuelType in
-                    !fuelType.description.localizedCaseInsensitiveContains("not specified") &&
-                    !fuelType.description.localizedCaseInsensitiveContains("not assigned") &&
-                    !fuelType.description.localizedCaseInsensitiveContains("non spécifié")
-                }
+                // PHASE 2B: ModelYear-aware auto-regularization
+                // Strategy:
+                // 1. VehicleType: Create ONE wildcard pair mapping (model_year_id = NULL)
+                // 2. FuelType: Create MULTIPLE triplet mappings (one per model year with single fuel type)
+
+                // Filter valid vehicle types
                 let validVehicleTypes = canonicalModel.vehicleTypes.filter { vehicleType in
                     !vehicleType.description.localizedCaseInsensitiveContains("not specified") &&
                     !vehicleType.description.localizedCaseInsensitiveContains("not assigned") &&
                     !vehicleType.description.localizedCaseInsensitiveContains("non spécifié")
                 }
 
-                // Auto-assign FuelType if there's only one valid option
-                let fuelTypeId: Int? = validFuelTypes.count == 1
-                    ? validFuelTypes.first?.id
-                    : nil
-
-                // Auto-assign VehicleType using cardinal type matching
+                // Determine VehicleType assignment using cardinal type matching
                 let vehicleTypeId: Int? = {
-                    // If only one option, auto-assign it
                     if validVehicleTypes.count == 1 {
                         return validVehicleTypes.first?.id
                     }
 
-                    // If multiple options, check for cardinal type matching (if enabled)
                     if validVehicleTypes.count > 1 && AppSettings.shared.useCardinalTypes {
                         let cardinalCodes = AppSettings.shared.cardinalVehicleTypeCodes
-
-                        // Find the first cardinal type (by priority order) that matches
                         for cardinalCode in cardinalCodes {
                             if let matchingType = validVehicleTypes.first(where: { $0.code == cardinalCode }) {
                                 print("   🎯 Cardinal type match: \(cardinalCode) found among \(validVehicleTypes.map { $0.code }.joined(separator: ", "))")
@@ -913,28 +1105,68 @@ class RegularizationViewModel: ObservableObject {
                         }
                     }
 
-                    // No single option and no cardinal match - leave NULL
                     return nil
                 }()
 
+                // Analyze FuelTypes by ModelYear
+                // Build dictionary: modelYearId → [FuelTypeInfo] (filtered for valid fuel types)
+                var fuelTypesByYear: [Int?: [MakeModelHierarchy.FuelTypeInfo]] = [:]
+
+                for (modelYearId, fuelTypes) in canonicalModel.modelYearFuelTypes {
+                    let validFuelTypes = fuelTypes.filter { fuelType in
+                        !fuelType.description.localizedCaseInsensitiveContains("not specified") &&
+                        !fuelType.description.localizedCaseInsensitiveContains("not assigned") &&
+                        !fuelType.description.localizedCaseInsensitiveContains("non spécifié")
+                    }
+
+                    if !validFuelTypes.isEmpty {
+                        fuelTypesByYear[modelYearId] = validFuelTypes
+                    }
+                }
+
                 do {
+                    // STEP 1: Create triplet mappings for model years with single fuel type
+                    var tripletCount = 0
+                    for (modelYearId, fuelTypes) in fuelTypesByYear {
+                        if let modelYearId = modelYearId, fuelTypes.count == 1, let fuelType = fuelTypes.first {
+                            // Single fuel type for this model year → create triplet mapping
+                            try await manager.saveMapping(
+                                uncuratedMakeId: pair.makeId,
+                                uncuratedModelId: pair.modelId,
+                                modelYearId: modelYearId,
+                                canonicalMakeId: canonicalModel.makeId,
+                                canonicalModelId: canonicalModel.id,
+                                fuelTypeId: fuelType.id,
+                                vehicleTypeId: nil  // Will be set by wildcard pair
+                            )
+                            tripletCount += 1
+                            print("   ✓ Triplet: ModelYear \(fuelType.modelYear ?? 0) → FuelType=\(fuelType.code)")
+                        }
+                    }
+
+                    // STEP 2: Create wildcard pair mapping for VehicleType only
+                    // FuelType is ALWAYS set by triplets (year-specific), not wildcard
+                    let wildcardFuelTypeId: Int? = nil
+
                     try await manager.saveMapping(
                         uncuratedMakeId: pair.makeId,
                         uncuratedModelId: pair.modelId,
+                        modelYearId: nil,  // Wildcard (all years)
                         canonicalMakeId: canonicalModel.makeId,
                         canonicalModelId: canonicalModel.id,
-                        fuelTypeId: fuelTypeId,
+                        fuelTypeId: wildcardFuelTypeId,
                         vehicleTypeId: vehicleTypeId
                     )
+
                     autoRegularizedCount += 1
 
                     // Log what was auto-assigned
                     var autoAssignedFields: [String] = ["M/M"]
-                    if fuelTypeId != nil {
-                        autoAssignedFields.append("FuelType")
+                    if tripletCount > 0 {
+                        autoAssignedFields.append("FuelType(\(tripletCount) triplets)")
                     }
+                    // Note: wildcardFuelTypeId is always nil (FuelType set by triplets only)
                     if let vtId = vehicleTypeId {
-                        // Check if this was assigned via cardinal type matching
                         let wasCardinalMatch = validVehicleTypes.count > 1 &&
                             AppSettings.shared.useCardinalTypes &&
                             validVehicleTypes.contains(where: {
@@ -962,23 +1194,92 @@ class RegularizationViewModel: ObservableObject {
         isAutoRegularizing = false
     }
 
+    /// Helper: Get all mappings for a Make/Model pair (includes triplets and wildcards)
+    func getMappingsForPair(_ makeId: Int, _ modelId: Int) -> [RegularizationMapping] {
+        let key = "\(makeId)_\(modelId)"
+        return existingMappings[key] ?? []
+    }
+
+    /// Helper: Get the wildcard mapping for a pair (model_year_id = NULL)
+    func getWildcardMapping(for pair: UnverifiedMakeModelPair) -> RegularizationMapping? {
+        return getMappingsForPair(pair.makeId, pair.modelId).first { $0.modelYearId == nil }
+    }
+
     /// Get regularization status for a pair
+    /// Status logic:
+    /// - 🟢 Complete: VehicleType assigned AND ALL triplets have assigned fuel types (including "Unknown", but NOT "Not Assigned"/NULL)
+    /// - 🟠 Needs Review: VehicleType assigned OR some triplets have assigned fuel types (partial work done)
+    /// - 🔴 Unassigned: No mappings exist
     func getRegularizationStatus(for pair: UnverifiedMakeModelPair) -> RegularizationStatus {
         let key = "\(pair.makeId)_\(pair.modelId)"
 
-        guard let mapping = existingMappings[key] else {
+        guard let mappings = existingMappings[key], !mappings.isEmpty else {
             return .none  // 🔴 No mapping exists
         }
 
-        // Check if both fuel type AND vehicle type are assigned (non-NULL)
-        // "Unknown" counts as assigned (user has made a decision)
-        let hasFuelType = mapping.fuelType != nil
-        let hasVehicleType = mapping.vehicleType != nil
+        // Separate wildcard and triplet mappings
+        let wildcardMapping = mappings.first { $0.modelYearId == nil }
+        let tripletMappings = mappings.filter { $0.modelYearId != nil }
 
-        if hasFuelType && hasVehicleType {
-            return .fullyRegularized  // 🟢 Both fields assigned (including "Unknown")
+        // Check if vehicle type is assigned (should be in wildcard)
+        let hasVehicleType = wildcardMapping?.vehicleType != nil
+
+        // CRITICAL: Check if ALL model years have triplets AND all triplets have ASSIGNED fuel types
+        // "Unknown" counts as assigned, but NULL does not
+        // If there are no triplets at all, we consider this "needs review"
+        let allTripletsHaveFuelType: Bool
+        if tripletMappings.isEmpty {
+            allTripletsHaveFuelType = false  // No triplets = incomplete
         } else {
-            return .needsReview  // 🟠 At least one field is NULL (needs review)
+            // Check that ALL triplets have non-NULL fuel types
+            let allExistingTripletsAssigned = tripletMappings.allSatisfy { $0.fuelType != nil }
+
+            // Also check that we have a year-specific mapping for EVERY model year
+            // Get expected model years from canonical hierarchy
+            var expectedYearCount: Int?
+            if let wildcardMapping = wildcardMapping,
+               let hierarchy = canonicalHierarchy {
+
+                let canonicalMakeName = wildcardMapping.canonicalMake
+                let canonicalModelName = wildcardMapping.canonicalModel
+
+                // Find the canonical model in hierarchy
+                if let make = hierarchy.makes.first(where: { $0.name == canonicalMakeName }),
+                   let model = make.models.first(where: { $0.name == canonicalModelName }) {
+                    expectedYearCount = model.modelYearFuelTypes.count
+                }
+            }
+
+            // If we can determine expected year count, check that we have all triplets
+            if let expectedYearCount = expectedYearCount {
+                allTripletsHaveFuelType = allExistingTripletsAssigned &&
+                                          tripletMappings.count == expectedYearCount
+            } else {
+                // Fallback: just check existing triplets (old behavior)
+                allTripletsHaveFuelType = allExistingTripletsAssigned
+            }
+
+            // DEBUG: Log triplet fuel type status for HONDA/CIVIC
+            if pair.makeName == "HONDA" && pair.modelName == "CIVIC" {
+                print("🔍 DEBUG Status Check for HONDA/CIVIC:")
+                print("   Total triplets in DB: \(tripletMappings.count)")
+                print("   Expected model years: \(expectedYearCount ?? -1)")
+                print("   Has VehicleType: \(hasVehicleType)")
+                print("   All existing triplets assigned: \(allExistingTripletsAssigned)")
+                print("   All triplets have fuel type: \(allTripletsHaveFuelType)")
+                for (index, triplet) in tripletMappings.enumerated() {
+                    let ftStatus = triplet.fuelType != nil ? "✓ \(triplet.fuelType!)" : "✗ NULL"
+                    print("   Triplet \(index + 1): ModelYear=\(triplet.modelYear ?? 0), FuelType=\(ftStatus)")
+                }
+            }
+        }
+
+        if hasVehicleType && allTripletsHaveFuelType {
+            return .fullyRegularized  // 🟢 VehicleType assigned AND all fuel types assigned (including "Unknown")
+        } else if hasVehicleType || tripletMappings.contains(where: { $0.fuelType != nil }) {
+            return .needsReview  // 🟠 Partial assignment - some work done but not complete
+        } else {
+            return .none  // 🔴 No meaningful assignments yet
         }
     }
 
@@ -1001,8 +1302,8 @@ class RegularizationViewModel: ObservableObject {
             }
         }
 
-        let key = "\(pair.makeId)_\(pair.modelId)"
-        let mapping = existingMappings[key]
+        // Get the wildcard mapping for this pair (form editor uses wildcard for UI display)
+        let mapping = getWildcardMapping(for: pair)
 
         // Try to find canonical Make/Model for this pair
         // First check if there's an existing mapping
@@ -1010,7 +1311,7 @@ class RegularizationViewModel: ObservableObject {
         var canonicalModelName: String?
 
         if let mapping = mapping {
-            // Use mapping's canonical values
+            // Use wildcard mapping's canonical values
             canonicalMakeName = mapping.canonicalMake
             canonicalModelName = mapping.canonicalModel
         } else {
@@ -1040,23 +1341,7 @@ class RegularizationViewModel: ObservableObject {
                     selectedCanonicalModel = model
 
                     // Reset type selections first (in case mapping has NULL values)
-                    selectedFuelType = nil
                     selectedVehicleType = nil
-
-                    // Find the fuel type if assigned (only from existing mapping)
-                    if let mapping = mapping, let fuelTypeName = mapping.fuelType {
-                        if fuelTypeName == "Unknown" {
-                            // Create special "Unknown" instance (matches picker option)
-                            selectedFuelType = MakeModelHierarchy.FuelTypeInfo(
-                                id: -1,
-                                code: "U",
-                                description: "Unknown",
-                                recordCount: 0
-                            )
-                        } else {
-                            selectedFuelType = model.fuelTypes.first { $0.description == fuelTypeName }
-                        }
-                    }
 
                     // Find the vehicle type if assigned (only from existing mapping)
                     if let mapping = mapping, let vehicleTypeName = mapping.vehicleType {
@@ -1070,6 +1355,31 @@ class RegularizationViewModel: ObservableObject {
                             )
                         } else {
                             selectedVehicleType = model.vehicleTypes.first { $0.description == vehicleTypeName }
+                        }
+                    }
+
+                    // Populate year-based fuel type radio selections from triplet mappings
+                    selectedFuelTypesByYear = [:]
+                    let allMappings = getMappingsForPair(pair.makeId, pair.modelId)
+
+                    for mapping in allMappings {
+                        // Only process triplet mappings (those with model_year_id set)
+                        if let yearId = mapping.modelYearId {
+                            if let fuelTypeName = mapping.fuelType {
+                                // Check if this is "Unknown"
+                                if fuelTypeName == "Unknown" {
+                                    selectedFuelTypesByYear[yearId] = -1
+                                } else {
+                                    // Find the fuel type ID by matching description
+                                    if let yearFuelTypes = model.modelYearFuelTypes[yearId],
+                                       let fuelType = yearFuelTypes.first(where: { $0.description == fuelTypeName }) {
+                                        selectedFuelTypesByYear[yearId] = fuelType.id
+                                    }
+                                }
+                            } else {
+                                // Fuel type is NULL (Not Assigned)
+                                selectedFuelTypesByYear[yearId] = nil
+                            }
                         }
                     }
                 }
@@ -1116,5 +1426,29 @@ struct StatusFilterButton: View {
         .buttonBorderShape(.roundedRectangle)
         .controlSize(.small)
         .help(isSelected ? "Hide \(label.lowercased()) pairs" : "Show \(label.lowercased()) pairs")
+    }
+}
+
+// MARK: - Radio Button Row
+
+struct RadioButtonRow: View {
+    let label: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Circle()
+                    .strokeBorder(Color.blue, lineWidth: 2)
+                    .background(Circle().fill(isSelected ? Color.blue : Color.clear))
+                    .frame(width: 16, height: 16)
+
+                Text(label)
+                    .font(.body)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

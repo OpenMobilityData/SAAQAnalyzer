@@ -246,14 +246,58 @@ When you select a Make/Model pair for editing, the FuelType and VehicleType drop
 - **Green badges** signal "work complete" - user has reviewed and made a decision (even if that decision is "Unknown")
 - You can "undo" an Unknown assignment by setting back to "Not Specified" to flag it for future review
 
+## Model Year Fuel Type Assignment UI
+
+When editing a Make/Model pair, Step 4 provides a radio button interface for assigning fuel types to each model year:
+
+### Radio Button Options
+Each model year shows three types of selections:
+- **Not Assigned** (default) - Year hasn't been reviewed yet (database NULL)
+- **Unknown** - User reviewed and determined fuel type cannot be disambiguated (stored as "U" in database)
+- **Specific fuel types** - E.g., "Gasoline (1234)", "Diesel (567)" with record counts from curated data
+
+**Key Rule**: Only ONE selection allowed per year (enforces unambiguous assignments)
+
+### Step 4 Completion Indicator
+
+A **green checkmark** (✓) appears in the "Step 4" header when ALL model years have been assigned:
+- ✅ Appears when no years have "Not Assigned" status
+- ✅ "Unknown" counts as assigned (user made a decision)
+- ✅ Updates in real-time as selections are made
+
+**Purpose**: Provides immediate visual feedback that fuel type assignment is complete for this Make/Model pair
+
+### "Show Only Not Assigned" Filter
+
+A **filter toggle** button allows focusing on years that still need review:
+
+**Features:**
+- Toggle icon: outline (OFF) → filled (ON)
+- Shows count: "X of Y years"
+- Default: OFF (shows all years)
+
+**Use Cases:**
+- **After auto-regularization**: Hide years with assigned fuel types to focus on remaining work
+- **Large models**: Essential for models with 10+ years (e.g., Honda Civic with 14 years)
+- **Progress tracking**: Counter shows how many years remain unassigned
+
+**Example Workflow:**
+1. Honda Civic loads with 13/14 years assigned (auto-regularization skipped year 2009 with multiple fuel types)
+2. No checkmark in Step 4 header (incomplete)
+3. Enable filter toggle → see only year 2009
+4. Counter shows "1 of 14 years"
+5. Assign "Unknown" to year 2009
+6. Checkmark appears (all years assigned)
+7. Save → Status badge updates to 🟢 "Complete"
+
 ## Status Filters in RegularizationView
 
 The RegularizationView now provides granular filtering by regularization status using three independent filter buttons:
 
 **Filter Buttons:**
 - 🔴 **Unassigned** - Show/hide pairs with no regularization mapping
-- 🟠 **Needs Review** - Show/hide pairs with mappings but NULL FuelType/VehicleType
-- 🟢 **Complete** - Show/hide pairs with both FuelType AND VehicleType assigned
+- 🟠 **Needs Review** - Show/hide pairs with mappings but incomplete year coverage or NULL VehicleType
+- 🟢 **Complete** - Show/hide pairs with VehicleType assigned AND all model years have fuel types assigned
 
 **Default:** All three filters are enabled (all pairs visible)
 
