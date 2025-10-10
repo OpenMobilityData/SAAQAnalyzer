@@ -64,12 +64,34 @@ struct UncuratedPairsListView: View {
     @State private var showUnassigned = true
     @State private var showNeedsReview = true
     @State private var showComplete = true
+    @State private var showOnlyRegularizationVehicleTypes = false
+    @State private var selectedVehicleTypeFilter: String? = nil
 
     enum SortOrder: String, CaseIterable {
         case recordCountDescending = "Record Count (High to Low)"
         case recordCountAscending = "Record Count (Low to High)"
         case makeModelAlphabetical = "Make/Model (A-Z)"
         case percentageDescending = "Percentage (High to Low)"
+    }
+
+    var statusCounts: (unassignedCount: Int, needsReviewCount: Int, completeCount: Int) {
+        var unassignedCount = 0
+        var needsReviewCount = 0
+        var completeCount = 0
+
+        for pair in viewModel.uncuratedPairs {
+            let status = viewModel.getRegularizationStatus(for: pair)
+            switch status {
+            case .none:
+                unassignedCount += 1
+            case .needsReview:
+                needsReviewCount += 1
+            case .fullyRegularized:
+                completeCount += 1
+            }
+        }
+
+        return (unassignedCount, needsReviewCount, completeCount)
     }
 
     var filteredAndSortedPairs: [UnverifiedMakeModelPair] {
@@ -93,6 +115,32 @@ struct UncuratedPairsListView: View {
                 return showNeedsReview
             case .fullyRegularized:
                 return showComplete
+            }
+        }
+
+        // Filter by vehicle type
+        if let selectedCode = selectedVehicleTypeFilter {
+            pairs = pairs.filter { pair in
+                let wildcardMapping = viewModel.getWildcardMapping(for: pair)
+
+                // Handle "Not Assigned" filter
+                if selectedCode == "NA" {
+                    // Include pairs with no mapping OR pairs with mapping but NULL vehicle type
+                    if let mapping = wildcardMapping {
+                        return mapping.vehicleType == nil
+                    }
+                    return true  // No mapping at all = not assigned
+                }
+
+                // Handle specific vehicle type filters
+                if let mapping = wildcardMapping,
+                   let vehicleType = mapping.vehicleType {
+                    // Extract the code from the vehicle type description
+                    let vehicleTypeCode = viewModel.getVehicleTypeCode(for: vehicleType)
+                    return vehicleTypeCode == selectedCode
+                }
+
+                return false
             }
         }
 
@@ -137,31 +185,85 @@ struct UncuratedPairsListView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    HStack(spacing: 16) {
+                    HStack(spacing: 8) {
                         StatusFilterButton(
                             isSelected: $showUnassigned,
                             label: "Unassigned",
+                            count: statusCounts.unassignedCount,
                             color: .red
                         )
 
                         StatusFilterButton(
                             isSelected: $showNeedsReview,
                             label: "Needs Review",
+                            count: statusCounts.needsReviewCount,
                             color: .orange
                         )
 
                         StatusFilterButton(
                             isSelected: $showComplete,
                             label: "Complete",
+                            count: statusCounts.completeCount,
                             color: .green
                         )
                     }
                 }
 
+                // Vehicle Type Filter
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Filter by Vehicle Type:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+
+                        Toggle(isOn: $showOnlyRegularizationVehicleTypes) {
+                            Text("In regularization list only")
+                                .font(.caption2)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .onChange(of: showOnlyRegularizationVehicleTypes) { _, newValue in
+                            // Clear selection if toggling to regularization-only and current selection isn't in that list
+                            if newValue, let selectedCode = selectedVehicleTypeFilter {
+                                if selectedCode != "NA" && !viewModel.regularizationVehicleTypes.contains(where: { $0.code == selectedCode }) {
+                                    selectedVehicleTypeFilter = nil
+                                }
+                            }
+                        }
+                    }
+
+                    Picker("Vehicle Type", selection: $selectedVehicleTypeFilter) {
+                        Text("All Types").tag(nil as String?)
+
+                        // Not Assigned option (pairs with no vehicle type mapping)
+                        Text("Not Assigned").tag("NA" as String?)
+
+                        let vehicleTypes = showOnlyRegularizationVehicleTypes
+                            ? viewModel.regularizationVehicleTypes
+                            : viewModel.allVehicleTypes
+
+                        // Sort with UK at the end
+                        let sortedTypes = vehicleTypes.sorted { type1, type2 in
+                            if type1.code == "UK" { return false }
+                            if type2.code == "UK" { return true }
+                            return type1.code < type2.code
+                        }
+
+                        ForEach(sortedTypes, id: \.code) { vehicleType in
+                            Text("\(vehicleType.code) - \(vehicleType.description)")
+                                .tag(vehicleType.code as String?)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                }
+
                 // Summary
                 VStack(spacing: 4) {
                     HStack {
-                        Text("\(filteredAndSortedPairs.count) pairs")
+                        Text("\(filteredAndSortedPairs.count) Make/Model pairs")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -721,6 +823,8 @@ class RegularizationViewModel: ObservableObject {
         }
     }
     @Published var existingMappings: [String: [RegularizationMapping]] = [:] // Key: "\(makeId)_\(modelId)" → Array of mappings (triplets + wildcard)
+    @Published var allVehicleTypes: [MakeModelHierarchy.VehicleTypeInfo] = []
+    @Published var regularizationVehicleTypes: [MakeModelHierarchy.VehicleTypeInfo] = []
 
     // Mapping form state
     @Published var selectedCanonicalMake: MakeModelHierarchy.Make?
@@ -778,6 +882,9 @@ class RegularizationViewModel: ObservableObject {
             manager.setYearConfiguration(yearConfig)
         }
 
+        // Load vehicle types
+        await loadVehicleTypes()
+
         // Load existing mappings
         await loadExistingMappings()
 
@@ -786,6 +893,27 @@ class RegularizationViewModel: ObservableObject {
 
         // Auto-regularize exact matches
         await autoRegularizeExactMatches()
+    }
+
+    func loadVehicleTypes() async {
+        guard let manager = regularizationManager else {
+            print("❌ RegularizationManager not available")
+            return
+        }
+
+        do {
+            let allTypes = try await manager.getAllVehicleTypes()
+            let regTypes = try await manager.getRegularizationVehicleTypes()
+
+            await MainActor.run {
+                allVehicleTypes = allTypes
+                regularizationVehicleTypes = regTypes
+            }
+
+            print("✅ Loaded vehicle types: \(allTypes.count) total, \(regTypes.count) in regularization list")
+        } catch {
+            print("❌ Error loading vehicle types: \(error)")
+        }
     }
 
     func loadExistingMappings() async {
@@ -1205,6 +1333,19 @@ class RegularizationViewModel: ObservableObject {
         return getMappingsForPair(pair.makeId, pair.modelId).first { $0.modelYearId == nil }
     }
 
+    /// Helper: Get vehicle type code from description
+    func getVehicleTypeCode(for description: String) -> String? {
+        // Check in allVehicleTypes first (includes all types from schema)
+        if let vehicleType = allVehicleTypes.first(where: { $0.description == description }) {
+            return vehicleType.code
+        }
+        // Fallback to regularization vehicle types
+        if let vehicleType = regularizationVehicleTypes.first(where: { $0.description == description }) {
+            return vehicleType.code
+        }
+        return nil
+    }
+
     /// Get regularization status for a pair
     /// Status logic:
     /// - 🟢 Complete: VehicleType assigned AND ALL triplets have assigned fuel types (including "Unknown", but NOT "Not Assigned"/NULL)
@@ -1404,6 +1545,7 @@ class RegularizationViewModel: ObservableObject {
 struct StatusFilterButton: View {
     @Binding var isSelected: Bool
     let label: String
+    let count: Int
     let color: Color
 
     var body: some View {
@@ -1418,14 +1560,20 @@ struct StatusFilterButton: View {
 
                 Text(label)
                     .font(.caption)
+                    .lineLimit(1)
+
+                Text("(\(count))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 8)
             .padding(.vertical, 4)
         }
         .buttonStyle(.bordered)
         .buttonBorderShape(.roundedRectangle)
         .controlSize(.small)
-        .help(isSelected ? "Hide \(label.lowercased()) pairs" : "Show \(label.lowercased()) pairs")
+        .fixedSize(horizontal: true, vertical: false)
+        .help(isSelected ? "Hide \(label.lowercased()) pairs (\(count) total)" : "Show \(label.lowercased()) pairs (\(count) total)")
     }
 }
 

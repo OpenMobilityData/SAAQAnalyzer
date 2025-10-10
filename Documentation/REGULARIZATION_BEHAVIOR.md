@@ -292,14 +292,38 @@ A **filter toggle** button allows focusing on years that still need review:
 
 ## Status Filters in RegularizationView
 
-The RegularizationView now provides granular filtering by regularization status using three independent filter buttons:
+The RegularizationView provides granular filtering by regularization status using three independent filter buttons with real-time counts:
 
 **Filter Buttons:**
-- 🔴 **Unassigned** - Show/hide pairs with no regularization mapping
-- 🟠 **Needs Review** - Show/hide pairs with mappings but incomplete year coverage or NULL VehicleType
-- 🟢 **Complete** - Show/hide pairs with VehicleType assigned AND all model years have fuel types assigned
+- 🔴 **Unassigned (XXX)** - Show/hide pairs with no regularization mapping
+- 🟠 **Needs Review (XXX)** - Show/hide pairs with mappings but incomplete year coverage or NULL VehicleType
+- 🟢 **Complete (XXX)** - Show/hide pairs with VehicleType assigned AND all model years have fuel types assigned
 
-**Default:** All three filters are enabled (all pairs visible)
+**Features:**
+- **Real-time counts**: Each button displays the number of pairs in that status (e.g., "Unassigned (553)")
+- **Tooltip details**: Hover over buttons to see full status information
+- **Default:** All three filters are enabled (all pairs visible)
+
+### Vehicle Type Filter
+
+Additional filtering by vehicle type is available below the status filters:
+
+**Filter Options:**
+- **All Types** (default) - Show pairs with any vehicle type
+- **Not Assigned** - Show pairs with no vehicle type mapping
+- **Specific types** - Filter by vehicle type code (e.g., "AU - Automobile or Light Truck", "MC - Motorcycle")
+
+**Toggle Mode:**
+- **"In regularization list only"** switch allows filtering between:
+  - **OFF**: Shows all vehicle types from schema (13 types: AB, AT, AU, CA, CY, HM, MC, MN, NV, SN, UK, VO, VT)
+  - **ON**: Shows only vehicle types present in current regularization mappings
+- Selection is preserved when toggling if the type exists in both lists
+- **UK - Unknown** always appears at the end of the list
+
+**Use Cases:**
+- Focus on pairs mapped to specific vehicle types (e.g., only motorcycles)
+- Find pairs that still need vehicle type assignment ("Not Assigned")
+- Review coverage of specific vehicle categories
 
 ### Filter Combinations
 

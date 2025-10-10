@@ -1048,6 +1048,95 @@ class RegularizationManager {
         }
     }
 
+    // MARK: - Vehicle Type Filtering
+
+    /// Gets all vehicle types from the vehicle_type_enum table
+    func getAllVehicleTypes() async throws -> [MakeModelHierarchy.VehicleTypeInfo] {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        let sql = """
+        SELECT id, code, description
+        FROM vehicle_type_enum
+        ORDER BY code;
+        """
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            var vehicleTypes: [MakeModelHierarchy.VehicleTypeInfo] = []
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let description = String(cString: sqlite3_column_text(stmt, 2))
+
+                    let vehicleType = MakeModelHierarchy.VehicleTypeInfo(
+                        id: id,
+                        code: code,
+                        description: description,
+                        recordCount: 0
+                    )
+                    vehicleTypes.append(vehicleType)
+                }
+
+                print("✅ Loaded \(vehicleTypes.count) vehicle types from schema")
+                continuation.resume(returning: vehicleTypes)
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to get vehicle types: \(error)"))
+            }
+        }
+    }
+
+    /// Gets vehicle types that are present in regularization mappings (including Unknown)
+    func getRegularizationVehicleTypes() async throws -> [MakeModelHierarchy.VehicleTypeInfo] {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        let sql = """
+        SELECT DISTINCT
+            vt.id,
+            vt.code,
+            vt.description,
+            COUNT(r.id) as mapping_count
+        FROM make_model_regularization r
+        JOIN vehicle_type_enum vt ON r.vehicle_type_id = vt.id
+        GROUP BY vt.id, vt.code, vt.description
+        ORDER BY vt.code;
+        """
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            var vehicleTypes: [MakeModelHierarchy.VehicleTypeInfo] = []
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let description = String(cString: sqlite3_column_text(stmt, 2))
+                    let recordCount = Int(sqlite3_column_int(stmt, 3))
+
+                    let vehicleType = MakeModelHierarchy.VehicleTypeInfo(
+                        id: id,
+                        code: code,
+                        description: description,
+                        recordCount: recordCount
+                    )
+                    vehicleTypes.append(vehicleType)
+                }
+
+                print("✅ Loaded \(vehicleTypes.count) vehicle types from regularization mappings")
+                continuation.resume(returning: vehicleTypes)
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to get regularization vehicle types: \(error)"))
+            }
+        }
+    }
+
     // MARK: - Helper Methods
 
     /// Calculates the number of records for an uncurated Make/Model(/ModelYear) in uncurated years
