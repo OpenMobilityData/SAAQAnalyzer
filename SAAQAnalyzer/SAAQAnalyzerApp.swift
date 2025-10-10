@@ -1945,6 +1945,29 @@ struct RegularizationSettingsView: View {
                             .font(.caption2)
                             .foregroundColor(.secondary)
                             .padding(.leading, 20)
+
+                        Divider()
+                            .padding(.vertical, 4)
+
+                        Toggle("Apply Fuel Type Regularization to Pre-2017 Records", isOn: Binding(
+                            get: { AppSettings.shared.regularizePre2017FuelType },
+                            set: { AppSettings.shared.regularizePre2017FuelType = $0 }
+                        ))
+                        .controlSize(.small)
+                        .help("When enabled, pre-2017 records with NULL fuel_type can match fuel type filters via regularization mappings")
+
+                        Text(AppSettings.shared.regularizePre2017FuelType ?
+                             "Pre-2017 records use regularization mappings for fuel type filtering" :
+                             "Pre-2017 records excluded from fuel type filters (even with mappings)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .padding(.leading, 20)
+
+                        Text("Note: Pre-2017 records have NULL fuel_type because the field didn't exist in source data. Only fuel type is regularized for these records—Make/Model are already curated.")
+                            .font(.caption2)
+                            .foregroundColor(.orange)
+                            .padding(.leading, 20)
+                            .padding(.top, 4)
                     }
 
                     Divider()

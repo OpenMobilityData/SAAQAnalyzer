@@ -106,6 +106,17 @@ class AppSettings {
         }
     }
 
+    /// Whether to apply fuel type regularization to pre-2017 records
+    /// Pre-2017 records have NULL fuel_type because the field didn't exist in source data
+    /// When enabled: Pre-2017 records with regularization mappings will match fuel type filters
+    /// When disabled: Pre-2017 records excluded from fuel type filtering (even with mappings)
+    /// Note: Only fuel type is regularized for pre-2017 records (Make/Model are already curated)
+    var regularizePre2017FuelType: Bool {
+        didSet {
+            UserDefaults.standard.set(regularizePre2017FuelType, forKey: "regularizePre2017FuelType")
+        }
+    }
+
     // MARK: - Computed Properties
 
     /// Available processor cores on this system
@@ -178,6 +189,7 @@ class AppSettings {
         // Load regularization settings
         self.useCardinalTypes = UserDefaults.standard.object(forKey: "useCardinalTypes") as? Bool ?? true
         self.cardinalVehicleTypeCodes = UserDefaults.standard.object(forKey: "cardinalVehicleTypeCodes") as? [String] ?? ["AU", "MC"]
+        self.regularizePre2017FuelType = UserDefaults.standard.object(forKey: "regularizePre2017FuelType") as? Bool ?? true
     }
     
     /// Calculates optimal thread count based on system characteristics and workload
@@ -227,5 +239,6 @@ class AppSettings {
         // Reset regularization settings
         useCardinalTypes = true
         cardinalVehicleTypeCodes = ["AU", "MC"]
+        regularizePre2017FuelType = true
     }
 }

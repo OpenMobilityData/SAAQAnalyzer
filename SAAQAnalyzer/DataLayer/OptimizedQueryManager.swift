@@ -459,12 +459,59 @@ class OptimizedQueryManager {
                 }
 
                 // Fuel type filter using fuel_type_id
+                // Special handling when regularization is enabled:
+                // - Without regularization: Filter by fuel_type_id (excludes NULL)
+                // - With regularization: Include both fuel_type_id matches AND NULL fuel_type_id that have regularization mappings
+                //   IMPORTANT: Fuel type mappings are TRIPLET-BASED (Make/Model/ModelYear → FuelType)
+                //   Unlike vehicle type (wildcard mapping), fuel types require year-specific matching
                 if !filterIds.fuelTypeIds.isEmpty {
-                    let placeholders = Array(repeating: "?", count: filterIds.fuelTypeIds.count).joined(separator: ",")
-                    whereClause += " AND fuel_type_id IN (\(placeholders))"
-                    for id in filterIds.fuelTypeIds {
-                        bindValues.append((bindIndex, id))
-                        bindIndex += 1
+                    let ftPlaceholders = Array(repeating: "?", count: filterIds.fuelTypeIds.count).joined(separator: ",")
+
+                    if self.regularizationEnabled {
+                        // Check if pre-2017 regularization is enabled
+                        let allowPre2017 = AppSettings.shared.regularizePre2017FuelType
+
+                        // With regularization: Include records that either:
+                        // 1. Have matching fuel_type_id (curated records), OR
+                        // 2. Have NULL fuel_type_id AND exist in regularization table with matching triplet (uncurated records)
+                        //    Must match Make ID, Model ID, AND Model Year ID (triplet-based filtering)
+                        whereClause += " AND ("
+                        whereClause += "fuel_type_id IN (\(ftPlaceholders))"
+                        whereClause += " OR (fuel_type_id IS NULL AND EXISTS ("
+                        whereClause += "SELECT 1 FROM make_model_regularization r "
+                        whereClause += "WHERE r.uncurated_make_id = v.make_id "
+                        whereClause += "AND r.uncurated_model_id = v.model_id "
+                        whereClause += "AND r.model_year_id = v.model_year_id "  // CRITICAL: Year-specific match
+
+                        // Add year constraint if pre-2017 regularization is disabled
+                        if !allowPre2017 {
+                            whereClause += "AND v.year_id IN (SELECT id FROM year_enum WHERE year >= 2017) "
+                        }
+
+                        whereClause += "AND r.fuel_type_id IN (\(ftPlaceholders))"
+                        whereClause += "))"
+                        whereClause += ")"
+
+                        // Bind fuel type IDs (first occurrence)
+                        for id in filterIds.fuelTypeIds {
+                            bindValues.append((bindIndex, id))
+                            bindIndex += 1
+                        }
+                        // Bind fuel type IDs again (for EXISTS subquery)
+                        for id in filterIds.fuelTypeIds {
+                            bindValues.append((bindIndex, id))
+                            bindIndex += 1
+                        }
+
+                        let pre2017Status = allowPre2017 ? "including pre-2017" : "2017+ only"
+                        print("🔄 Fuel Type filter with regularization: Using EXISTS subquery with triplet matching (Make/Model/ModelYear, \(pre2017Status))")
+                    } else {
+                        // Without regularization: Standard fuel_type_id filter
+                        whereClause += " AND fuel_type_id IN (\(ftPlaceholders))"
+                        for id in filterIds.fuelTypeIds {
+                            bindValues.append((bindIndex, id))
+                            bindIndex += 1
+                        }
                     }
                 }
 
