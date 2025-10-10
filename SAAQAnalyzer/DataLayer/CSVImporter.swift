@@ -1,6 +1,7 @@
 import Foundation
 import UniformTypeIdentifiers
 import SQLite3
+import OSLog
 
 /// Transient pointer for SQLite bindings
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
@@ -45,8 +46,8 @@ class CSVImporter {
     /// Imports a vehicle registration CSV file for a specific year
     func importVehicleFile(at url: URL, year: Int, skipDuplicateCheck: Bool = false) async throws -> ImportResult {
         let overallStartTime = Date()
-        print("🚀 Starting import of \(url.lastPathComponent) for year \(year)")
-        
+        AppLogger.dataImport.info("Starting vehicle import: \(url.lastPathComponent, privacy: .public), year: \(year)")
+
         // Start progress tracking (only if not already started by UI or batch import)
         if !skipDuplicateCheck {
             let isBatchInProgress = await progressManager?.isBatchImport ?? false
@@ -54,44 +55,43 @@ class CSVImporter {
                 await progressManager?.startImport()
             }
         }
-        
+
         // Check if year is already imported (unless skipped for SwiftUI handling)
         if !skipDuplicateCheck {
             let yearExists = await databaseManager.isYearImported(year)
             if yearExists {
-                print("⚠️ Year \(year) already exists. Replacing existing data...")
-                print("🗑️ Deleting existing data for year \(year)...")
+                AppLogger.dataImport.notice("Year \(year) already exists - replacing existing data")
                 try await databaseManager.clearYearData(year)
-                print("✅ Existing data for year \(year) deleted successfully")
+                AppLogger.dataImport.info("Existing data for year \(year) deleted successfully")
             }
         }
-        
+
         // Update to reading stage
         await progressManager?.updateToReading()
-        
+
         // Determine schema based on year
         let schema = DataSchema.schema(for: year)
-        
+
         // Read and parse CSV file
         let parseStartTime = Date()
-        print("📖 Reading and parsing CSV file...")
         let records = try await parseCSVFile(at: url, schema: schema)
         let parseTime = Date().timeIntervalSince(parseStartTime)
-        print("✅ CSV parsing completed in \(String(format: "%.1f", parseTime)) seconds")
-        
+
         // Import records to database
-        print("💾 Starting database import...")
         let importStartTime = Date()
         let result = try await importVehicleRecords(records, year: year, fileName: url.lastPathComponent)
         let importTime = Date().timeIntervalSince(importStartTime)
-        
+
         let totalTime = Date().timeIntervalSince(overallStartTime)
-        print("🎉 Import completed successfully!")
-        print("📊 Performance Summary:")
-        print("   • CSV Parsing: \(String(format: "%.1f", parseTime))s (\(String(format: "%.1f", parseTime/totalTime*100))%)")
-        print("   • Database Import: \(String(format: "%.1f", importTime))s (\(String(format: "%.1f", importTime/totalTime*100))%)")
-        print("   • Total Time: \(String(format: "%.1f", totalTime))s")
-        print("   • Records/second: \(String(format: "%.0f", Double(result.totalRecords)/totalTime))")
+
+        // Log structured performance metrics
+        let performance = AppLogger.ImportPerformance(
+            totalRecords: result.totalRecords,
+            parseTime: parseTime,
+            importTime: importTime,
+            totalTime: totalTime
+        )
+        performance.log(logger: AppLogger.performance, fileName: url.lastPathComponent, year: year)
 
         // Complete progress tracking (only if not part of batch import)
         let isBatchInProgress = await progressManager?.isBatchImport ?? false
@@ -105,7 +105,7 @@ class CSVImporter {
     /// Imports a driver's license CSV file for a specific year
     func importLicenseFile(at url: URL, year: Int, skipDuplicateCheck: Bool = false) async throws -> ImportResult {
         let overallStartTime = Date()
-        print("🚀 Starting license import of \(url.lastPathComponent) for year \(year)")
+        AppLogger.dataImport.info("Starting license import: \(url.lastPathComponent, privacy: .public), year: \(year)")
 
         // Start progress tracking (only if not already started by UI or batch import)
         if !skipDuplicateCheck {
@@ -119,10 +119,9 @@ class CSVImporter {
         if !skipDuplicateCheck {
             let yearExists = await databaseManager.isYearImported(year)
             if yearExists {
-                print("⚠️ Year \(year) already exists. Replacing existing data...")
-                print("🗑️ Deleting existing data for year \(year)...")
+                AppLogger.dataImport.notice("Year \(year) already exists - replacing existing data")
                 try await databaseManager.clearYearData(year)
-                print("✅ Existing data for year \(year) deleted successfully")
+                AppLogger.dataImport.info("Existing data for year \(year) deleted successfully")
             }
         }
 
@@ -131,24 +130,24 @@ class CSVImporter {
 
         // Read and parse CSV file for licenses (20 fields)
         let parseStartTime = Date()
-        print("📖 Reading and parsing license CSV file...")
         let records = try await parseLicenseCSVFile(at: url)
         let parseTime = Date().timeIntervalSince(parseStartTime)
-        print("✅ License CSV parsing completed in \(String(format: "%.1f", parseTime)) seconds")
 
         // Import records to database
-        print("💾 Starting license database import...")
         let importStartTime = Date()
         let result = try await importLicenseRecords(records, year: year, fileName: url.lastPathComponent)
         let importTime = Date().timeIntervalSince(importStartTime)
 
         let totalTime = Date().timeIntervalSince(overallStartTime)
-        print("🎉 License import completed successfully!")
-        print("📊 Performance Summary:")
-        print("   • CSV Parsing: \(String(format: "%.1f", parseTime))s (\(String(format: "%.1f", parseTime/totalTime*100))%)")
-        print("   • Database Import: \(String(format: "%.1f", importTime))s (\(String(format: "%.1f", importTime/totalTime*100))%)")
-        print("   • Total Time: \(String(format: "%.1f", totalTime))s")
-        print("   • Records/second: \(String(format: "%.0f", Double(result.totalRecords)/totalTime))")
+
+        // Log structured performance metrics
+        let performance = AppLogger.ImportPerformance(
+            totalRecords: result.totalRecords,
+            parseTime: parseTime,
+            importTime: importTime,
+            totalTime: totalTime
+        )
+        performance.log(logger: AppLogger.performance, fileName: url.lastPathComponent, year: year)
 
         // Complete progress tracking (only if not part of batch import)
         let isBatchInProgress = await progressManager?.isBatchImport ?? false
@@ -170,8 +169,9 @@ class CSVImporter {
         
         var fileContent: String?
 
-        print("🔍 Trying encodings for file: \(url.lastPathComponent)")
-        print("🔍 File path: \(url.path)")
+        #if DEBUG
+        AppLogger.dataImport.debug("Detecting encoding for file: \(url.lastPathComponent, privacy: .public)")
+        #endif
 
         // Start accessing security-scoped resource (needed for files outside sandbox)
         let accessing = url.startAccessingSecurityScopedResource()
@@ -182,26 +182,22 @@ class CSVImporter {
         }
 
         for encoding in encodings {
-            print("  Attempting encoding: \(encoding)")
             if let content = try? String(contentsOf: url, encoding: encoding) {
-                print("  ✅ Successfully read with \(encoding), checking for French characters...")
                 // Quick check for common French characters
                 if content.contains("é") || content.contains("è") || content.contains("à") {
-                    print("  ✅ Found French characters, using this encoding")
+                    #if DEBUG
+                    AppLogger.dataImport.debug("Using encoding \(String(describing: encoding)) with French characters detected")
+                    #endif
                     fileContent = content
                     break
-                } else {
-                    print("  ⚠️ No French characters found, trying next encoding...")
                 }
-            } else {
-                print("  ❌ Failed to read with \(encoding)")
             }
         }
 
         guard let content = fileContent else {
+            AppLogger.dataImport.error("Unable to read file \(url.lastPathComponent, privacy: .public) with proper character encoding")
             throw ImportError.encodingError("Unable to read file with proper character encoding")
         }
-        print("✅ File successfully read with proper encoding")
         
         // Parse CSV content
         let lines = content.components(separatedBy: .newlines)
@@ -223,21 +219,20 @@ class CSVImporter {
         }
         
         let dataLines = Array(lines[1...]).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        
-        print("🚀 Parsing \(dataLines.count) records using parallel processing...")
-        
+
+        AppLogger.dataImport.info("Parsing \(dataLines.count) vehicle records using parallel processing")
+
         // Determine optimal thread count using settings
         let settings = AppSettings.shared
         let workerCount = await MainActor.run {
             settings.getOptimalThreadCount(for: dataLines.count)
         }
         let chunkSize = min(50_000, max(10_000, dataLines.count / workerCount)) // Between 10K-50K records per chunk for better progress updates
-        
+
         let threadMode = await MainActor.run {
             settings.useAdaptiveThreadCount ? "adaptive" : "manual"
         }
-        print("   • Using \(workerCount) parallel workers (\(threadMode) mode)")
-        print("   • Chunk size: \(chunkSize) records per worker")
+        AppLogger.dataImport.info("Using \(workerCount) parallel workers (\(threadMode) mode), chunk size: \(chunkSize)")
         
         // Update to parsing stage
         await progressManager?.updateToParsing(totalRecords: dataLines.count, workerCount: workerCount)
@@ -248,8 +243,10 @@ class CSVImporter {
             let endIndex = min(i + chunkSize, dataLines.count)
             chunks.append(dataLines[i..<endIndex])
         }
-        
-        print("   • Processing \(chunks.count) chunks in parallel...")
+
+        #if DEBUG
+        AppLogger.dataImport.debug("Processing \(chunks.count) chunks in parallel")
+        #endif
         
         let startTime = Date()
         
@@ -285,10 +282,11 @@ class CSVImporter {
             for await (index, records) in group {
                 chunkResults[index] = records
                 completedChunks += 1
-                
-                // Debug output to console
+
+                #if DEBUG
                 let progressPercent = Int(Double(completedChunks) / Double(totalChunks) * 100)
-                print("   • Chunk \(completedChunks)/\(totalChunks) completed (\(progressPercent)%) - \(records.count) records in this chunk")
+                AppLogger.dataImport.debug("Chunk \(completedChunks)/\(totalChunks) completed (\(progressPercent)%) - \(records.count) records")
+                #endif
             }
             
             return chunkResults
@@ -306,9 +304,8 @@ class CSVImporter {
         }
         
         let parseTime = Date().timeIntervalSince(startTime)
-        print("✅ Parallel parsing completed in \(String(format: "%.1f", parseTime))s")
-        print("   • Processed \(allRecords.count) records")
-        print("   • Rate: \(String(format: "%.0f", Double(allRecords.count)/parseTime)) records/second")
+        let parseRate = parseTime > 0 ? Double(allRecords.count) / parseTime : 0
+        AppLogger.dataImport.notice("Parallel parsing completed: \(allRecords.count) records in \(String(format: "%.1f", parseTime))s (\(String(format: "%.0f", parseRate)) records/sec)")
         
         return allRecords
     }
@@ -355,9 +352,9 @@ class CSVImporter {
     /// Parses a data line into a dictionary
     private nonisolated func parseDataLine(_ line: String, headers: [String]) -> [String: String]? {
         let values = parseCSVLine(line)
-        
+
         guard values.count == headers.count else {
-            print("Warning: Skipping line with incorrect number of fields")
+            // Note: Can't use AppLogger from nonisolated context - just skip silently
             return nil
         }
         
@@ -422,8 +419,8 @@ class CSVImporter {
         // Process records in larger batches for efficiency (optimized for M3 Ultra with 96GB RAM)
         // With transactions, larger batches are much more efficient
         let batchSize = 50000  // Increased from 1000 to 50000 for 50x fewer transactions
-        
-        print("Starting import of \(records.count) records in batches of \(batchSize)...")
+
+        AppLogger.dataImport.info("Starting database import of \(records.count) records in batches of \(batchSize)")
         
         // Calculate total batches and update progress
         let totalBatches = Int(ceil(Double(records.count) / Double(batchSize)))
@@ -438,15 +435,18 @@ class CSVImporter {
                 successCount += result.success
                 errorCount += result.errors
             } catch {
-                print("Error importing batch: \(error)")
+                AppLogger.dataImport.error("Error importing batch: \(error.localizedDescription)")
                 errorCount += batch.count
             }
-            
+
             // Update progress
             let currentBatchNumber = batchStart/batchSize + 1
             await progressManager?.updateImportingProgress(currentBatch: currentBatchNumber, recordsProcessed: batchEnd)
-            
-            print("Completed batch \(currentBatchNumber)/\(totalBatches): \(Int(Double(batchEnd)/Double(records.count) * 100))%")
+
+            #if DEBUG
+            let progressPercent = Int(Double(batchEnd)/Double(records.count) * 100)
+            AppLogger.dataImport.debug("Completed batch \(currentBatchNumber)/\(totalBatches): \(progressPercent)%")
+            #endif
         }
         
         // Complete bulk import and rebuild indexes
@@ -567,7 +567,7 @@ class CSVImporter {
 
         let dataLines = Array(lines[1...]).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
 
-        print("🚀 Parsing \(dataLines.count) license records using parallel processing...")
+        AppLogger.dataImport.info("Parsing \(dataLines.count) license records using parallel processing")
 
         // Determine optimal thread count using settings
         let settings = AppSettings.shared
@@ -579,8 +579,7 @@ class CSVImporter {
         let threadMode = await MainActor.run {
             settings.useAdaptiveThreadCount ? "adaptive" : "manual"
         }
-        print("   • Using \(workerCount) parallel workers (\(threadMode) mode)")
-        print("   • Chunk size: \(chunkSize) records per worker")
+        AppLogger.dataImport.info("Using \(workerCount) parallel workers (\(threadMode) mode), chunk size: \(chunkSize)")
 
         // Update to parsing stage with correct record count
         await progressManager?.updateToParsing(totalRecords: dataLines.count, workerCount: workerCount)
@@ -592,7 +591,9 @@ class CSVImporter {
             chunks.append(dataLines[i..<endIndex])
         }
 
-        print("   • Processing \(chunks.count) chunks in parallel...")
+        #if DEBUG
+        AppLogger.dataImport.debug("Processing \(chunks.count) chunks in parallel")
+        #endif
 
         let startTime = Date()
 
@@ -628,8 +629,10 @@ class CSVImporter {
                 chunkResults[index] = records
                 completedChunks += 1
 
+                #if DEBUG
                 let progressPercent = Int(Double(completedChunks) / Double(totalChunks) * 100)
-                print("   • Chunk \(completedChunks)/\(totalChunks) completed (\(progressPercent)%) - \(records.count) records in this chunk")
+                AppLogger.dataImport.debug("Chunk \(completedChunks)/\(totalChunks) completed (\(progressPercent)%) - \(records.count) records")
+                #endif
             }
 
             // Combine all results in order
@@ -647,9 +650,8 @@ class CSVImporter {
         progressUpdateTask.cancel()
 
         let parsingTime = Date().timeIntervalSince(startTime)
-        print("✅ Parallel parsing completed in \(String(format: "%.2f", parsingTime)) seconds")
-        print("   • Total records parsed: \(results.count)")
-        print("   • Parsing rate: \(String(format: "%.0f", Double(results.count)/parsingTime)) records/second")
+        let parseRate = parsingTime > 0 ? Double(results.count) / parsingTime : 0
+        AppLogger.dataImport.notice("Parallel parsing completed: \(results.count) records in \(String(format: "%.2f", parsingTime))s (\(String(format: "%.0f", parseRate)) records/sec)")
 
         return results
     }
@@ -663,7 +665,7 @@ class CSVImporter {
 
             // Validate column count for license data
             guard columns.count == 20 else {
-                print("⚠️ Skipping invalid license record with \(columns.count) columns (expected 20)")
+                // Note: Can't use AppLogger from nonisolated context - just skip silently
                 continue
             }
 
@@ -698,7 +700,7 @@ class CSVImporter {
         let totalBatches = (records.count + batchSize - 1) / batchSize
         await progressManager?.updateToImporting(totalBatches: totalBatches)
 
-        print("📊 Processing \(records.count) license records in batches of \(batchSize)...")
+        AppLogger.dataImport.info("Starting database import of \(records.count) license records in batches of \(batchSize)")
 
         for i in stride(from: 0, to: records.count, by: batchSize) {
             let endIndex = min(i + batchSize, records.count)
@@ -706,8 +708,6 @@ class CSVImporter {
 
             let batchNumber = (i / batchSize) + 1
             let totalBatches = (records.count + batchSize - 1) / batchSize
-
-            print("   • Processing batch \(batchNumber)/\(totalBatches) (\(batch.count) records)...")
 
             do {
                 let batchResult = try await importLicenseBatch(batch, year: year)
@@ -720,11 +720,13 @@ class CSVImporter {
                     recordsProcessed: min(endIndex, records.count)
                 )
 
+                #if DEBUG
                 let progressPercent = Int(Double(endIndex) / Double(records.count) * 100)
-                print("   • Batch \(batchNumber) completed (\(progressPercent)% total) - \(batchResult.success) successful, \(batchResult.errors) errors")
+                AppLogger.dataImport.debug("Batch \(batchNumber)/\(totalBatches) completed (\(progressPercent)%) - \(batchResult.success) successful, \(batchResult.errors) errors")
+                #endif
 
             } catch {
-                print("❌ Error in batch \(batchNumber): \(error)")
+                AppLogger.dataImport.error("Error in batch \(batchNumber): \(error.localizedDescription)")
                 errorCount += batch.count
             }
         }
@@ -740,10 +742,10 @@ class CSVImporter {
         try await logImport(fileName: fileName, year: year, recordCount: successCount, status: status)
 
         let duration = Date().timeIntervalSince(startTime)
+        let successRate = records.count > 0 ? (Double(successCount) / Double(records.count)) * 100 : 0
+        let importRate = duration > 0 ? Double(successCount) / duration : 0
 
-        print("✅ License import completed: \(successCount) successful, \(errorCount) errors")
-        print("   • Success rate: \(String(format: "%.1f", Double(successCount)/Double(records.count)*100))%")
-        print("   • Import rate: \(String(format: "%.0f", Double(successCount)/duration)) records/second")
+        AppLogger.dataImport.notice("License import completed: \(successCount) successful, \(errorCount) errors - success rate: \(String(format: "%.1f", successRate))%, throughput: \(String(format: "%.0f", importRate)) records/sec")
 
         return ImportResult(
             totalRecords: records.count,
@@ -834,13 +836,17 @@ class CSVImporter {
                             successCount += 1
                         } else {
                             errorCount += 1
+                            #if DEBUG
                             if let errorMessage = sqlite3_errmsg(db) {
-                                print("❌ Error inserting license record: \(String(cString: errorMessage))")
+                                AppLogger.dataImport.error("Error inserting license record: \(String(cString: errorMessage))")
                             }
+                            #endif
                         }
                     } catch {
                         errorCount += 1
-                        print("❌ Error processing license record: \(error)")
+                        #if DEBUG
+                        AppLogger.dataImport.error("Error processing license record: \(error.localizedDescription)")
+                        #endif
                     }
                 }
 

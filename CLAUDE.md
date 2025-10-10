@@ -143,6 +143,40 @@ The CSV importer handles French characters by trying multiple encodings (UTF-8, 
 - **Query Pattern Generation**: `generateQueryPattern()` creates human-readable query descriptions
 - **Performance Classification**: Automatic categorization from "Excellent" (sub-second) to "Slow" (25s+)
 
+### Logging Infrastructure
+- **Framework**: Uses Apple's `os.Logger` (unified logging system) for all production logging
+- **Location**: `Utilities/AppLogger.swift` - Centralized logging infrastructure
+- **Categories**:
+  - `AppLogger.database` - Database operations (connections, schema, transactions)
+  - `AppLogger.dataImport` - CSV import operations and file processing
+  - `AppLogger.query` - Query execution and optimization
+  - `AppLogger.cache` - Filter cache operations
+  - `AppLogger.regularization` - Regularization system operations
+  - `AppLogger.ui` - UI events and user interactions
+  - `AppLogger.performance` - Performance benchmarks and timing measurements
+  - `AppLogger.geographic` - Geographic data operations
+
+- **Log Levels**:
+  - `.debug` - Detailed debugging (filtered in release builds, wrapped in `#if DEBUG`)
+  - `.info` - General informational messages
+  - `.notice` - Important events worth highlighting (default level)
+  - `.error` - Error conditions
+  - `.fault` - Critical failures
+
+- **Performance Tracking**:
+  - `AppLogger.ImportPerformance` struct for structured import metrics
+  - `AppLogger.logQueryPerformance()` for automatic query performance rating
+  - Preserves all timing information for cross-machine comparisons
+
+- **Console.app Integration**: Filter logs by subsystem and category
+  ```
+  subsystem:com.yourcompany.SAAQAnalyzer category:performance
+  subsystem:com.yourcompany.SAAQAnalyzer level:error
+  ```
+
+- **Migration Guide**: See `Documentation/LOGGING_MIGRATION_GUIDE.md` for patterns and best practices
+- **Scripts**: Command-line scripts in `Scripts/` intentionally use `print()` (appropriate for CLI tools)
+
 ### Testing Framework
 - XCTest framework with basic test structure in place
 - Tests located in `SAAQAnalyzerTests/`
@@ -150,7 +184,7 @@ The CSV importer handles French characters by trying multiple encodings (UTF-8, 
 ### Platform Requirements
 - **Target**: macOS (no iOS support)
 - **Minimum macOS version**: Requires NavigationSplitView (macOS 13.0+)
-- **Dependencies**: SQLite3, Charts framework, UniformTypeIdentifiers
+- **Dependencies**: SQLite3, Charts framework, UniformTypeIdentifiers, OSLog
 
 ## Current Implementation Status
 
@@ -195,12 +229,15 @@ SAAQAnalyzer/
 │   ├── DatabaseManager.swift
 │   ├── CSVImporter.swift
 │   ├── GeographicDataImporter.swift
-│   ├── CategoricalEnumManager.swift    # NEW: Enumeration table management
-│   ├── OptimizedQueryManager.swift     # NEW: Integer-based queries
-│   └── FilterCacheManager.swift        # NEW: Enumeration-based filter cache
+│   ├── CategoricalEnumManager.swift    # Enumeration table management
+│   ├── OptimizedQueryManager.swift     # Integer-based queries
+│   ├── FilterCacheManager.swift        # Enumeration-based filter cache
+│   └── RegularizationManager.swift     # Make/Model/FuelType/VehicleType regularization
 ├── Models/             # Data structures and enums
-├── UI/                # SwiftUI views and components
-├── Assets.xcassets/   # App icons and colors
+├── UI/                 # SwiftUI views and components
+├── Utilities/          # Shared utilities and infrastructure
+│   └── AppLogger.swift                 # Centralized logging (os.Logger)
+├── Assets.xcassets/    # App icons and colors
 └── SAAQAnalyzerApp.swift   # Main app entry point
 ```
 
