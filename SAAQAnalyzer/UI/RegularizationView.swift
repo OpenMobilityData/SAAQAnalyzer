@@ -916,6 +916,12 @@ class RegularizationViewModel: ObservableObject {
             // Clear fuel type selections when model changes
             if selectedCanonicalModel?.id != oldValue?.id {
                 selectedFuelTypesByYear = [:]
+
+                // Auto-populate Vehicle Type and Fuel Types when a new model is selected
+                // This is particularly useful for 'Unassigned' pairs where no existing mapping exists
+                Task { @MainActor in
+                    await autoPopulateFieldsForNewModel()
+                }
             }
         }
     }
@@ -1506,6 +1512,83 @@ class RegularizationViewModel: ObservableObject {
         } else {
             return .none  // 🔴 No meaningful assignments yet
         }
+    }
+
+    /// Auto-populate Vehicle Type and Fuel Types when user selects a canonical Make/Model
+    /// This enhances UX for 'Unassigned' pairs by suggesting values from the canonical hierarchy
+    func autoPopulateFieldsForNewModel() async {
+        guard let model = selectedCanonicalModel else { return }
+
+        // Only auto-populate if this appears to be a new assignment (no existing mappings)
+        // Check if we're working with an 'Unassigned' pair
+        guard let pair = selectedPair else { return }
+        let existingMappings = getMappingsForPair(pair.makeId, pair.modelId)
+
+        // If mappings already exist, don't auto-populate (preserve user's existing work)
+        if !existingMappings.isEmpty {
+            print("📋 Skipping auto-population - existing mappings found for \(pair.makeModelDisplay)")
+            return
+        }
+
+        print("🎯 Auto-populating fields for newly assigned model: \(model.name)")
+
+        // STEP 1: Auto-populate Vehicle Type
+        // Strategy: Use cardinal type matching (same logic as auto-regularization)
+        let validVehicleTypes = model.vehicleTypes.filter { vehicleType in
+            !vehicleType.description.localizedCaseInsensitiveContains("not specified") &&
+            !vehicleType.description.localizedCaseInsensitiveContains("not assigned") &&
+            !vehicleType.description.localizedCaseInsensitiveContains("non spécifié")
+        }
+
+        if validVehicleTypes.count == 1 {
+            // Single vehicle type - auto-assign it
+            selectedVehicleType = validVehicleTypes.first
+            print("   ✓ Auto-assigned VehicleType: \(validVehicleTypes.first!.code) (single option)")
+        } else if validVehicleTypes.count > 1 && AppSettings.shared.useCardinalTypes {
+            // Multiple types - try cardinal matching
+            let cardinalCodes = AppSettings.shared.cardinalVehicleTypeCodes
+            for cardinalCode in cardinalCodes {
+                if let matchingType = validVehicleTypes.first(where: { $0.code == cardinalCode }) {
+                    selectedVehicleType = matchingType
+                    print("   ✓ Auto-assigned VehicleType: \(cardinalCode) (cardinal match)")
+                    break
+                }
+            }
+            if selectedVehicleType == nil {
+                print("   ⚠️ VehicleType: Multiple options found (\(validVehicleTypes.map { $0.code }.joined(separator: ", "))), no cardinal match - leaving unassigned")
+            }
+        } else {
+            print("   ⚠️ VehicleType: Multiple options or no valid types - leaving unassigned")
+        }
+
+        // STEP 2: Auto-populate Fuel Types by Model Year
+        // Strategy: Only auto-assign if a model year has exactly ONE valid fuel type
+        for (modelYearId, fuelTypes) in model.modelYearFuelTypes {
+            guard let modelYearId = modelYearId else { continue }
+
+            let validFuelTypes = fuelTypes.filter { fuelType in
+                fuelType.id != -1 &&  // Filter out placeholder entries
+                !fuelType.description.localizedCaseInsensitiveContains("not specified") &&
+                !fuelType.description.localizedCaseInsensitiveContains("not assigned") &&
+                !fuelType.description.localizedCaseInsensitiveContains("non spécifié")
+            }
+
+            if validFuelTypes.count == 1, let fuelType = validFuelTypes.first {
+                // Single fuel type - auto-assign it
+                selectedFuelTypesByYear[modelYearId] = fuelType.id
+                print("   ✓ Auto-assigned FuelType for year \(fuelType.modelYear ?? 0): \(fuelType.code)")
+            } else if validFuelTypes.isEmpty {
+                // No valid fuel types (pre-2017 NULL data) - leave as "Not Assigned"
+                // User will need to manually select "Unknown"
+                print("   ⚠️ FuelType for year \(fuelTypes.first?.modelYear ?? 0): No data available - leaving unassigned")
+            } else {
+                // Multiple fuel types - leave as "Not Assigned" for user to disambiguate
+                print("   ⚠️ FuelType for year \(fuelTypes.first?.modelYear ?? 0): Multiple options (\(validFuelTypes.map { $0.code }.joined(separator: ", "))) - leaving unassigned")
+            }
+        }
+
+        let assignedCount = selectedFuelTypesByYear.values.filter { $0 != nil }.count
+        print("✅ Auto-population complete: VehicleType=\(selectedVehicleType != nil ? "assigned" : "unassigned"), FuelTypes=\(assignedCount) of \(model.modelYearFuelTypes.count) years")
     }
 
     /// Load existing mapping data for the selected pair

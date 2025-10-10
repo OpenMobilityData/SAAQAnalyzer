@@ -131,9 +131,11 @@ The system will prevent conflicting Make mappings.
 
 ## Smart Auto-Assignment
 
-When you open the RegularizationView, the system automatically performs **smart auto-assignment** for exact matches:
+The regularization system provides two levels of automatic field population to streamline your workflow:
 
-### What Gets Auto-Assigned
+### 1. Background Auto-Regularization (Exact Matches)
+
+When you open the RegularizationView, the system automatically performs **smart auto-assignment** for exact matches:
 
 For Make/Model pairs that exist in both curated and uncurated years (e.g., `HONDA CIVIC`):
 
@@ -142,6 +144,34 @@ For Make/Model pairs that exist in both curated and uncurated years (e.g., `HOND
 3. **VehicleType**: Uses **Cardinal Type Matching** (see below) when multiple options exist, or auto-assigns if only one option exists
 
 **Note:** The system only counts actual types found in curated years (Gasoline, Diesel for FuelType; AU, CA, MC, etc. for VehicleType). The "Unknown" enum value will never appear in the canonical hierarchy since it wasn't used in curated years (2011-2022).
+
+### 2. Interactive Auto-Population (Unassigned Pairs)
+
+When you manually assign a canonical Make/Model to an **Unassigned** pair (red status badge), the system automatically populates:
+
+**Triggers:**
+- User selects Make in Step 1
+- User selects Model in Step 2
+- System detects no existing mappings for this pair
+
+**Auto-Population Logic:**
+
+1. **VehicleType (Step 3)**:
+   - Single valid option → Auto-assigned
+   - Multiple options + cardinal match → Auto-assigned using cardinal type
+   - Multiple options, no cardinal match → Left unassigned (user review needed)
+
+2. **FuelType by Model Year (Step 4)**:
+   - Model year has single valid fuel type → Auto-assigned
+   - Model year has multiple fuel types → Left unassigned (user review needed)
+   - Model year has NULL fuel type (pre-2017) → Left unassigned (user selects "Unknown")
+
+**Benefits:**
+- Reduces clicks for straightforward assignments
+- Preserves user control for ambiguous cases
+- Speeds up workflow for typo corrections (e.g., VOLV0 → VOLVO)
+
+**Important:** Auto-population only occurs for **new assignments**. If a pair already has mappings, the system loads existing values instead of auto-populating (preserves your work).
 
 ### Cardinal Type Auto-Assignment
 
