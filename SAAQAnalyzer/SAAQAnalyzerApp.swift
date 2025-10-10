@@ -1725,6 +1725,7 @@ struct RegularizationSettingsView: View {
     @State private var statistics: DetailedRegularizationStatistics?
     @State private var isLoadingStats = false
     @State private var lastCachedYearConfig: RegularizationYearConfiguration?
+    @State private var statisticsNeedRefresh = false
 
     var body: some View {
         Form {
@@ -1965,8 +1966,9 @@ struct RegularizationSettingsView: View {
 
                             Divider()
 
-                            Text("Field Coverage")
+                            Text("Field Coverage (Records)")
                                 .font(.headline)
+                                .help("Shows how many vehicle records in uncurated years have regularization assignments")
 
                             // Make/Model coverage
                             FieldCoverageRow(
@@ -1998,12 +2000,30 @@ struct RegularizationSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    Button("Refresh Statistics") {
-                        loadStatistics()
+                    HStack(spacing: 8) {
+                        Button {
+                            loadStatistics()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text("Refresh Statistics")
+                                if statisticsNeedRefresh {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundColor(.orange)
+                                        .font(.caption)
+                                }
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.roundedRectangle)
+                        .controlSize(.small)
+                        .help("Refresh statistics after editing mappings or changing year configuration")
+
+                        if statisticsNeedRefresh {
+                            Text("Mappings changed")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                        }
                     }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.roundedRectangle)
-                    .controlSize(.small)
                 }
             }
         }
@@ -2017,10 +2037,11 @@ struct RegularizationSettingsView: View {
             RegularizationView(databaseManager: databaseManager, yearConfig: yearConfig)
         }
         .onChange(of: showingRegularizationView) { oldValue, newValue in
-            // When RegularizationView closes, automatically reload filter cache
+            // When RegularizationView closes, automatically reload filter cache and mark stats as stale
             if oldValue == true && newValue == false {
                 print("⚠️ RegularizationView closed - reloading filter cache automatically")
                 rebuildEnumerations()
+                statisticsNeedRefresh = true  // Mark statistics as potentially stale after editing mappings
             }
         }
     }
@@ -2071,6 +2092,7 @@ struct RegularizationSettingsView: View {
                 await MainActor.run {
                     statistics = stats
                     isLoadingStats = false
+                    statisticsNeedRefresh = false  // Clear staleness flag after refresh
                 }
             } catch {
                 await MainActor.run {

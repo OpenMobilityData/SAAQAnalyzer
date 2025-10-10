@@ -485,6 +485,52 @@ You can enable/disable any combination of filters to focus on specific workflows
 3. **To correct typos:** Use RegularizationView to map uncurated variants to canonical values
 4. **Badge interpretation:** The badge shows you what's in the database, not what will be queried (that depends on the regularization toggle)
 
+## Regularization Statistics Display
+
+### Field-Specific Coverage
+
+The Regularization Settings tab displays detailed statistics about regularization coverage by field type:
+
+**Statistics Section:**
+- **Active Mappings**: Total number of Make/Model regularization mappings in the database
+- **Field Coverage (Records)**: Shows how many vehicle records in uncurated years have regularization assignments
+  - **Make/Model**: Records with canonical Make and Model assigned
+  - **Fuel Type**: Records with fuel type assigned (via triplet mappings)
+  - **Vehicle Type**: Records with vehicle type assigned (via wildcard mappings)
+
+**Display Features:**
+- Progress bars with color coding (green >50%, orange ≤50%)
+- Record counts shown as "assigned / total" for each field
+- Percentage coverage for each field type
+- Overall coverage percentage
+
+**Staleness Tracking:**
+When statistics need refreshing, the "Refresh Statistics" button shows:
+- Orange warning badge (⚠️ triangle icon)
+- "Mappings changed" indicator text
+- Helpful tooltip explaining when refresh is needed
+
+**Statistics Become Stale When:**
+- RegularizationView is closed (mappings may have been edited)
+- Year configuration changes (curated/uncurated years modified)
+
+**Refresh Behavior:**
+- Click "Refresh Statistics" to reload latest coverage data
+- Statistics automatically refresh when Settings tab first loads
+- Warning badge disappears after successful refresh
+
+### Understanding Coverage Metrics
+
+**Important:** All statistics count **vehicle records**, not Make/Model pairs. For example:
+- "Make/Model: 12,345 / 50,000 (24.7%)" means 12,345 vehicle records have canonical Make/Model assignments
+- This represents coverage across all uncurated vehicle records, not the number of mapping pairs
+
+**Why Coverage Varies by Field:**
+- **Make/Model coverage** reflects canonical pair assignments
+- **Fuel Type coverage** depends on triplet mappings (Make/Model/ModelYear)
+- **Vehicle Type coverage** depends on wildcard mappings (one per Make/Model pair)
+- Each field can have different coverage percentages based on mapping completeness
+
 ## Console Messages to Watch
 
 **Regularization Loading:**
