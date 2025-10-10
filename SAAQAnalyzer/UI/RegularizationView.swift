@@ -481,9 +481,9 @@ struct MappingFormView: View {
                         Text("Not Assigned").tag(nil as MakeModelHierarchy.VehicleTypeInfo?)
 
                         // Special "Unknown" option (not in hierarchy since it doesn't appear in curated years)
-                        Text("Unknown").tag(MakeModelHierarchy.VehicleTypeInfo(
+                        Text("UK - Unknown").tag(MakeModelHierarchy.VehicleTypeInfo(
                             id: -1,  // Placeholder ID - will be looked up from enum table when saving
-                            code: "AT",
+                            code: "UK",  // Unknown vehicle type (user-assigned when type cannot be determined)
                             description: "Unknown",
                             recordCount: 0
                         ) as MakeModelHierarchy.VehicleTypeInfo?)
@@ -1349,7 +1349,7 @@ class RegularizationViewModel: ObservableObject {
                             // Create special "Unknown" instance (matches picker option)
                             selectedVehicleType = MakeModelHierarchy.VehicleTypeInfo(
                                 id: -1,
-                                code: "AT",
+                                code: "UK",  // Unknown vehicle type (user-assigned)
                                 description: "Unknown",
                                 recordCount: 0
                             )

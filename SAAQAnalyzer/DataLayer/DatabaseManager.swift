@@ -959,7 +959,7 @@ class DatabaseManager: ObservableObject {
         let unknownInserts = [
             "INSERT OR IGNORE INTO fuel_type_enum (code, description) VALUES ('U', 'Unknown');",
             "INSERT OR IGNORE INTO vehicle_class_enum (code, description) VALUES ('UNK', 'Unknown');",
-            "INSERT OR IGNORE INTO vehicle_type_enum (code, description) VALUES ('AT', 'Unknown');"
+            "INSERT OR IGNORE INTO vehicle_type_enum (code, description) VALUES ('UK', 'Unknown');"
         ]
 
         for insertSQL in unknownInserts {
@@ -4538,7 +4538,7 @@ class DatabaseManager: ObservableObject {
                         let typeDescription: String
                         switch vehicleTypeStr {
                         case "AB": typeDescription = "Bus"
-                        case "AT": typeDescription = "Unknown"
+                        case "AT": typeDescription = "Dealer Plates"
                         case "AU": typeDescription = "Automobile or Light Truck"
                         case "CA": typeDescription = "Truck or Road Tractor"
                         case "CY": typeDescription = "Moped"

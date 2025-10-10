@@ -1261,7 +1261,14 @@ struct VehicleTypeFilterList: View {
     }
 
     private var displayedItems: [String] {
-        let sorted = filteredItems.sorted()
+        // Sort with special handling: UK (Unknown) goes at the end
+        let sorted = filteredItems.sorted { item1, item2 in
+            // If either is UK, put it at the end
+            if item1.uppercased() == "UK" { return false }
+            if item2.uppercased() == "UK" { return true }
+            // Otherwise sort alphabetically
+            return item1 < item2
+        }
         return isExpanded ? sorted : Array(sorted.prefix(6))
     }
 
@@ -1364,15 +1371,16 @@ struct VehicleTypeFilterList: View {
             return "NUL - Not Specified"
         }
 
-        // Handle AT special case (Unknown)
-        if vehicleType.uppercased() == "AT" {
-            return "AT - Unknown"
+        // Handle UK special case (Unknown)
+        if vehicleType.uppercased() == "UK" {
+            return "UK - Unknown"
         }
 
         // Handle normal vehicle types
         let typeDescription: String
         switch vehicleType {
         case "AB": typeDescription = "Bus"
+        case "AT": typeDescription = "Dealer Plates"
         case "AU": typeDescription = "Automobile or Light Truck"
         case "CA": typeDescription = "Truck or Road Tractor"
         case "CY": typeDescription = "Moped"
@@ -1392,7 +1400,7 @@ struct VehicleTypeFilterList: View {
     private func getDescription(for vehicleType: String) -> String {
         switch vehicleType {
         case "AB": return "Bus"
-        case "AT": return "Unknown / Not specified"
+        case "AT": return "Dealer Plates (Auto/Temporary)"
         case "AU": return "Automobile or Light Truck"
         case "CA": return "Truck or Road Tractor"
         case "CY": return "Moped"
@@ -1401,6 +1409,7 @@ struct VehicleTypeFilterList: View {
         case "MN": return "Snowmobile"
         case "NV": return "Other Off-Road Vehicle"
         case "SN": return "Snow Blower"
+        case "UK": return "Unknown (user-assigned)"
         case "VO": return "Tool Vehicle"
         case "VT": return "All-Terrain Vehicle"
         default: return "Unknown vehicle type: \(vehicleType)"
