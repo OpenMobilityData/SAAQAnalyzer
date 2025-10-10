@@ -67,7 +67,7 @@ This dataset represents vehicles authorized to circulate in Quebec as of Decembe
 
 #### TYP_VEH_CATEG_USA Values
 - **AB**: Bus
-- **AT**: No specific type (for movable plates with prefix X only)
+- **AT**: Dealer Plates (Auto/Temporary - for movable plates)
 - **AU**: Automobile or light truck
 - **CA**: Truck or road tractor
 - **CY**: Moped
@@ -76,6 +76,7 @@ This dataset represents vehicles authorized to circulate in Quebec as of Decembe
 - **MN**: Snowmobile
 - **NV**: Other off-road vehicles (not MN, VT, or VO - vehicles lacking equipment required by law for public roads)
 - **SN**: Snow blower
+- **UK**: Unknown (user-assigned in regularization system when vehicle type cannot be determined)
 - **VO**: Tool vehicle
 - **VT**: All-terrain vehicle
 
