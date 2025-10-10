@@ -715,6 +715,152 @@ class RegularizationManager {
         }
     }
 
+    /// Gets detailed regularization statistics with field-specific coverage
+    func getDetailedRegularizationStatistics() async throws -> DetailedRegularizationStatistics {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        let uncuratedYearsList = Array(yearConfig.uncuratedYears).sorted()
+        guard !uncuratedYearsList.isEmpty else {
+            // Return empty statistics if no uncurated years configured
+            let emptyFieldCoverage = DetailedRegularizationStatistics.FieldCoverage(
+                assignedCount: 0,
+                unassignedCount: 0,
+                totalRecords: 0
+            )
+            return DetailedRegularizationStatistics(
+                mappingCount: 0,
+                totalUncuratedRecords: 0,
+                makeModelCoverage: emptyFieldCoverage,
+                fuelTypeCoverage: emptyFieldCoverage,
+                vehicleTypeCoverage: emptyFieldCoverage
+            )
+        }
+
+        let uncuratedPlaceholders = uncuratedYearsList.map { _ in "?" }.joined(separator: ",")
+
+        // Query for all statistics in one go
+        let sql = """
+        SELECT
+            -- Mapping count
+            (SELECT COUNT(*) FROM make_model_regularization) as mapping_count,
+
+            -- Total uncurated records
+            (SELECT COUNT(*) FROM vehicles v
+             JOIN year_enum y ON v.year_id = y.id
+             WHERE y.year IN (\(uncuratedPlaceholders))) as total_records,
+
+            -- Make/Model coverage (records with canonical assignment)
+            (SELECT COUNT(DISTINCT v.id) FROM vehicles v
+             JOIN year_enum y ON v.year_id = y.id
+             WHERE y.year IN (\(uncuratedPlaceholders))
+             AND EXISTS (
+                 SELECT 1 FROM make_model_regularization r
+                 WHERE r.uncurated_make_id = v.make_id
+                 AND r.uncurated_model_id = v.model_id
+                 AND r.canonical_make_id IS NOT NULL
+                 AND r.canonical_model_id IS NOT NULL
+             )) as make_model_assigned,
+
+            -- Fuel Type coverage (records with fuel type assigned)
+            (SELECT COUNT(DISTINCT v.id) FROM vehicles v
+             JOIN year_enum y ON v.year_id = y.id
+             WHERE y.year IN (\(uncuratedPlaceholders))
+             AND EXISTS (
+                 SELECT 1 FROM make_model_regularization r
+                 WHERE r.uncurated_make_id = v.make_id
+                 AND r.uncurated_model_id = v.model_id
+                 AND r.fuel_type_id IS NOT NULL
+             )) as fuel_type_assigned,
+
+            -- Vehicle Type coverage (records with vehicle type assigned)
+            (SELECT COUNT(DISTINCT v.id) FROM vehicles v
+             JOIN year_enum y ON v.year_id = y.id
+             WHERE y.year IN (\(uncuratedPlaceholders))
+             AND EXISTS (
+                 SELECT 1 FROM make_model_regularization r
+                 WHERE r.uncurated_make_id = v.make_id
+                 AND r.uncurated_model_id = v.model_id
+                 AND r.vehicle_type_id IS NOT NULL
+             )) as vehicle_type_assigned;
+        """
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                // Bind uncurated years (appears twice in the query)
+                var bindIndex: Int32 = 1
+                for _ in 0..<5 { // 5 subqueries use uncurated years
+                    for year in uncuratedYearsList {
+                        sqlite3_bind_int(stmt, bindIndex, Int32(year))
+                        bindIndex += 1
+                    }
+                }
+
+                if sqlite3_step(stmt) == SQLITE_ROW {
+                    let mappingCount = Int(sqlite3_column_int(stmt, 0))
+                    let totalRecords = Int(sqlite3_column_int(stmt, 1))
+                    let makeModelAssigned = Int(sqlite3_column_int(stmt, 2))
+                    let fuelTypeAssigned = Int(sqlite3_column_int(stmt, 3))
+                    let vehicleTypeAssigned = Int(sqlite3_column_int(stmt, 4))
+
+                    let makeModelCoverage = DetailedRegularizationStatistics.FieldCoverage(
+                        assignedCount: makeModelAssigned,
+                        unassignedCount: totalRecords - makeModelAssigned,
+                        totalRecords: totalRecords
+                    )
+
+                    let fuelTypeCoverage = DetailedRegularizationStatistics.FieldCoverage(
+                        assignedCount: fuelTypeAssigned,
+                        unassignedCount: totalRecords - fuelTypeAssigned,
+                        totalRecords: totalRecords
+                    )
+
+                    let vehicleTypeCoverage = DetailedRegularizationStatistics.FieldCoverage(
+                        assignedCount: vehicleTypeAssigned,
+                        unassignedCount: totalRecords - vehicleTypeAssigned,
+                        totalRecords: totalRecords
+                    )
+
+                    let stats = DetailedRegularizationStatistics(
+                        mappingCount: mappingCount,
+                        totalUncuratedRecords: totalRecords,
+                        makeModelCoverage: makeModelCoverage,
+                        fuelTypeCoverage: fuelTypeCoverage,
+                        vehicleTypeCoverage: vehicleTypeCoverage
+                    )
+
+                    print("✅ Detailed regularization statistics:")
+                    print("   Mappings: \(mappingCount)")
+                    print("   Total uncurated records: \(totalRecords)")
+                    print("   Make/Model coverage: \(String(format: "%.1f", makeModelCoverage.coveragePercentage))%")
+                    print("   Fuel Type coverage: \(String(format: "%.1f", fuelTypeCoverage.coveragePercentage))%")
+                    print("   Vehicle Type coverage: \(String(format: "%.1f", vehicleTypeCoverage.coveragePercentage))%")
+
+                    continuation.resume(returning: stats)
+                } else {
+                    // Return empty statistics if no results
+                    let emptyFieldCoverage = DetailedRegularizationStatistics.FieldCoverage(
+                        assignedCount: 0,
+                        unassignedCount: 0,
+                        totalRecords: 0
+                    )
+                    continuation.resume(returning: DetailedRegularizationStatistics(
+                        mappingCount: 0,
+                        totalUncuratedRecords: 0,
+                        makeModelCoverage: emptyFieldCoverage,
+                        fuelTypeCoverage: emptyFieldCoverage,
+                        vehicleTypeCoverage: emptyFieldCoverage
+                    ))
+                }
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to get detailed statistics: \(error)"))
+            }
+        }
+    }
+
     /// Gets regularization display info for filter dropdowns
     /// Returns a dictionary mapping (makeId, modelId) to (canonicalMakeName, canonicalModelName, recordCount)
     func getRegularizationDisplayInfo() async throws -> [String: (canonicalMake: String, canonicalModel: String, recordCount: Int)] {

@@ -1844,3 +1844,45 @@ struct RegularizationYearConfiguration: Codable, Sendable {
         }
     }
 }
+
+/// Detailed statistics about regularization coverage by field type
+struct DetailedRegularizationStatistics: Sendable {
+    /// Total number of active regularization mappings
+    let mappingCount: Int
+
+    /// Total number of uncurated vehicle records (based on year configuration)
+    let totalUncuratedRecords: Int
+
+    /// Coverage metrics for Make/Model canonical assignment
+    let makeModelCoverage: FieldCoverage
+
+    /// Coverage metrics for Fuel Type assignment
+    let fuelTypeCoverage: FieldCoverage
+
+    /// Coverage metrics for Vehicle Type assignment
+    let vehicleTypeCoverage: FieldCoverage
+
+    /// Overall coverage percentage across all fields (based on Make/Model)
+    var overallCoverage: Double {
+        guard totalUncuratedRecords > 0 else { return 0.0 }
+        return makeModelCoverage.coveragePercentage
+    }
+
+    /// Coverage metrics for a specific field type
+    struct FieldCoverage: Sendable {
+        /// Number of uncurated records with this field assigned via regularization
+        let assignedCount: Int
+
+        /// Number of uncurated records without this field assigned
+        let unassignedCount: Int
+
+        /// Total uncurated records
+        let totalRecords: Int
+
+        /// Coverage as a percentage (0-100)
+        var coveragePercentage: Double {
+            guard totalRecords > 0 else { return 0.0 }
+            return Double(assignedCount) / Double(totalRecords) * 100.0
+        }
+    }
+}

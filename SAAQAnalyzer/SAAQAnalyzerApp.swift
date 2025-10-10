@@ -1718,14 +1718,12 @@ struct ExportSettingsView: View {
 struct RegularizationSettingsView: View {
     @StateObject private var databaseManager = DatabaseManager.shared
     @State private var yearConfig = RegularizationYearConfiguration.defaultConfiguration()
-    @State private var isGeneratingHierarchy = false
     @State private var isFindingUncurated = false
     @State private var showingRegularizationView = false
     @AppStorage("regularizationEnabled") private var regularizationEnabled = false
     @AppStorage("regularizationCoupling") private var regularizationCoupling = true
-    @State private var statistics: (mappingCount: Int, coveredRecords: Int, totalRecords: Int)?
+    @State private var statistics: DetailedRegularizationStatistics?
     @State private var isLoadingStats = false
-    @State private var cacheNeedsReload = false
     @State private var lastCachedYearConfig: RegularizationYearConfiguration?
 
     var body: some View {
@@ -1810,54 +1808,34 @@ struct RegularizationSettingsView: View {
                 }
             }
             .onChange(of: yearConfig.curatedYears) { oldValue, newValue in
-                checkCacheStaleness()
+                // Automatically invalidate cache when year configuration changes
+                Task {
+                    databaseManager.filterCacheManager?.invalidateCache()
+                    await MainActor.run {
+                        lastCachedYearConfig = yearConfig
+                    }
+                    print("✅ Filter cache invalidated automatically (curated years changed)")
+                }
             }
             .onChange(of: yearConfig.uncuratedYears) { oldValue, newValue in
-                checkCacheStaleness()
+                // Automatically invalidate cache when year configuration changes
+                Task {
+                    databaseManager.filterCacheManager?.invalidateCache()
+                    await MainActor.run {
+                        lastCachedYearConfig = yearConfig
+                    }
+                    print("✅ Filter cache invalidated automatically (uncurated years changed)")
+                }
             }
 
             Section("Regularization Actions") {
-                VStack(spacing: 12) {
-                    HStack(spacing: 8) {
-                        Button(action: {
-                            rebuildEnumerations()
-                        }) {
-                            HStack(spacing: 6) {
-                                Text("Reload Filter Cache")
-                                if cacheNeedsReload {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundColor(.orange)
-                                        .font(.caption)
-                                }
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.roundedRectangle)
-                        .help("Clear and reload filter cache (fixes missing uncurated Make/Model values in dropdowns)")
-
-                        if cacheNeedsReload {
-                            Text("Settings changed")
-                                .font(.caption)
-                                .foregroundColor(.orange)
-                        }
-                    }
-
-                    Button(isGeneratingHierarchy ? "Generating Hierarchy..." : "Generate Canonical Hierarchy") {
-                        generateHierarchy()
-                    }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.roundedRectangle)
-                    .disabled(isGeneratingHierarchy)
-                    .help("Analyze curated years to build Make/Model/FuelType/VehicleClass combinations")
-
-                    Button(isFindingUncurated ? "Finding Uncurated Pairs..." : "Manage Regularization Mappings") {
-                        showingRegularizationView = true
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.roundedRectangle)
-                    .disabled(isFindingUncurated)
-                    .help("Open the regularization management interface")
+                Button(isFindingUncurated ? "Finding Uncurated Pairs..." : "Manage Regularization Mappings") {
+                    showingRegularizationView = true
                 }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.roundedRectangle)
+                .disabled(isFindingUncurated)
+                .help("Open the regularization management interface")
             }
 
             Section("Cardinal Type Auto-Assignment") {
@@ -1981,20 +1959,38 @@ struct RegularizationSettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
                     } else if let stats = statistics {
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 8) {
                             Text("Active Mappings: \(stats.mappingCount)")
                                 .font(.system(.body, design: .monospaced))
-                            Text("Records Covered: \(stats.coveredRecords.formatted())")
-                                .font(.system(.body, design: .monospaced))
-                            Text("Total Uncurated Records: \(stats.totalRecords.formatted())")
-                                .font(.system(.body, design: .monospaced))
 
-                            if stats.totalRecords > 0 {
-                                let percentage = Double(stats.coveredRecords) / Double(stats.totalRecords) * 100.0
-                                Text("Coverage: \(String(format: "%.1f", percentage))%")
-                                    .font(.system(.body, design: .monospaced))
-                                    .foregroundColor(percentage > 50 ? .green : .orange)
-                            }
+                            Divider()
+
+                            Text("Field Coverage")
+                                .font(.headline)
+
+                            // Make/Model coverage
+                            FieldCoverageRow(
+                                fieldName: "Make/Model",
+                                coverage: stats.makeModelCoverage
+                            )
+
+                            // Fuel Type coverage
+                            FieldCoverageRow(
+                                fieldName: "Fuel Type",
+                                coverage: stats.fuelTypeCoverage
+                            )
+
+                            // Vehicle Type coverage
+                            FieldCoverageRow(
+                                fieldName: "Vehicle Type",
+                                coverage: stats.vehicleTypeCoverage
+                            )
+
+                            Divider()
+
+                            Text("Overall Coverage: \(String(format: "%.1f", stats.overallCoverage))%")
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundColor(stats.overallCoverage > 50 ? .green : .orange)
                         }
                     } else {
                         Text("No statistics available")
@@ -2058,34 +2054,8 @@ struct RegularizationSettingsView: View {
         loadStatistics()
     }
 
-    private func generateHierarchy() {
-        guard let manager = databaseManager.regularizationManager else {
-            print("❌ RegularizationManager not available")
-            return
-        }
-
-        isGeneratingHierarchy = true
-
-        Task {
-            do {
-                // Update year configuration in manager
-                await manager.setYearConfiguration(yearConfig)
-
-                // Generate hierarchy
-                let hierarchy = try await manager.generateCanonicalHierarchy(forceRefresh: true)
-
-                await MainActor.run {
-                    isGeneratingHierarchy = false
-                    print("✅ Generated hierarchy with \(hierarchy.makes.count) makes")
-                }
-            } catch {
-                await MainActor.run {
-                    isGeneratingHierarchy = false
-                    print("❌ Error generating hierarchy: \(error)")
-                }
-            }
-        }
-    }
+    // Note: generateHierarchy() function removed - hierarchy generation happens automatically
+    // when RegularizationView is opened
 
     private func loadStatistics() {
         guard let manager = databaseManager.regularizationManager else {
@@ -2096,7 +2066,7 @@ struct RegularizationSettingsView: View {
 
         Task {
             do {
-                let stats = try await manager.getRegularizationStatistics()
+                let stats = try await manager.getDetailedRegularizationStatistics()
 
                 await MainActor.run {
                     statistics = stats
@@ -2130,9 +2100,8 @@ struct RegularizationSettingsView: View {
             databaseManager.filterCacheManager?.invalidateCache()
 
             await MainActor.run {
-                // Update cached year config and clear staleness flag
+                // Update cached year config
                 lastCachedYearConfig = yearConfig
-                cacheNeedsReload = false
             }
 
             print("✅ Filter cache invalidated - will reload on next filter access")
@@ -2140,16 +2109,8 @@ struct RegularizationSettingsView: View {
         }
     }
 
-    private func checkCacheStaleness() {
-        // Check if year configuration has changed since last cache reload
-        if let lastConfig = lastCachedYearConfig {
-            cacheNeedsReload = (yearConfig.curatedYears != lastConfig.curatedYears ||
-                                yearConfig.uncuratedYears != lastConfig.uncuratedYears)
-        } else {
-            // No cache yet, assume stale
-            cacheNeedsReload = true
-        }
-    }
+    // Note: checkCacheStaleness() function removed - cache invalidation now happens automatically
+    // via onChange handlers when year configuration changes
 
     /// Helper to get vehicle type description from code
     private func vehicleTypeDescription(for code: String) -> String {
@@ -2168,6 +2129,39 @@ struct RegularizationSettingsView: View {
         case "AT": return "No Specific Type"
         default: return "Unknown"
         }
+    }
+}
+
+// MARK: - Field Coverage Row Helper View
+
+/// Display a single field's coverage metrics with progress bar
+struct FieldCoverageRow: View {
+    let fieldName: String
+    let coverage: DetailedRegularizationStatistics.FieldCoverage
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(fieldName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(coverage.assignedCount.formatted()) / \(coverage.totalRecords.formatted())")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                Text("\(String(format: "%.1f", coverage.coveragePercentage))%")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(coverage.coveragePercentage > 50 ? .green : .orange)
+                    .frame(width: 50, alignment: .trailing)
+                    .monospacedDigit()
+            }
+
+            ProgressView(value: coverage.coveragePercentage, total: 100)
+                .tint(coverage.coveragePercentage > 50 ? .green : .orange)
+        }
+        .padding(.vertical, 4)
     }
 }
 
