@@ -177,7 +177,13 @@ class RegularizationManager {
                         makesDict[makeId]!.models[modelId] = (name: modelName, modelYearFuelTypes: [:], vehicleTypes: [])
                     }
 
-                    // Add fuel type (grouped by model year)
+                    // Initialize model year entry (always, even if fuel type is NULL)
+                    // This ensures pre-2017 model years (with NULL fuel_type) appear in the hierarchy
+                    if makesDict[makeId]!.models[modelId]!.modelYearFuelTypes[modelYearId] == nil {
+                        makesDict[makeId]!.models[modelId]!.modelYearFuelTypes[modelYearId] = []
+                    }
+
+                    // Add fuel type (grouped by model year) only if present
                     if let ftId = fuelTypeId, let ftCode = fuelTypeCode, let ftDesc = fuelTypeDesc {
                         let fuelTypeInfo = MakeModelHierarchy.FuelTypeInfo(
                             id: ftId,
@@ -188,14 +194,26 @@ class RegularizationManager {
                             modelYear: modelYear
                         )
 
-                        // Initialize array for this model year if needed
-                        if makesDict[makeId]!.models[modelId]!.modelYearFuelTypes[modelYearId] == nil {
-                            makesDict[makeId]!.models[modelId]!.modelYearFuelTypes[modelYearId] = []
-                        }
-
                         // Add fuel type if not already present for this model year
                         if !makesDict[makeId]!.models[modelId]!.modelYearFuelTypes[modelYearId]!.contains(where: { $0.id == ftId }) {
                             makesDict[makeId]!.models[modelId]!.modelYearFuelTypes[modelYearId]!.append(fuelTypeInfo)
+                        }
+                    } else if let myId = modelYearId, let myYear = modelYear {
+                        // Fuel type is NULL (pre-2017 data) - add a placeholder to preserve model year information
+                        // Use a negative ID to indicate this is a placeholder (won't conflict with real IDs)
+                        // This ensures UI sorting/display works correctly for empty fuel type arrays
+                        let placeholderInfo = MakeModelHierarchy.FuelTypeInfo(
+                            id: -1,  // Placeholder ID
+                            code: "",
+                            description: "",
+                            recordCount: recordCount,
+                            modelYearId: myId,
+                            modelYear: myYear
+                        )
+
+                        // Only add placeholder if array is still empty (avoid duplicates from multiple rows)
+                        if makesDict[makeId]!.models[modelId]!.modelYearFuelTypes[modelYearId]!.isEmpty {
+                            makesDict[makeId]!.models[modelId]!.modelYearFuelTypes[modelYearId]!.append(placeholderInfo)
                         }
                     }
 

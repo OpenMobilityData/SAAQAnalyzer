@@ -135,7 +135,13 @@ This dataset represents vehicles authorized to circulate in Quebec as of Decembe
 
 | Variable | Type | Length | Description | Values |
 |----------|------|--------|-------------|---------|
-| **TYP_CARBU** | Alphanumeric | 1 | Fuel type or propulsion mode. Not available before 2017 | See fuel codes below |
+| **TYP_CARBU** | Alphanumeric | 1 | Fuel type or propulsion mode. **Field added to SAAQ schema in 2017** - NULL for all vehicles in registration years 2011-2016 | See fuel codes below |
+
+**Important**: The fuel type field was introduced in the 2017 registration year data. This means:
+- **Registration years 2011-2016**: TYP_CARBU is NULL for ALL vehicles (field didn't exist in schema)
+- **Registration year 2017+**: TYP_CARBU is populated for vehicles
+
+**Edge Case**: You may find model year 2017 vehicles with NULL TYP_CARBU if they were registered in 2016 (early registration of next year's models). In this case, the NULL value is due to the registration year, not the model year.
 
 #### Fuel Type Codes (TYP_CARBU)
 - A: Other

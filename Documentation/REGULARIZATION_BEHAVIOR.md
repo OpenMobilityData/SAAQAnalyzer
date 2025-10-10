@@ -246,6 +246,44 @@ When you select a Make/Model pair for editing, the FuelType and VehicleType drop
 - **Green badges** signal "work complete" - user has reviewed and made a decision (even if that decision is "Unknown")
 - You can "undo" an Unknown assignment by setting back to "Not Specified" to flag it for future review
 
+## Model Year vs Registration Year: The 2017 Fuel Type Cutoff
+
+### Important Distinction
+
+The SAAQ data contains two year values:
+- **AN (Registration Year)**: The year the vehicle was authorized to circulate (year of the data snapshot, December 31st)
+- **ANNEE_MOD (Model Year)**: The year the manufacturer designated as the model year
+
+**Critical Detail**: The fuel type field (`TYP_CARBU`) was **added to the SAAQ schema in 2017**. This means:
+- **Pre-2017 registration files** (2011-2016): NULL fuel_type for ALL vehicles
+- **2017+ registration files**: fuel_type populated for vehicles
+
+### The Edge Case: Model Year 2017 in 2016 Data
+
+You may encounter model year 2017 vehicles with NULL fuel_type. This occurs because:
+1. Vehicle with model year 2017 was registered in 2016 (early registration)
+2. The 2016 registration file doesn't have the fuel_type field (added in 2017)
+3. Result: Model year 2017 appears in canonical hierarchy with NULL fuel_type
+
+**Example**: VOLKS/TOUAR (Volkswagen Touareg) from curated years 2012, 2016:
+- Model Year 2010: NULL fuel_type (expected - pre-2017 schema)
+- Model Year 2011: NULL fuel_type (expected - pre-2017 schema)
+- Model Year 2017: NULL fuel_type (edge case - 2017 model registered in 2016 file)
+
+### How the System Handles This
+
+1. **Canonical Hierarchy Generation**: Model years with NULL fuel_type now appear in Step 4 of the Regularization Editor
+2. **User Options**: For these years, you'll see:
+   - **Not Assigned** (default) - Year hasn't been reviewed
+   - **Unknown** - Recommended choice when fuel type cannot be determined from source data
+3. **Completion**: Assigning "Unknown" to all NULL fuel_type years marks the pair as complete
+
+### Recommendation
+
+For model years with NULL fuel_type (whether pre-2017 or the edge case):
+- ✅ **Select "Unknown"** - Acknowledges you've reviewed it and fuel type is unavailable in source data
+- ❌ **Don't leave "Not Assigned"** - This keeps the pair in "Needs Review" status indefinitely
+
 ## Model Year Fuel Type Assignment UI
 
 When editing a Make/Model pair, Step 4 provides a radio button interface for assigning fuel types to each model year:
@@ -301,7 +339,7 @@ The RegularizationView provides granular filtering by regularization status usin
 
 **Features:**
 - **Real-time counts**: Each button displays the number of pairs in that status (e.g., "Unassigned (553)")
-- **Tooltip details**: Hover over buttons to see full status information
+- **Tooltip details**: Hover over buttons to see full status information including clarification that counts refer to Make/Model pairs
 - **Default:** All three filters are enabled (all pairs visible)
 
 ### Vehicle Type Filter
@@ -324,6 +362,33 @@ Additional filtering by vehicle type is available below the status filters:
 - Focus on pairs mapped to specific vehicle types (e.g., only motorcycles)
 - Find pairs that still need vehicle type assignment ("Not Assigned")
 - Review coverage of specific vehicle categories
+
+### Incomplete Fields Filter
+
+Target pairs that have mappings but are missing specific field assignments:
+
+**Filter Options:**
+- **Filter by Incomplete Fields** toggle - Enable/disable this filter section
+- **Vehicle Type not assigned** - Show pairs where the wildcard mapping has NULL vehicle_type
+- **Fuel Type not assigned (any model year)** - Show pairs where ANY triplet mapping has NULL fuel_type
+
+**Behavior:**
+- Only applies to pairs with existing mappings (ignores completely unassigned pairs)
+- Multiple checkboxes can be selected simultaneously (OR logic)
+- Checkboxes are disabled when the main toggle is OFF
+- Checkboxes automatically reset when toggling off
+
+**Use Cases:**
+1. **Vehicle Type cleanup** - Enable "Vehicle Type not assigned" to find pairs where Make/Model are mapped but vehicle type needs review
+2. **Fuel Type cleanup** - Enable "Fuel Type not assigned" to find pairs where some model years still lack fuel type assignments
+3. **Combined cleanup** - Enable both to find pairs incomplete in either dimension
+
+**Example Workflow:**
+1. Complete status shows 278 pairs, but some may have incomplete year coverage
+2. Enable "Filter by Incomplete Fields" → check "Fuel Type not assigned"
+3. List shows pairs marked as "Needs Review" with incomplete fuel type triplets
+4. Work through list assigning "Unknown" or specific fuel types to complete years
+5. As pairs complete, they disappear from the filtered view
 
 ### Filter Combinations
 

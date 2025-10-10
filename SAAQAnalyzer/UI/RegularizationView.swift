@@ -66,6 +66,9 @@ struct UncuratedPairsListView: View {
     @State private var showComplete = true
     @State private var showOnlyRegularizationVehicleTypes = false
     @State private var selectedVehicleTypeFilter: String? = nil
+    @State private var filterByIncompleteFields = false
+    @State private var incompleteVehicleType = false
+    @State private var incompleteFuelType = false
 
     enum SortOrder: String, CaseIterable {
         case recordCountDescending = "Record Count (High to Low)"
@@ -141,6 +144,46 @@ struct UncuratedPairsListView: View {
                 }
 
                 return false
+            }
+        }
+
+        // Filter by incomplete fields
+        if filterByIncompleteFields && (incompleteVehicleType || incompleteFuelType) {
+            pairs = pairs.filter { pair in
+                let mappings = viewModel.getMappingsForPair(pair.makeId, pair.modelId)
+
+                // If no mappings exist, this pair is completely unassigned (skip it in incomplete filter)
+                if mappings.isEmpty {
+                    return false
+                }
+
+                let wildcardMapping = mappings.first { $0.modelYearId == nil }
+                let tripletMappings = mappings.filter { $0.modelYearId != nil }
+
+                var matchesFilter = false
+
+                // Check Vehicle Type incomplete
+                if incompleteVehicleType {
+                    // Vehicle type is in wildcard mapping
+                    if let wildcard = wildcardMapping, wildcard.vehicleType == nil {
+                        matchesFilter = true
+                    }
+                }
+
+                // Check Fuel Type incomplete
+                if incompleteFuelType {
+                    // Check if there are triplets AND if ANY triplet has NULL fuel type
+                    // This shows pairs where some model years still need fuel type assignment
+                    if !tripletMappings.isEmpty && tripletMappings.contains(where: { $0.fuelType == nil }) {
+                        matchesFilter = true
+                    }
+                    // Also include pairs with no triplets at all (completely missing fuel type data)
+                    else if tripletMappings.isEmpty {
+                        matchesFilter = true
+                    }
+                }
+
+                return matchesFilter
             }
         }
 
@@ -258,6 +301,45 @@ struct UncuratedPairsListView: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
+                }
+
+                // Incomplete Fields Filter
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Toggle(isOn: $filterByIncompleteFields) {
+                            Text("Filter by Incomplete Fields:")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .onChange(of: filterByIncompleteFields) { _, newValue in
+                            // Reset checkboxes when toggling off
+                            if !newValue {
+                                incompleteVehicleType = false
+                                incompleteFuelType = false
+                            }
+                        }
+                    }
+
+                    if filterByIncompleteFields {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Toggle(isOn: $incompleteVehicleType) {
+                                Text("Vehicle Type not assigned")
+                                    .font(.caption)
+                            }
+                            .toggleStyle(.checkbox)
+                            .disabled(!filterByIncompleteFields)
+
+                            Toggle(isOn: $incompleteFuelType) {
+                                Text("Fuel Type not assigned (any model year)")
+                                    .font(.caption)
+                            }
+                            .toggleStyle(.checkbox)
+                            .disabled(!filterByIncompleteFields)
+                        }
+                        .padding(.leading, 16)
+                    }
                 }
 
                 // Summary
@@ -793,6 +875,7 @@ struct ModelYearFuelTypeRow: View {
 
     private var validFuelTypes: [MakeModelHierarchy.FuelTypeInfo] {
         fuelTypes.filter { fuelType in
+            fuelType.id != -1 &&  // Filter out placeholder entries for NULL fuel types
             !fuelType.description.localizedCaseInsensitiveContains("not specified") &&
             !fuelType.description.localizedCaseInsensitiveContains("not assigned") &&
             !fuelType.description.localizedCaseInsensitiveContains("non spécifié")
@@ -1242,6 +1325,7 @@ class RegularizationViewModel: ObservableObject {
 
                 for (modelYearId, fuelTypes) in canonicalModel.modelYearFuelTypes {
                     let validFuelTypes = fuelTypes.filter { fuelType in
+                        fuelType.id != -1 &&  // Filter out placeholder entries for NULL fuel types
                         !fuelType.description.localizedCaseInsensitiveContains("not specified") &&
                         !fuelType.description.localizedCaseInsensitiveContains("not assigned") &&
                         !fuelType.description.localizedCaseInsensitiveContains("non spécifié")
@@ -1573,7 +1657,7 @@ struct StatusFilterButton: View {
         .buttonBorderShape(.roundedRectangle)
         .controlSize(.small)
         .fixedSize(horizontal: true, vertical: false)
-        .help(isSelected ? "Hide \(label.lowercased()) pairs (\(count) total)" : "Show \(label.lowercased()) pairs (\(count) total)")
+        .help(isSelected ? "Hide \(label.lowercased()) Make/Model pairs (\(count) total)" : "Show \(label.lowercased()) Make/Model pairs (\(count) total)")
     }
 }
 
