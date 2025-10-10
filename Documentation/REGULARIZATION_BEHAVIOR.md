@@ -59,6 +59,30 @@ When working in the Regularization Editor, each Make/Model pair shows a status b
 
 **Use Case:** When you want to analyze the full history including regularized variants as if they were always spelled correctly.
 
+### Fuel Type Filtering with Regularization
+
+**How It Works:**
+- **Fuel type filtering is TRIPLET-BASED**: Matches Make ID + Model ID + **Model Year ID**
+- Unlike vehicle type (wildcard mapping), fuel types are assigned per model year
+- Example: 2008 Honda Civic → Gasoline, 2022 Honda Civic → Hybrid
+
+**With Regularization ON:**
+- Curated records: Direct fuel_type_id match
+- Uncurated records: Uses triplet mapping (Make/Model/ModelYear → FuelType)
+- Pre-2017 records: Controlled by "Apply Fuel Type Regularization to Pre-2017 Records" toggle
+
+**Pre-2017 Toggle Behavior:**
+- **ON** (default): Pre-2017 records with regularization mappings included in fuel type filtering
+- **OFF**: Pre-2017 records excluded from fuel type filtering (even with mappings)
+- **Why:** Pre-2017 records have NULL fuel_type because the field didn't exist in source CSV
+
+**Example Query:**
+```
+Filter: Fuel Type = "Gasoline", Years = 2011-2024, Regularization = ON
+Pre-2017 Toggle = ON:  Includes 2011-2016 records with Gasoline mappings
+Pre-2017 Toggle = OFF: Excludes 2011-2016 records (only 2017+ with mappings)
+```
+
 ## Important Behaviors
 
 ### 1. Selecting Uncurated Variants WITH Regularization ON
@@ -115,6 +139,7 @@ Regularization = ON, Coupling = OFF: Returns 211 records from any Make with "CR-
 
 - The "Enable Regularization in Queries" toggle persists across app restarts
 - The "Couple Make/Model in Queries" toggle persists across app restarts (default: ON)
+- The "Apply Fuel Type Regularization to Pre-2017 Records" toggle persists across app restarts (default: ON)
 - Your year configuration (curated/uncurated) persists in the database
 
 ## Make-Level Regularization (Derived)
@@ -462,14 +487,30 @@ You can enable/disable any combination of filters to focus on specific workflows
 
 ## Console Messages to Watch
 
+**Regularization Loading:**
 ```
 ✅ Loaded derived Make regularization info for X Makes
 ✅ Loaded XXX uncurated Make/Model pairs
 🔗 Make regularized: VOLV0 → VOLVO
 🔗 Regularized: CRV (HONDA) → CR-V
+```
+
+**Query Expansion:**
+```
 🔍 Make 'VOLV0 → VOLVO (123 records)' (cleaned: 'VOLV0') -> ID X
 🔄 Make regularization expanded 1 → 2 IDs
 🔄 Regularization expanded IDs: Makes: 1 → 2, Models: 1 → 2
 ```
 
-These messages help you understand when regularization is active and how IDs are being expanded.
+**Vehicle Type Filtering:**
+```
+🔄 Vehicle Type filter with regularization: Using EXISTS subquery to match regularization mappings
+```
+
+**Fuel Type Filtering (Triplet-Based):**
+```
+🔄 Fuel Type filter with regularization: Using EXISTS subquery with triplet matching (Make/Model/ModelYear, including pre-2017)
+🔄 Fuel Type filter with regularization: Using EXISTS subquery with triplet matching (Make/Model/ModelYear, 2017+ only)
+```
+
+These messages help you understand when regularization is active, how IDs are being expanded, and which records are being included in fuel type filtering based on the pre-2017 toggle setting.
