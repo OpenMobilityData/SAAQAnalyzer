@@ -18,7 +18,7 @@ class RegularizationManager {
 
     // MARK: - Schema Creation
 
-    /// Creates the regularization mapping table
+    /// Creates the regularization mapping table (triplet-based: Make/Model/ModelYear)
     func createRegularizationTable() async throws {
         guard let db = db else { throw DatabaseError.notConnected }
 
@@ -27,6 +27,7 @@ class RegularizationManager {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             uncurated_make_id INTEGER NOT NULL,
             uncurated_model_id INTEGER NOT NULL,
+            model_year_id INTEGER,
             canonical_make_id INTEGER NOT NULL,
             canonical_model_id INTEGER NOT NULL,
             fuel_type_id INTEGER,
@@ -37,15 +38,16 @@ class RegularizationManager {
             created_date TEXT NOT NULL,
             FOREIGN KEY (uncurated_make_id) REFERENCES make_enum(id),
             FOREIGN KEY (uncurated_model_id) REFERENCES model_enum(id),
+            FOREIGN KEY (model_year_id) REFERENCES model_year_enum(id),
             FOREIGN KEY (canonical_make_id) REFERENCES make_enum(id),
             FOREIGN KEY (canonical_model_id) REFERENCES model_enum(id),
             FOREIGN KEY (fuel_type_id) REFERENCES fuel_type_enum(id),
             FOREIGN KEY (vehicle_type_id) REFERENCES vehicle_type_enum(id),
-            UNIQUE(uncurated_make_id, uncurated_model_id)
+            UNIQUE(uncurated_make_id, uncurated_model_id, model_year_id)
         );
 
-        CREATE INDEX IF NOT EXISTS idx_regularization_uncurated
-            ON make_model_regularization(uncurated_make_id, uncurated_model_id);
+        CREATE INDEX IF NOT EXISTS idx_regularization_uncurated_triplet
+            ON make_model_regularization(uncurated_make_id, uncurated_model_id, model_year_id);
 
         CREATE INDEX IF NOT EXISTS idx_regularization_canonical
             ON make_model_regularization(canonical_make_id, canonical_model_id);
@@ -59,7 +61,7 @@ class RegularizationManager {
             throw DatabaseError.queryFailed("Failed to create regularization table: \(error)")
         }
 
-        print("✅ Created make_model_regularization table")
+        print("✅ Created make_model_regularization table (triplet-based)")
     }
 
     // MARK: - Year Configuration
@@ -103,13 +105,16 @@ class RegularizationManager {
 
         // First, generate the base hierarchy from curated data
 
-        // Query to get all Make/Model/FuelType/VehicleType combinations from curated years
+        // Query to get all Make/Model/ModelYear/FuelType/VehicleType combinations from curated years
+        // ModelYear dimension added for FuelType grouping (enables year-specific fuel type disambiguation)
         let sql = """
         SELECT
             mk.id as make_id,
             mk.name as make_name,
             md.id as model_id,
             md.name as model_name,
+            my.id as model_year_id,
+            my.year as model_year,
             ft.id as fuel_type_id,
             ft.code as fuel_type_code,
             ft.description as fuel_type_description,
@@ -121,11 +126,12 @@ class RegularizationManager {
         JOIN year_enum y ON v.year_id = y.id
         JOIN make_enum mk ON v.make_id = mk.id
         JOIN model_enum md ON v.model_id = md.id
+        LEFT JOIN model_year_enum my ON v.model_year_id = my.id
         LEFT JOIN fuel_type_enum ft ON v.fuel_type_id = ft.id
         LEFT JOIN vehicle_type_enum vt ON v.vehicle_type_id = vt.id
         WHERE y.year IN (\(yearPlaceholders))
-        GROUP BY mk.id, md.id, ft.id, vt.id
-        ORDER BY mk.name, md.name, ft.description, vt.code;
+        GROUP BY mk.id, md.id, my.id, ft.id, vt.id
+        ORDER BY mk.name, md.name, my.year, ft.description, vt.code;
         """
 
         let baseHierarchy = try await withCheckedThrowingContinuation { continuation in
@@ -138,8 +144,9 @@ class RegularizationManager {
                     sqlite3_bind_int(stmt, Int32(index + 1), Int32(year))
                 }
 
-                // Temporary storage for building hierarchy
-                var makesDict: [Int: (name: String, models: [Int: (name: String, fuelTypes: [MakeModelHierarchy.FuelTypeInfo], vehicleTypes: [MakeModelHierarchy.VehicleTypeInfo])])] = [:]
+                // Temporary storage for building hierarchy (now includes ModelYear dimension)
+                // Structure: makeId → modelId → modelYearId → (fuelTypes, vehicleTypes)
+                var makesDict: [Int: (name: String, models: [Int: (name: String, modelYearFuelTypes: [Int?: [MakeModelHierarchy.FuelTypeInfo]], vehicleTypes: [MakeModelHierarchy.VehicleTypeInfo])])] = [:]
 
                 while sqlite3_step(stmt) == SQLITE_ROW {
                     let makeId = Int(sqlite3_column_int(stmt, 0))
@@ -147,15 +154,18 @@ class RegularizationManager {
                     let modelId = Int(sqlite3_column_int(stmt, 2))
                     let modelName = String(cString: sqlite3_column_text(stmt, 3))
 
-                    let fuelTypeId: Int? = sqlite3_column_type(stmt, 4) != SQLITE_NULL ? Int(sqlite3_column_int(stmt, 4)) : nil
-                    let fuelTypeCode: String? = sqlite3_column_type(stmt, 5) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 5)) : nil
-                    let fuelTypeDesc: String? = sqlite3_column_type(stmt, 6) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 6)) : nil
+                    let modelYearId: Int? = sqlite3_column_type(stmt, 4) != SQLITE_NULL ? Int(sqlite3_column_int(stmt, 4)) : nil
+                    let modelYear: Int? = sqlite3_column_type(stmt, 5) != SQLITE_NULL ? Int(sqlite3_column_int(stmt, 5)) : nil
 
-                    let vehicleTypeId: Int? = sqlite3_column_type(stmt, 7) != SQLITE_NULL ? Int(sqlite3_column_int(stmt, 7)) : nil
-                    let vehicleTypeCode: String? = sqlite3_column_type(stmt, 8) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 8)) : nil
-                    let vehicleTypeDesc: String? = sqlite3_column_type(stmt, 9) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 9)) : nil
+                    let fuelTypeId: Int? = sqlite3_column_type(stmt, 6) != SQLITE_NULL ? Int(sqlite3_column_int(stmt, 6)) : nil
+                    let fuelTypeCode: String? = sqlite3_column_type(stmt, 7) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 7)) : nil
+                    let fuelTypeDesc: String? = sqlite3_column_type(stmt, 8) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 8)) : nil
 
-                    let recordCount = Int(sqlite3_column_int(stmt, 10))
+                    let vehicleTypeId: Int? = sqlite3_column_type(stmt, 9) != SQLITE_NULL ? Int(sqlite3_column_int(stmt, 9)) : nil
+                    let vehicleTypeCode: String? = sqlite3_column_type(stmt, 10) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 10)) : nil
+                    let vehicleTypeDesc: String? = sqlite3_column_type(stmt, 11) != SQLITE_NULL ? String(cString: sqlite3_column_text(stmt, 11)) : nil
+
+                    let recordCount = Int(sqlite3_column_int(stmt, 12))
 
                     // Initialize make if needed
                     if makesDict[makeId] == nil {
@@ -164,23 +174,32 @@ class RegularizationManager {
 
                     // Initialize model if needed
                     if makesDict[makeId]!.models[modelId] == nil {
-                        makesDict[makeId]!.models[modelId] = (name: modelName, fuelTypes: [], vehicleTypes: [])
+                        makesDict[makeId]!.models[modelId] = (name: modelName, modelYearFuelTypes: [:], vehicleTypes: [])
                     }
 
-                    // Add fuel type if present and not already added
+                    // Add fuel type (grouped by model year)
                     if let ftId = fuelTypeId, let ftCode = fuelTypeCode, let ftDesc = fuelTypeDesc {
                         let fuelTypeInfo = MakeModelHierarchy.FuelTypeInfo(
                             id: ftId,
                             code: ftCode,
                             description: ftDesc,
-                            recordCount: recordCount
+                            recordCount: recordCount,
+                            modelYearId: modelYearId,
+                            modelYear: modelYear
                         )
-                        if !makesDict[makeId]!.models[modelId]!.fuelTypes.contains(where: { $0.id == ftId }) {
-                            makesDict[makeId]!.models[modelId]!.fuelTypes.append(fuelTypeInfo)
+
+                        // Initialize array for this model year if needed
+                        if makesDict[makeId]!.models[modelId]!.modelYearFuelTypes[modelYearId] == nil {
+                            makesDict[makeId]!.models[modelId]!.modelYearFuelTypes[modelYearId] = []
+                        }
+
+                        // Add fuel type if not already present for this model year
+                        if !makesDict[makeId]!.models[modelId]!.modelYearFuelTypes[modelYearId]!.contains(where: { $0.id == ftId }) {
+                            makesDict[makeId]!.models[modelId]!.modelYearFuelTypes[modelYearId]!.append(fuelTypeInfo)
                         }
                     }
 
-                    // Add vehicle type if present and not already added
+                    // Add vehicle type (NOT grouped by model year - applies to all years)
                     if let vtId = vehicleTypeId, let vtCode = vehicleTypeCode, let vtDesc = vehicleTypeDesc {
                         let vehicleTypeInfo = MakeModelHierarchy.VehicleTypeInfo(
                             id: vtId,
@@ -197,11 +216,16 @@ class RegularizationManager {
                 // Convert dictionary structure to MakeModelHierarchy
                 let makes = makesDict.map { makeId, makeData in
                     let models = makeData.models.map { modelId, modelData in
-                        MakeModelHierarchy.Model(
+                        // Sort fuel types within each model year group
+                        let sortedModelYearFuelTypes = modelData.modelYearFuelTypes.mapValues { fuelTypes in
+                            fuelTypes.sorted { $0.description < $1.description }
+                        }
+
+                        return MakeModelHierarchy.Model(
                             id: modelId,
                             name: modelData.name,
                             makeId: makeId,
-                            fuelTypes: modelData.fuelTypes.sorted { $0.description < $1.description },
+                            modelYearFuelTypes: sortedModelYearFuelTypes,
                             vehicleTypes: modelData.vehicleTypes.sorted { $0.code < $1.code }
                         )
                     }.sorted { $0.name < $1.name }
@@ -216,6 +240,23 @@ class RegularizationManager {
                 let hierarchy = MakeModelHierarchy(makes: makes)
 
                 print("✅ Generated base canonical hierarchy: \(makes.count) makes, \(makes.reduce(0) { (total: Int, make: MakeModelHierarchy.Make) -> Int in total + make.models.count }) models")
+
+                // DEBUG: Verify ModelYear grouping structure
+                if let firstMake = makes.first, let firstModel = firstMake.models.first {
+                    print("🔍 DEBUG - Verifying ModelYear-grouped FuelType structure:")
+                    print("   First Model: \(firstMake.name) / \(firstModel.name)")
+                    print("   ModelYear groups: \(firstModel.modelYearFuelTypes.count)")
+                    for (yearId, fuelTypes) in firstModel.modelYearFuelTypes.sorted(by: {
+                        // Sort by year, with nil last
+                        guard let y1 = $0.value.first?.modelYear else { return false }
+                        guard let y2 = $1.value.first?.modelYear else { return true }
+                        return y1 < y2
+                    }) {
+                        let yearStr = yearId != nil ? String(yearId!) : "NULL"
+                        let yearValStr = fuelTypes.first?.modelYear != nil ? String(fuelTypes.first!.modelYear!) : "nil"
+                        print("      ModelYearId \(yearStr) (year: \(yearValStr)): \(fuelTypes.count) fuel types - \(fuelTypes.map { $0.code }.joined(separator: ", "))")
+                    }
+                }
 
                 continuation.resume(returning: hierarchy)
             } else {
@@ -376,11 +417,12 @@ class RegularizationManager {
     // MARK: - Mapping Management
 
     /// Saves a regularization mapping to the database
-    /// One mapping per uncurated Make/Model pair
+    /// Supports both pair-based (model_year_id = NULL) and triplet-based mappings
     /// FuelType and VehicleType are optional (NULL if user cannot disambiguate)
     func saveMapping(
         uncuratedMakeId: Int,
         uncuratedModelId: Int,
+        modelYearId: Int? = nil,
         canonicalMakeId: Int,
         canonicalModelId: Int,
         fuelTypeId: Int?,
@@ -399,14 +441,15 @@ class RegularizationManager {
         // Calculate record count for this mapping
         let recordCount = try await calculateRecordCount(
             makeId: uncuratedMakeId,
-            modelId: uncuratedModelId
+            modelId: uncuratedModelId,
+            modelYearId: modelYearId
         )
 
         let sql = """
         INSERT OR REPLACE INTO make_model_regularization
-            (uncurated_make_id, uncurated_model_id, canonical_make_id, canonical_model_id,
+            (uncurated_make_id, uncurated_model_id, model_year_id, canonical_make_id, canonical_model_id,
              fuel_type_id, vehicle_type_id, record_count, year_range_start, year_range_end, created_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -416,36 +459,44 @@ class RegularizationManager {
             if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
                 sqlite3_bind_int(stmt, 1, Int32(uncuratedMakeId))
                 sqlite3_bind_int(stmt, 2, Int32(uncuratedModelId))
-                sqlite3_bind_int(stmt, 3, Int32(canonicalMakeId))
-                sqlite3_bind_int(stmt, 4, Int32(canonicalModelId))
 
-                if let ftId = fuelTypeId {
-                    sqlite3_bind_int(stmt, 5, Int32(ftId))
+                if let myId = modelYearId {
+                    sqlite3_bind_int(stmt, 3, Int32(myId))
                 } else {
-                    sqlite3_bind_null(stmt, 5)
+                    sqlite3_bind_null(stmt, 3)
                 }
 
-                if let vtId = vehicleTypeId {
-                    sqlite3_bind_int(stmt, 6, Int32(vtId))
+                sqlite3_bind_int(stmt, 4, Int32(canonicalMakeId))
+                sqlite3_bind_int(stmt, 5, Int32(canonicalModelId))
+
+                if let ftId = fuelTypeId {
+                    sqlite3_bind_int(stmt, 6, Int32(ftId))
                 } else {
                     sqlite3_bind_null(stmt, 6)
                 }
 
-                sqlite3_bind_int(stmt, 7, Int32(recordCount))
+                if let vtId = vehicleTypeId {
+                    sqlite3_bind_int(stmt, 7, Int32(vtId))
+                } else {
+                    sqlite3_bind_null(stmt, 7)
+                }
+
+                sqlite3_bind_int(stmt, 8, Int32(recordCount))
 
                 // Store min/max uncurated years
                 let uncuratedYears = Array(yearConfig.uncuratedYears).sorted()
                 let minYear = uncuratedYears.first ?? 2023
                 let maxYear = uncuratedYears.last ?? 2024
-                sqlite3_bind_int(stmt, 8, Int32(minYear))
-                sqlite3_bind_int(stmt, 9, Int32(maxYear))
+                sqlite3_bind_int(stmt, 9, Int32(minYear))
+                sqlite3_bind_int(stmt, 10, Int32(maxYear))
 
                 let dateFormatter = ISO8601DateFormatter()
                 let dateString = dateFormatter.string(from: Date())
-                sqlite3_bind_text(stmt, 10, dateString, -1, nil)
+                sqlite3_bind_text(stmt, 11, dateString, -1, nil)
 
                 if sqlite3_step(stmt) == SQLITE_DONE {
-                    print("✅ Saved regularization mapping: Make \(uncuratedMakeId)/Model \(uncuratedModelId) → Make \(canonicalMakeId)/Model \(canonicalModelId)")
+                    let modelYearStr = modelYearId != nil ? "/ModelYear \(modelYearId!)" : " (all years)"
+                    print("✅ Saved regularization mapping: Make \(uncuratedMakeId)/Model \(uncuratedModelId)\(modelYearStr) → Make \(canonicalMakeId)/Model \(canonicalModelId)")
                     print("   FuelType: \(fuelTypeId?.description ?? "NULL"), VehicleType: \(vehicleTypeId?.description ?? "NULL")")
                     continuation.resume()
                 } else {
@@ -495,8 +546,10 @@ class RegularizationManager {
             r.id,
             r.uncurated_make_id,
             r.uncurated_model_id,
+            r.model_year_id,
             um.name as uncurated_make,
             umd.name as uncurated_model,
+            my.year as model_year,
             cm.name as canonical_make,
             cmd.name as canonical_model,
             ft.description as fuel_type,
@@ -507,6 +560,7 @@ class RegularizationManager {
         FROM make_model_regularization r
         JOIN make_enum um ON r.uncurated_make_id = um.id
         JOIN model_enum umd ON r.uncurated_model_id = umd.id
+        LEFT JOIN model_year_enum my ON r.model_year_id = my.id
         JOIN make_enum cm ON r.canonical_make_id = cm.id
         JOIN model_enum cmd ON r.canonical_model_id = cmd.id
         LEFT JOIN fuel_type_enum ft ON r.fuel_type_id = ft.id
@@ -526,29 +580,35 @@ class RegularizationManager {
                     let id = Int(sqlite3_column_int(stmt, 0))
                     let uncuratedMakeId = Int(sqlite3_column_int(stmt, 1))
                     let uncuratedModelId = Int(sqlite3_column_int(stmt, 2))
-                    let uncuratedMake = String(cString: sqlite3_column_text(stmt, 3))
-                    let uncuratedModel = String(cString: sqlite3_column_text(stmt, 4))
-                    let canonicalMake = String(cString: sqlite3_column_text(stmt, 5))
-                    let canonicalModel = String(cString: sqlite3_column_text(stmt, 6))
+                    let modelYearId: Int? = sqlite3_column_type(stmt, 3) != SQLITE_NULL
+                        ? Int(sqlite3_column_int(stmt, 3)) : nil
+                    let uncuratedMake = String(cString: sqlite3_column_text(stmt, 4))
+                    let uncuratedModel = String(cString: sqlite3_column_text(stmt, 5))
+                    let modelYear: Int? = sqlite3_column_type(stmt, 6) != SQLITE_NULL
+                        ? Int(sqlite3_column_int(stmt, 6)) : nil
+                    let canonicalMake = String(cString: sqlite3_column_text(stmt, 7))
+                    let canonicalModel = String(cString: sqlite3_column_text(stmt, 8))
 
-                    let fuelType: String? = sqlite3_column_type(stmt, 7) != SQLITE_NULL
-                        ? String(cString: sqlite3_column_text(stmt, 7)) : nil
-                    let vehicleType: String? = sqlite3_column_type(stmt, 8) != SQLITE_NULL
-                        ? String(cString: sqlite3_column_text(stmt, 8)) : nil
+                    let fuelType: String? = sqlite3_column_type(stmt, 9) != SQLITE_NULL
+                        ? String(cString: sqlite3_column_text(stmt, 9)) : nil
+                    let vehicleType: String? = sqlite3_column_type(stmt, 10) != SQLITE_NULL
+                        ? String(cString: sqlite3_column_text(stmt, 10)) : nil
 
-                    let recordCount = Int(sqlite3_column_int(stmt, 9))
+                    let recordCount = Int(sqlite3_column_int(stmt, 11))
                     totalRecords += recordCount
 
-                    let yearStart = Int(sqlite3_column_int(stmt, 10))
-                    let yearEnd = Int(sqlite3_column_int(stmt, 11))
+                    let yearStart = Int(sqlite3_column_int(stmt, 12))
+                    let yearEnd = Int(sqlite3_column_int(stmt, 13))
                     let yearRange = "\(yearStart)-\(yearEnd)"
 
                     let mapping = RegularizationMapping(
                         id: id,
                         uncuratedMakeId: uncuratedMakeId,
                         uncuratedModelId: uncuratedModelId,
+                        modelYearId: modelYearId,
                         unverifiedMake: uncuratedMake,
                         unverifiedModel: uncuratedModel,
+                        modelYear: modelYear,
                         canonicalMake: canonicalMake,
                         canonicalModel: canonicalModel,
                         fuelType: fuelType,
@@ -567,8 +627,10 @@ class RegularizationManager {
                             id: mapping.id,
                             uncuratedMakeId: mapping.uncuratedMakeId,
                             uncuratedModelId: mapping.uncuratedModelId,
+                            modelYearId: mapping.modelYearId,
                             unverifiedMake: mapping.unverifiedMake,
                             unverifiedModel: mapping.unverifiedModel,
+                            modelYear: mapping.modelYear,
                             canonicalMake: mapping.canonicalMake,
                             canonicalModel: mapping.canonicalModel,
                             fuelType: mapping.fuelType,
@@ -988,10 +1050,11 @@ class RegularizationManager {
 
     // MARK: - Helper Methods
 
-    /// Calculates the number of records for an uncurated Make/Model pair in uncurated years
+    /// Calculates the number of records for an uncurated Make/Model(/ModelYear) in uncurated years
     private func calculateRecordCount(
         makeId: Int,
-        modelId: Int
+        modelId: Int,
+        modelYearId: Int? = nil
     ) async throws -> Int {
         guard let db = db else { throw DatabaseError.notConnected }
 
@@ -1002,11 +1065,15 @@ class RegularizationManager {
 
         let uncuratedPlaceholders = uncuratedYearsList.map { _ in "?" }.joined(separator: ",")
 
+        // Add model_year_id filter if specified
+        let modelYearFilter = modelYearId != nil ? "AND v.model_year_id = ?" : ""
+
         let sql = """
         SELECT COUNT(*)
         FROM vehicles v
         JOIN year_enum y ON v.year_id = y.id
         WHERE v.make_id = ? AND v.model_id = ?
+        \(modelYearFilter)
         AND y.year IN (\(uncuratedPlaceholders));
         """
 
@@ -1015,12 +1082,22 @@ class RegularizationManager {
             defer { sqlite3_finalize(stmt) }
 
             if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                sqlite3_bind_int(stmt, 1, Int32(makeId))
-                sqlite3_bind_int(stmt, 2, Int32(modelId))
+                var bindIndex: Int32 = 1
+                sqlite3_bind_int(stmt, bindIndex, Int32(makeId))
+                bindIndex += 1
+                sqlite3_bind_int(stmt, bindIndex, Int32(modelId))
+                bindIndex += 1
+
+                // Bind model_year_id if specified
+                if let myId = modelYearId {
+                    sqlite3_bind_int(stmt, bindIndex, Int32(myId))
+                    bindIndex += 1
+                }
 
                 // Bind uncurated years
-                for (index, year) in uncuratedYearsList.enumerated() {
-                    sqlite3_bind_int(stmt, Int32(index + 3), Int32(year))
+                for year in uncuratedYearsList {
+                    sqlite3_bind_int(stmt, bindIndex, Int32(year))
+                    bindIndex += 1
                 }
 
                 if sqlite3_step(stmt) == SQLITE_ROW {

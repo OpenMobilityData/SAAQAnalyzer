@@ -1652,8 +1652,10 @@ struct RegularizationMapping: Identifiable, Sendable {
     let id: Int
     let uncuratedMakeId: Int
     let uncuratedModelId: Int
+    let modelYearId: Int?           // NEW: NULL = applies to all years (wildcard)
     let unverifiedMake: String
     let unverifiedModel: String
+    let modelYear: Int?             // NEW: Actual year value (for display)
     let canonicalMake: String
     let canonicalModel: String
     let fuelType: String?
@@ -1668,6 +1670,15 @@ struct RegularizationMapping: Identifiable, Sendable {
 
     var uncuratedKey: String {
         "\(uncuratedMakeId)_\(uncuratedModelId)"
+    }
+
+    /// Display name including model year if specific triplet
+    var displayName: String {
+        if let year = modelYear {
+            return "\(unverifiedMake) \(unverifiedModel) (\(year))"
+        } else {
+            return "\(unverifiedMake) \(unverifiedModel) (all years)"
+        }
     }
 }
 
@@ -1702,16 +1713,32 @@ struct MakeModelHierarchy: Sendable {
         let id: Int
         let name: String
         let makeId: Int
-        let fuelTypes: [FuelTypeInfo]
+        let modelYearFuelTypes: [Int?: [FuelTypeInfo]]  // NEW: Dictionary keyed by modelYearId (nil = unknown year)
         let vehicleTypes: [VehicleTypeInfo]
+
+        /// Legacy accessor for backward compatibility - returns all fuel types across all years
+        var fuelTypes: [FuelTypeInfo] {
+            let allFuelTypes = modelYearFuelTypes.values.flatMap { $0 }
+            // Deduplicate by fuel type ID
+            var seen = Set<Int>()
+            return allFuelTypes.filter { fuelType in
+                if seen.contains(fuelType.id) {
+                    return false
+                }
+                seen.insert(fuelType.id)
+                return true
+            }.sorted { $0.description < $1.description }
+        }
     }
 
-    /// Third level: Fuel Type (for a Make/Model combination)
+    /// Third level: Fuel Type (for a Make/Model/ModelYear combination)
     struct FuelTypeInfo: Identifiable, Sendable, Hashable {
         let id: Int
         let code: String
         let description: String
         let recordCount: Int
+        let modelYearId: Int?      // NEW: Model year ID (nil = unknown/wildcard)
+        let modelYear: Int?        // NEW: Actual year value for display
     }
 
     /// Third level: Vehicle Type (for a Make/Model combination)
