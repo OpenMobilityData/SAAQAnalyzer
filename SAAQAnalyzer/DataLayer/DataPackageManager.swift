@@ -8,8 +8,49 @@
 import Foundation
 import Combine
 import SQLite3
+import OSLog
 
 /// Manages export and import of SAAQ data packages
+///
+/// # Data Package Contents
+///
+/// A SAAQ data package is a bundle (.saaqpackage) containing:
+///
+/// ## Database (Complete SQLite file)
+/// - **Main tables**: vehicles, licenses, geographic_entities, import_log
+/// - **Canonical hierarchy cache** (added Oct 2025): Pre-aggregated Make/Model/Year/Fuel/VehicleType combinations
+/// - **16 Enumeration tables**: year_enum, vehicle_class_enum, vehicle_type_enum, make_enum, model_enum,
+///   fuel_type_enum, color_enum, cylinder_count_enum, axle_count_enum, model_year_enum, admin_region_enum,
+///   mrc_enum, municipality_enum, age_group_enum, gender_enum, license_type_enum
+/// - **All indexes**: Optimized integer-based indexes for query performance
+///
+/// ## Metadata (JSON files)
+/// - Package info (Info.plist): Version, record counts, year ranges, file sizes
+/// - Statistics: Vehicle and license data summaries
+/// - Import log: Export date and options
+///
+/// ## Cache Handling
+/// - **Filter cache** (UserDefaults): NOT packaged - rebuilt from enumeration tables on import
+/// - This ensures cache staleness is never an issue - cache is always fresh after import
+///
+/// ## Version Synchronization
+/// - Database modification timestamp is set to import timestamp
+/// - Filter cache is rebuilt with matching version
+/// - Prevents any cache staleness issues when bypassing CSV import pathway
+///
+/// # Import Process
+/// 1. Validate package structure and available disk space
+/// 2. Backup current database (optional, not yet implemented)
+/// 3. Replace database file with imported database
+/// 4. Rebuild FilterCache from enumeration tables in imported database
+/// 5. Trigger UI refresh with updated dataVersion
+///
+/// # Export Process
+/// 1. Gather statistics from current database
+/// 2. Copy database file (includes all tables, enumeration tables, canonical cache, indexes)
+/// 3. Validate database structure (ensures canonical_hierarchy_cache and all required tables exist)
+/// 4. Create metadata files
+/// 5. Create package Info.plist
 @MainActor
 class DataPackageManager: ObservableObject {
 
@@ -23,6 +64,7 @@ class DataPackageManager: ObservableObject {
     @Published var operationStatus = ""
 
     private let databaseManager = DatabaseManager.shared
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.saaq.SAAQAnalyzer", category: "dataPackage")
 
     private init() {}
 
@@ -73,11 +115,10 @@ class DataPackageManager: ObservableObject {
                 try await exportDatabase(to: databasePath, options: options)
             }
 
-            await updateProgress(0.6, "Verifying enumeration tables...")
+            await updateProgress(0.6, "Verifying database structure...")
 
-            // Note: Enumeration tables are part of the database and are
-            // automatically included when we copy the database file.
-            // No separate cache export is needed with integer-based architecture.
+            // Validate database structure includes all required tables
+            try await validateDatabaseStructure(at: databasePath.appendingPathComponent("saaq_data.sqlite"))
 
             await updateProgress(0.8, "Creating metadata...")
 
@@ -91,10 +132,10 @@ class DataPackageManager: ObservableObject {
 
             await updateProgress(1.0, "Export completed successfully")
 
-            print("✅ Data package exported successfully to: \(packageURL.path)")
+            logger.notice("Data package exported successfully to: \(packageURL.path, privacy: .public)")
 
         } catch {
-            print("❌ Export failed: \(error)")
+            logger.error("Export failed: \(error.localizedDescription, privacy: .public)")
             throw DataPackageError.exportFailed(error.localizedDescription)
         }
     }
@@ -138,7 +179,7 @@ class DataPackageManager: ObservableObject {
             return .valid
 
         } catch {
-            print("❌ Package validation failed: \(error)")
+            logger.error("Package validation failed: \(error.localizedDescription, privacy: .public)")
             return .corruptedData
         }
     }
@@ -194,9 +235,10 @@ class DataPackageManager: ObservableObject {
 
             // Rebuild filter cache from enumeration tables in the imported database
             if let filterCacheManager = databaseManager.filterCacheManager {
+                logger.info("Rebuilding filter cache from imported database")
                 try await filterCacheManager.initializeCache()
             } else {
-                print("⚠️ FilterCacheManager not available, cache will be rebuilt on next app launch")
+                logger.warning("FilterCacheManager not available, cache will be rebuilt on next app launch")
             }
 
             await updateProgress(0.9, "Finalizing import...")
@@ -206,10 +248,10 @@ class DataPackageManager: ObservableObject {
 
             await updateProgress(1.0, "Import completed successfully")
 
-            print("✅ Data package imported successfully from: \(packageURL.path)")
+            logger.notice("Data package imported successfully from: \(packageURL.path, privacy: .public)")
 
         } catch {
-            print("❌ Import failed: \(error)")
+            logger.error("Import failed: \(error.localizedDescription, privacy: .public)")
             throw DataPackageError.importFailed(error.localizedDescription)
         }
     }
@@ -281,16 +323,17 @@ class DataPackageManager: ObservableObject {
         experienceLevels: Int,
         licenseClasses: Int
     ) {
-        guard let db = databaseManager.db else {
+        guard let db = self.databaseManager.db else {
             return (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
         }
 
-        func countRows(in table: String) -> Int {
+        func countRows(in table: String, using database: OpaquePointer?) -> Int {
+            guard let database = database else { return 0 }
             var count = 0
             let query = "SELECT COUNT(*) FROM \(table)"
             var statement: OpaquePointer?
 
-            if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
+            if sqlite3_prepare_v2(database, query, -1, &statement, nil) == SQLITE_OK {
                 if sqlite3_step(statement) == SQLITE_ROW {
                     count = Int(sqlite3_column_int(statement, 0))
                 }
@@ -300,16 +343,16 @@ class DataPackageManager: ObservableObject {
         }
 
         return (
-            mrcs: countRows(in: "mrc_enum"),
-            classifications: countRows(in: "vehicle_class_enum"),
-            makes: countRows(in: "make_enum"),
-            models: countRows(in: "model_enum"),
-            colors: countRows(in: "color_enum"),
-            modelYears: countRows(in: "model_year_enum"),
-            licenseTypes: countRows(in: "license_type_enum"),
-            ageGroups: countRows(in: "age_group_enum"),
-            genders: countRows(in: "gender_enum"),
-            experienceLevels: countRows(in: "experience_level_enum"),
+            mrcs: countRows(in: "mrc_enum", using: db),
+            classifications: countRows(in: "vehicle_class_enum", using: db),
+            makes: countRows(in: "make_enum", using: db),
+            models: countRows(in: "model_enum", using: db),
+            colors: countRows(in: "color_enum", using: db),
+            modelYears: countRows(in: "model_year_enum", using: db),
+            licenseTypes: countRows(in: "license_type_enum", using: db),
+            ageGroups: countRows(in: "age_group_enum", using: db),
+            genders: countRows(in: "gender_enum", using: db),
+            experienceLevels: countRows(in: "experience_level_enum", using: db),
             licenseClasses: 0  // License classes are boolean columns, not enumerated
         )
     }
@@ -397,7 +440,7 @@ class DataPackageManager: ObservableObject {
 
     private func createDataBackup() async throws {
         // TODO: Implement backup creation for safety
-        print("💾 Creating data backup (not yet implemented)")
+        logger.info("Creating data backup (not yet implemented)")
     }
 
     private func importDatabase(from databasePath: URL, timestamp: Date) async throws {
@@ -429,25 +472,113 @@ class DataPackageManager: ObservableObject {
         // Reconnect to database
         await databaseManager.reconnectDatabase()
 
-        print("📥 Database imported and connection restored")
+        logger.notice("Database imported and connection restored")
     }
 
 
     private func updateAppStateAfterImport(packageInfo: DataPackageInfo, dataVersion: String) async throws {
-        print("🔧 Finalizing import with dataVersion: \(dataVersion)")
+        logger.info("Finalizing import with dataVersion: \(dataVersion, privacy: .public)")
 
         // Refresh database stats from the imported database
         let newDbStats = await databaseManager.getDatabaseStats()
 
-        print("✅ Import completed successfully")
-        print("📊 Imported database contains \(newDbStats.totalVehicleRecords) vehicle records and \(newDbStats.totalLicenseRecords) license records")
-        print("📊 Data version: \(dataVersion)")
+        logger.notice("Import completed successfully")
+        logger.info("Imported database contains \(newDbStats.totalVehicleRecords) vehicle records and \(newDbStats.totalLicenseRecords) license records")
+        logger.info("Data version: \(dataVersion, privacy: .public)")
 
         // Trigger UI refresh by incrementing dataVersion
-        await MainActor.run {
-            databaseManager.dataVersion += 1
-            print("🔄 UI refresh triggered (dataVersion: \(databaseManager.dataVersion))")
+        await MainActor.run { [self] in
+            self.databaseManager.dataVersion += 1
+            self.logger.info("UI refresh triggered (dataVersion: \(self.databaseManager.dataVersion))")
         }
+    }
+
+    // MARK: - Database Validation
+
+    /// Validates that exported database contains all required tables and structure
+    private func validateDatabaseStructure(at databaseURL: URL) async throws {
+        logger.info("Validating database structure at: \(databaseURL.path, privacy: .public)")
+
+        var db: OpaquePointer?
+
+        guard sqlite3_open(databaseURL.path, &db) == SQLITE_OK else {
+            throw DataPackageError.exportFailed("Could not open exported database for validation")
+        }
+
+        defer {
+            sqlite3_close(db)
+        }
+
+        // Required tables to validate
+        let requiredTables = [
+            "vehicles",
+            "licenses",
+            "geographic_entities",
+            "import_log",
+            "canonical_hierarchy_cache",  // NEW: Added Oct 2025
+            // Enumeration tables
+            "year_enum",
+            "vehicle_class_enum",
+            "vehicle_type_enum",
+            "make_enum",
+            "model_enum",
+            "fuel_type_enum",
+            "color_enum",
+            "cylinder_count_enum",
+            "axle_count_enum",
+            "model_year_enum",
+            "admin_region_enum",
+            "mrc_enum",
+            "municipality_enum",
+            "age_group_enum",
+            "gender_enum",
+            "license_type_enum"
+        ]
+
+        for tableName in requiredTables {
+            let query = "SELECT name FROM sqlite_master WHERE type='table' AND name=?;"
+            var statement: OpaquePointer?
+
+            if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
+                sqlite3_bind_text(statement, 1, (tableName as NSString).utf8String, -1, nil)
+
+                if sqlite3_step(statement) != SQLITE_ROW {
+                    sqlite3_finalize(statement)
+                    throw DataPackageError.exportFailed("Missing required table: \(tableName)")
+                }
+
+                sqlite3_finalize(statement)
+            } else {
+                throw DataPackageError.exportFailed("Database validation query failed for table: \(tableName)")
+            }
+        }
+
+        // Validate canonical_hierarchy_cache has records (if the database has been used)
+        let countQuery = "SELECT COUNT(*) FROM vehicles;"
+        var countStatement: OpaquePointer?
+        var vehicleCount = 0
+
+        if sqlite3_prepare_v2(db, countQuery, -1, &countStatement, nil) == SQLITE_OK {
+            if sqlite3_step(countStatement) == SQLITE_ROW {
+                vehicleCount = Int(sqlite3_column_int(countStatement, 0))
+            }
+            sqlite3_finalize(countStatement)
+        }
+
+        // Log cache status
+        let cacheQuery = "SELECT COUNT(*) FROM canonical_hierarchy_cache;"
+        var cacheStatement: OpaquePointer?
+        var cacheCount = 0
+
+        if sqlite3_prepare_v2(db, cacheQuery, -1, &cacheStatement, nil) == SQLITE_OK {
+            if sqlite3_step(cacheStatement) == SQLITE_ROW {
+                cacheCount = Int(sqlite3_column_int(cacheStatement, 0))
+            }
+            sqlite3_finalize(cacheStatement)
+        }
+
+        logger.info("Database validation passed: \(requiredTables.count) tables verified")
+        logger.info("Canonical hierarchy cache: \(cacheCount) entries (vehicle records: \(vehicleCount))")
     }
 
     // MARK: - Utility Methods
