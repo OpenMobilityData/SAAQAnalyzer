@@ -277,6 +277,31 @@ xcodebuild test -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer -destinatio
 xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
 ```
 
+### Test Dataset
+
+**Included**: A minimal test dataset is bundled with the repository for quick functionality testing.
+
+**Location**: `TestData/Vehicle_Registration_Test_1K/`
+
+**Contents**: 14 CSV files (2011-2024) with 1,000 vehicle records per year (~2MB total)
+
+**Purpose**:
+- Quick functionality testing without downloading full SAAQ datasets
+- Explore application features with real data structure
+- Import completes in seconds (14,000 records total)
+- Ideal for development, onboarding, and feature exploration
+
+**Usage**:
+1. Launch SAAQAnalyzer
+2. File → Import Vehicle CSV
+3. Navigate to `TestData/Vehicle_Registration_Test_1K/`
+4. Select one or more CSV files to import
+5. Start analyzing immediately
+
+**Limitations**: This is a minimal test dataset with only 1,000 records per year. For production analysis and statistical significance, download the full SAAQ dataset (6M+ records per year) from the [SAAQ Open Data Portal](https://www.donneesquebec.ca/recherche/dataset/vehicules-en-circulation).
+
+See `TestData/README.md` for detailed information about the test dataset.
+
 ### Testing
 
 SAAQAnalyzer includes a comprehensive XCTest-based test suite covering:
