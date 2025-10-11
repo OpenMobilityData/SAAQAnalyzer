@@ -22,6 +22,7 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
 - **Temporal Filters**: Filter by years and model years (vehicle data)
 - **Geographic Filters**: Filter by administrative regions, MRCs, and municipalities (vehicle-only)
 - **Vehicle Characteristics**: Filter by vehicle class, vehicle type, make, model, color, fuel type, and age ranges
+  - **Smart Age Ranges**: Age range filtering includes vehicles registered before their model year (e.g., 2022 models registered in late 2021), with the default range of -1 to 5 years capturing early registrations
 - **Driver Demographics**: Filter by age groups, gender, license types, classes, and experience levels
 - **Data Type Aware**: Dynamic filter panels that adapt based on selected data type
 - **Enumeration-Based Filters**: Filter options loaded directly from database enumeration tables for instant availability

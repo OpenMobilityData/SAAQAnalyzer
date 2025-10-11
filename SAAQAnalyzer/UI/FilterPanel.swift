@@ -822,12 +822,13 @@ struct AgeRangeFilterSection: View {
                 .foregroundStyle(.secondary)
             
             HStack {
-                Button("0-5 years") {
-                    addAgeRange(min: 0, max: 5)
+                Button("-1 to 5 years") {
+                    addAgeRange(min: -1, max: 5)
                 }
                 .buttonStyle(.bordered)
                 .buttonBorderShape(.roundedRectangle)
                 .controlSize(.small)
+                .help("Includes vehicles registered before their model year (e.g., 2022 models registered in late 2021)")
 
                 Button("6-10 years") {
                     addAgeRange(min: 6, max: 10)
