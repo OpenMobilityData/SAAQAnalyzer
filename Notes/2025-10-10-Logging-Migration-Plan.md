@@ -75,19 +75,34 @@ The codebase currently has 948 `print()` statements sprinkled throughout develop
 
 ### Phase 2: Critical Data Layer (🔄 IN PROGRESS)
 
+**Migration Strategy**: **MANUAL IN XCODE** (Revised October 10, 2025)
+
+Due to file structure complexity and risk of automated tool errors, Phase 2 will be completed **manually in Xcode** using Find & Replace with immediate compiler feedback after each change.
+
 **Files to migrate** (in order):
-1. **CSVImporter.swift** (🔄 partial - 64 prints)
+1. **CSVImporter.swift** ✅ **COMPLETE** (64 prints migrated - commit 0170ed6)
    - ✅ Import start/completion messages
    - ✅ Performance benchmarks (using ImportPerformance struct)
-   - 🔄 CSV parsing progress messages
-   - ⏳ Encoding detection messages
-   - ⏳ Batch progress messages
+   - ✅ CSV parsing progress messages
+   - ✅ Encoding detection messages
+   - ✅ Batch progress messages
+   - ✅ Error handling with proper log levels
+   - ✅ All wrapped in appropriate #if DEBUG where needed
 
-2. **DatabaseManager.swift** (⏳ pending - 138 prints)
-   - Database connection/initialization
-   - Query execution and performance
-   - Index analysis
-   - Transaction management
+2. **DatabaseManager.swift** ⏳ **PENDING - MANUAL MIGRATION** (138 prints)
+   - Strategy: Use Xcode Find (`Cmd+F`) for "print(" in file
+   - Replace one section at a time with AppLogger calls
+   - Build after each section to verify no errors
+   - Reference LOGGING_MIGRATION_GUIDE.md for patterns
+   - Sections to migrate:
+     * Database connection/initialization → AppLogger.database
+     * Query execution and performance → AppLogger.query + logQueryPerformance()
+     * Index analysis → AppLogger.query.debug (in #if DEBUG)
+     * Transaction management → AppLogger.database
+     * Cache operations → AppLogger.cache
+     * Import operations → AppLogger.dataImport
+     * Regularization → AppLogger.regularization
+     * Geographic operations → AppLogger.geographic
 
 3. **RegularizationManager.swift** (⏳ pending - 36 prints)
    - Mapping operations
