@@ -227,9 +227,9 @@ os.Logger is **highly optimized**:
 
 ### Phase 1: Core Data Layer (Priority: High)
 - [x] Create AppLogger.swift utility
-- [ ] CSVImporter.swift
-- [ ] DatabaseManager.swift
-- [ ] RegularizationManager.swift
+- [x] CSVImporter.swift ✅ **COMPLETE** (Oct 10, 2025)
+- [ ] DatabaseManager.swift ⚠️ **PENDING** (Complex - requires manual migration)
+- [x] RegularizationManager.swift ✅ **COMPLETE** (Oct 10, 2025)
 - [ ] FilterCacheManager.swift
 - [ ] CategoricalEnumManager.swift
 - [ ] OptimizedQueryManager.swift
@@ -238,7 +238,7 @@ os.Logger is **highly optimized**:
 - [ ] SAAQAnalyzerApp.swift
 - [ ] FilterPanel.swift
 - [ ] ChartView.swift
-- [ ] RegularizationView.swift
+- [x] RegularizationView.swift ✅ **COMPLETE** (Oct 10, 2025)
 - [ ] DataInspector.swift
 
 ### Phase 3: Supporting Files (Priority: Low)
@@ -288,7 +288,16 @@ os.Logger is **highly optimized**:
 
 ## Example: Complete File Migration
 
-See `CSVImporter.swift` for a complete example of migrated logging.
+See `CSVImporter.swift`, `RegularizationManager.swift`, or `RegularizationView.swift` for complete examples of migrated logging.
+
+### Regularization System Migration Notes
+
+The regularization system (RegularizationManager.swift + RegularizationView.swift) migration included:
+- **88 print statements** migrated to os.Logger
+- **Performance instrumentation** added to critical operations
+- **Expensive debug logging removed** (e.g., Honda/Civic per-pair logging)
+- **Automatic performance rating** using AppLogger.logQueryPerformance()
+- **Result**: Improved responsiveness with up to 1M records/year datasets
 
 ## Questions?
 
@@ -300,5 +309,5 @@ For questions about logging strategy or migration approach, consult:
 ---
 
 **Last Updated**: October 10, 2025
-**Status**: In Progress
-**Next Review**: After Phase 1 completion
+**Status**: In Progress (3/7 core files complete)
+**Next Review**: After DatabaseManager.swift migration

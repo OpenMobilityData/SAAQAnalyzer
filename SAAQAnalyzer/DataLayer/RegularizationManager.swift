@@ -1,10 +1,14 @@
 import Foundation
 import SQLite3
+import OSLog
 
 /// Manages Make/Model regularization mappings and query translation
 class RegularizationManager {
     private weak var databaseManager: DatabaseManager?
     private var db: OpaquePointer? { databaseManager?.db }
+
+    // Use centralized logging
+    private let logger = AppLogger.regularization
 
     /// Cached year configuration
     private var yearConfig = RegularizationYearConfiguration.defaultConfiguration()
@@ -61,7 +65,7 @@ class RegularizationManager {
             throw DatabaseError.queryFailed("Failed to create regularization table: \(error)")
         }
 
-        print("✅ Created make_model_regularization table (triplet-based)")
+        logger.info("Created make_model_regularization table (triplet-based)")
     }
 
     // MARK: - Year Configuration
@@ -71,9 +75,7 @@ class RegularizationManager {
         self.yearConfig = config
         // Invalidate cached hierarchy when year configuration changes
         self.cachedHierarchy = nil
-        print("📅 Updated regularization year configuration:")
-        print("   Curated: \(config.curatedYearRange)")
-        print("   Uncurated: \(config.uncuratedYearRange)")
+        logger.info("Updated regularization year configuration: Curated=\(config.curatedYearRange), Uncurated=\(config.uncuratedYearRange)")
     }
 
     /// Gets the current year configuration
@@ -87,7 +89,7 @@ class RegularizationManager {
     func generateCanonicalHierarchy(forceRefresh: Bool = false) async throws -> MakeModelHierarchy {
         // Return cached hierarchy if available
         if !forceRefresh, let cached = cachedHierarchy {
-            print("📦 Returning cached canonical hierarchy")
+            logger.debug("Returning cached canonical hierarchy")
             return cached
         }
 
@@ -98,7 +100,8 @@ class RegularizationManager {
             throw DatabaseError.queryFailed("No curated years configured")
         }
 
-        print("🔄 Generating canonical hierarchy from \(curatedYearsList.count) curated years: \(curatedYearsList)")
+        let startTime = CFAbsoluteTimeGetCurrent()
+        logger.info("Generating canonical hierarchy from \(curatedYearsList.count) curated years: \(curatedYearsList)")
 
         // Build IN clause for curated years
         let yearPlaceholders = curatedYearsList.map { _ in "?" }.joined(separator: ",")
@@ -256,25 +259,22 @@ class RegularizationManager {
                 }.sorted { $0.name < $1.name }
 
                 let hierarchy = MakeModelHierarchy(makes: makes)
+                let modelCount = makes.reduce(0) { (total: Int, make: MakeModelHierarchy.Make) -> Int in total + make.models.count }
 
-                print("✅ Generated base canonical hierarchy: \(makes.count) makes, \(makes.reduce(0) { (total: Int, make: MakeModelHierarchy.Make) -> Int in total + make.models.count }) models")
+                let duration = CFAbsoluteTimeGetCurrent() - startTime
+                AppLogger.logQueryPerformance(
+                    queryType: "Canonical Hierarchy Generation",
+                    duration: duration,
+                    dataPoints: modelCount
+                )
+                logger.notice("Generated base canonical hierarchy: \(makes.count) makes, \(modelCount) models in \(String(format: "%.3f", duration))s")
 
-                // DEBUG: Verify ModelYear grouping structure
+                #if DEBUG
+                // DEBUG: Verify ModelYear grouping structure (only in debug builds)
                 if let firstMake = makes.first, let firstModel = firstMake.models.first {
-                    print("🔍 DEBUG - Verifying ModelYear-grouped FuelType structure:")
-                    print("   First Model: \(firstMake.name) / \(firstModel.name)")
-                    print("   ModelYear groups: \(firstModel.modelYearFuelTypes.count)")
-                    for (yearId, fuelTypes) in firstModel.modelYearFuelTypes.sorted(by: {
-                        // Sort by year, with nil last
-                        guard let y1 = $0.value.first?.modelYear else { return false }
-                        guard let y2 = $1.value.first?.modelYear else { return true }
-                        return y1 < y2
-                    }) {
-                        let yearStr = yearId != nil ? String(yearId!) : "NULL"
-                        let yearValStr = fuelTypes.first?.modelYear != nil ? String(fuelTypes.first!.modelYear!) : "nil"
-                        print("      ModelYearId \(yearStr) (year: \(yearValStr)): \(fuelTypes.count) fuel types - \(fuelTypes.map { $0.code }.joined(separator: ", "))")
-                    }
+                    logger.debug("Verifying ModelYear-grouped FuelType structure: \(firstMake.name)/\(firstModel.name), \(firstModel.modelYearFuelTypes.count) ModelYear groups")
                 }
+                #endif
 
                 continuation.resume(returning: hierarchy)
             } else {
@@ -306,8 +306,8 @@ class RegularizationManager {
             throw DatabaseError.queryFailed("No curated years configured")
         }
 
-        print("🔍 Finding uncurated Make/Model pairs in \(uncuratedYearsList.count) uncurated years: \(uncuratedYearsList)")
-        print("   Include exact matches: \(includeExactMatches)")
+        let startTime = CFAbsoluteTimeGetCurrent()
+        logger.info("Finding uncurated Make/Model pairs in \(uncuratedYearsList.count) uncurated years: \(uncuratedYearsList), includeExactMatches=\(includeExactMatches)")
 
         // Build IN clauses
         let uncuratedPlaceholders = uncuratedYearsList.map { _ in "?" }.joined(separator: ",")
@@ -415,14 +415,20 @@ class RegularizationManager {
                     pairs.append(pair)
                 }
 
-                print("✅ Found \(pairs.count) uncurated Make/Model pairs")
+                let duration = CFAbsoluteTimeGetCurrent() - startTime
+                AppLogger.logQueryPerformance(
+                    queryType: "Find Uncurated Pairs",
+                    duration: duration,
+                    dataPoints: pairs.count
+                )
+                logger.notice("Found \(pairs.count) uncurated Make/Model pairs in \(String(format: "%.3f", duration))s")
+
+                #if DEBUG
                 if pairs.count > 0 {
                     let topPairs = pairs.prefix(5)
-                    print("   Top 5 by record count:")
-                    for pair in topPairs {
-                        print("   - \(pair.makeModelDisplay): \(pair.recordCount) records (\(String(format: "%.2f", pair.percentageOfTotal))%)")
-                    }
+                    logger.debug("Top 5 pairs by record count: \(topPairs.map { "\($0.makeModelDisplay): \($0.recordCount)" }.joined(separator: ", "))")
                 }
+                #endif
 
                 continuation.resume(returning: pairs)
             } else {
@@ -514,8 +520,7 @@ class RegularizationManager {
 
                 if sqlite3_step(stmt) == SQLITE_DONE {
                     let modelYearStr = modelYearId != nil ? "/ModelYear \(modelYearId!)" : " (all years)"
-                    print("✅ Saved regularization mapping: Make \(uncuratedMakeId)/Model \(uncuratedModelId)\(modelYearStr) → Make \(canonicalMakeId)/Model \(canonicalModelId)")
-                    print("   FuelType: \(fuelTypeId?.description ?? "NULL"), VehicleType: \(vehicleTypeId?.description ?? "NULL")")
+                    logger.info("Saved regularization mapping: Make \(uncuratedMakeId)/Model \(uncuratedModelId)\(modelYearStr) → Make \(canonicalMakeId)/Model \(canonicalModelId), FuelType=\(fuelTypeId?.description ?? "NULL"), VehicleType=\(vehicleTypeId?.description ?? "NULL")")
                     continuation.resume()
                 } else {
                     let error = String(cString: sqlite3_errmsg(db))
@@ -542,7 +547,7 @@ class RegularizationManager {
                 sqlite3_bind_int(stmt, 1, Int32(id))
 
                 if sqlite3_step(stmt) == SQLITE_DONE {
-                    print("✅ Deleted regularization mapping ID \(id)")
+                    logger.info("Deleted regularization mapping ID \(id)")
                     continuation.resume()
                 } else {
                     let error = String(cString: sqlite3_errmsg(db))
@@ -831,12 +836,7 @@ class RegularizationManager {
                         vehicleTypeCoverage: vehicleTypeCoverage
                     )
 
-                    print("✅ Detailed regularization statistics:")
-                    print("   Mappings: \(mappingCount)")
-                    print("   Total uncurated records: \(totalRecords)")
-                    print("   Make/Model coverage: \(String(format: "%.1f", makeModelCoverage.coveragePercentage))%")
-                    print("   Fuel Type coverage: \(String(format: "%.1f", fuelTypeCoverage.coveragePercentage))%")
-                    print("   Vehicle Type coverage: \(String(format: "%.1f", vehicleTypeCoverage.coveragePercentage))%")
+                    logger.notice("Detailed regularization statistics: Mappings=\(mappingCount), Total=\(totalRecords), Make/Model=\(String(format: "%.1f", makeModelCoverage.coveragePercentage))%, FuelType=\(String(format: "%.1f", fuelTypeCoverage.coveragePercentage))%, VehicleType=\(String(format: "%.1f", vehicleTypeCoverage.coveragePercentage))%")
 
                     continuation.resume(returning: stats)
                 } else {
@@ -944,11 +944,11 @@ class RegularizationManager {
                 // If user selected an uncurated ID, add its canonical equivalent
                 if makeIds.contains(uncuratedMakeId) {
                     expandedMakeIds.insert(canonicalMakeId)
-                    print("   🔄 Uncurated Make \(uncuratedMakeId) → Canonical \(canonicalMakeId)")
+                    logger.debug("Uncurated Make \(uncuratedMakeId) → Canonical \(canonicalMakeId)")
                 }
                 if modelIds.contains(uncuratedModelId) {
                     expandedModelIds.insert(canonicalModelId)
-                    print("   🔄 Uncurated Model \(uncuratedModelId) → Canonical \(canonicalModelId)")
+                    logger.debug("Uncurated Model \(uncuratedModelId) → Canonical \(canonicalModelId)")
                 }
             }
         }
@@ -994,9 +994,7 @@ class RegularizationManager {
                 let modelArray = Array(expandedModelIds).sorted()
 
                 if makeArray.count > makeIds.count || modelArray.count > modelIds.count {
-                    print("🔄 Regularization expanded IDs:")
-                    print("   Makes: \(makeIds.count) → \(makeArray.count)")
-                    print("   Models: \(modelIds.count) → \(modelArray.count)")
+                    logger.info("Regularization expanded IDs: Makes \(makeIds.count)→\(makeArray.count), Models \(modelIds.count)→\(modelArray.count)")
                 }
 
                 continuation.resume(returning: (makeArray, modelArray))
@@ -1040,7 +1038,7 @@ class RegularizationManager {
 
                 if makeIds.contains(uncuratedMakeId) {
                     expandedMakeIds.insert(canonicalMakeId)
-                    print("   🔄 Uncurated Make \(uncuratedMakeId) → Canonical \(canonicalMakeId)")
+                    logger.debug("Uncurated Make \(uncuratedMakeId) → Canonical \(canonicalMakeId)")
                 }
             }
         }
@@ -1071,7 +1069,7 @@ class RegularizationManager {
                 let makeArray = Array(expandedMakeIds).sorted()
 
                 if makeArray.count > makeIds.count {
-                    print("🔄 Make regularization expanded \(makeIds.count) → \(makeArray.count) IDs")
+                    logger.info("Make regularization expanded \(makeIds.count)→\(makeArray.count) IDs")
                 }
 
                 continuation.resume(returning: makeArray)
@@ -1115,7 +1113,7 @@ class RegularizationManager {
                 }
 
                 if !result.isEmpty {
-                    print("✅ Loaded derived Make regularization info for \(result.count) Makes")
+                    logger.info("Loaded derived Make regularization info for \(result.count) Makes")
                 }
 
                 continuation.resume(returning: result)
@@ -1201,7 +1199,7 @@ class RegularizationManager {
                 let modelArray = Array(modelIds).sorted()
 
                 if !makeArray.isEmpty {
-                    print("🔄 Vehicle Type regularization: Found \(makeArray.count) makes, \(modelArray.count) models for vehicle type ID \(vehicleTypeId)")
+                    logger.info("Vehicle Type regularization: Found \(makeArray.count) makes, \(modelArray.count) models for vehicle type ID \(vehicleTypeId)")
                 }
 
                 continuation.resume(returning: (makeIds: makeArray, modelIds: modelArray))
@@ -1245,7 +1243,7 @@ class RegularizationManager {
                     vehicleTypes.append(vehicleType)
                 }
 
-                print("✅ Loaded \(vehicleTypes.count) vehicle types from schema")
+                logger.info("Loaded \(vehicleTypes.count) vehicle types from schema")
                 continuation.resume(returning: vehicleTypes)
             } else {
                 let error = String(cString: sqlite3_errmsg(db))
@@ -1292,7 +1290,7 @@ class RegularizationManager {
                     vehicleTypes.append(vehicleType)
                 }
 
-                print("✅ Loaded \(vehicleTypes.count) vehicle types from regularization mappings")
+                logger.info("Loaded \(vehicleTypes.count) vehicle types from regularization mappings")
                 continuation.resume(returning: vehicleTypes)
             } else {
                 let error = String(cString: sqlite3_errmsg(db))

@@ -1,9 +1,12 @@
 import SwiftUI
 import Observation
 import Combine
+import OSLog
 
 /// Main view for managing Make/Model regularization mappings
 struct RegularizationView: View {
+    // Use centralized logging
+    private let logger = AppLogger.regularization
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel: RegularizationViewModel
 
@@ -650,9 +653,6 @@ struct MappingFormView: View {
                     if let vehicleType = viewModel.selectedVehicleType {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
-                            .onAppear {
-                                print("✓ VehicleType checkmark: \(vehicleType.code) - \(vehicleType.description)")
-                            }
                     }
                 }
 
@@ -892,6 +892,9 @@ class RegularizationViewModel: ObservableObject {
         databaseManager.regularizationManager
     }
 
+    // Use centralized logging
+    private let logger = AppLogger.regularization
+
     @Published var yearConfig: RegularizationYearConfiguration
     @Published var uncuratedPairs: [UnverifiedMakeModelPair] = []
     @Published var canonicalHierarchy: MakeModelHierarchy?
@@ -986,7 +989,7 @@ class RegularizationViewModel: ObservableObject {
 
     func loadVehicleTypes() async {
         guard let manager = regularizationManager else {
-            print("❌ RegularizationManager not available")
+            logger.error("RegularizationManager not available")
             return
         }
 
@@ -999,9 +1002,9 @@ class RegularizationViewModel: ObservableObject {
                 regularizationVehicleTypes = regTypes
             }
 
-            print("✅ Loaded vehicle types: \(allTypes.count) total, \(regTypes.count) in regularization list")
+            logger.info("Loaded vehicle types: \(allTypes.count) total, \(regTypes.count) in regularization list")
         } catch {
-            print("❌ Error loading vehicle types: \(error)")
+            logger.error("Error loading vehicle types: \(error.localizedDescription)")
         }
     }
 
@@ -1029,18 +1032,18 @@ class RegularizationViewModel: ObservableObject {
             let uniquePairs = mappingsDict.count
             let totalMappings = mappings.count
             if totalMappings > uniquePairs {
-                print("✅ Loaded \(totalMappings) mappings (\(uniquePairs) pairs, \(totalMappings - uniquePairs) triplets)")
+                logger.info("Loaded \(totalMappings) mappings (\(uniquePairs) pairs, \(totalMappings - uniquePairs) triplets)")
             } else {
-                print("✅ Loaded \(mappings.count) existing mappings")
+                logger.info("Loaded \(mappings.count) existing mappings")
             }
         } catch {
-            print("❌ Error loading existing mappings: \(error)")
+            logger.error("Error loading existing mappings: \(error.localizedDescription)")
         }
     }
 
     func loadUncuratedPairs() async {
         guard let manager = regularizationManager else {
-            print("❌ RegularizationManager not available")
+            logger.error("RegularizationManager not available")
             return
         }
 
@@ -1048,6 +1051,7 @@ class RegularizationViewModel: ObservableObject {
             isLoading = true
         }
 
+        let startTime = CFAbsoluteTimeGetCurrent()
         do {
             // Always load all pairs (including exact matches) - filtering is done in UI by status
             let pairs = try await manager.findUncuratedPairs(includeExactMatches: true)
@@ -1055,9 +1059,10 @@ class RegularizationViewModel: ObservableObject {
                 uncuratedPairs = pairs
                 isLoading = false
             }
-            print("✅ Loaded \(pairs.count) uncurated pairs")
+            let duration = CFAbsoluteTimeGetCurrent() - startTime
+            logger.notice("Loaded \(pairs.count) uncurated pairs in \(String(format: "%.3f", duration))s")
         } catch {
-            print("❌ Error loading uncurated pairs: \(error)")
+            logger.error("Error loading uncurated pairs: \(error.localizedDescription)")
             await MainActor.run {
                 isLoading = false
             }
@@ -1066,7 +1071,7 @@ class RegularizationViewModel: ObservableObject {
 
     func generateHierarchy() async {
         guard let manager = regularizationManager else {
-            print("❌ RegularizationManager not available")
+            logger.error("RegularizationManager not available")
             return
         }
 
@@ -1080,9 +1085,9 @@ class RegularizationViewModel: ObservableObject {
                 canonicalHierarchy = hierarchy
                 isLoadingHierarchy = false
             }
-            print("✅ Generated hierarchy with \(hierarchy.makes.count) makes")
+            logger.info("Generated hierarchy with \(hierarchy.makes.count) makes")
         } catch {
-            print("❌ Error generating hierarchy: \(error)")
+            logger.error("Error generating hierarchy: \(error.localizedDescription)")
             await MainActor.run {
                 isLoadingHierarchy = false
             }
@@ -1104,7 +1109,7 @@ class RegularizationViewModel: ObservableObject {
             var vehicleTypeId = selectedVehicleType?.id
 
             if let vehicleType = selectedVehicleType, vehicleType.id == -1 {
-                print("🔍 Resolving placeholder VehicleType ID -1 (code: \(vehicleType.code))")
+                logger.debug("Resolving placeholder VehicleType ID -1 (code: \(vehicleType.code))")
                 let enumManager = CategoricalEnumManager(databaseManager: databaseManager)
                 if let resolvedId = try await enumManager.getEnumId(
                     table: "vehicle_type_enum",
@@ -1112,9 +1117,9 @@ class RegularizationViewModel: ObservableObject {
                     value: vehicleType.code
                 ) {
                     vehicleTypeId = resolvedId
-                    print("✅ Resolved VehicleType '\(vehicleType.code)' to ID \(resolvedId)")
+                    logger.debug("Resolved VehicleType '\(vehicleType.code)' to ID \(resolvedId)")
                 } else {
-                    print("❌ ERROR: Failed to resolve VehicleType '\(vehicleType.code)' - will save as NULL!")
+                    logger.error("Failed to resolve VehicleType '\(vehicleType.code)' - will save as NULL")
                     vehicleTypeId = nil
                 }
             }
@@ -1130,7 +1135,7 @@ class RegularizationViewModel: ObservableObject {
                 vehicleTypeId: vehicleTypeId
             )
 
-            print("✅ Saved wildcard mapping: \(pair.makeModelDisplay) → \(canonicalMake.name)/\(canonicalModel.name), VehicleType=\(selectedVehicleType?.description ?? "NULL")")
+            logger.info("Saved wildcard mapping: \(pair.makeModelDisplay) → \(canonicalMake.name)/\(canonicalModel.name), VehicleType=\(self.selectedVehicleType?.description ?? "NULL")")
 
             // STEP 2: Create triplet mappings for ALL model years (with user selections or NULL)
             var tripletCount = 0
@@ -1155,7 +1160,7 @@ class RegularizationViewModel: ObservableObject {
                             value: "U"
                         )
                         if resolvedFuelTypeId == nil {
-                            print("⚠️ WARNING: 'Unknown' fuel type (code 'U') not found in enum table - saving as NULL")
+                            logger.warning("'Unknown' fuel type (code 'U') not found in enum table - saving as NULL")
                         } else {
                             unknownCount += 1
                         }
@@ -1174,20 +1179,10 @@ class RegularizationViewModel: ObservableObject {
                         vehicleTypeId: nil  // VehicleType set by wildcard
                     )
                     tripletCount += 1
-
-                    // Log triplet creation
-                    let yearValue = fuelTypes.first?.modelYear ?? 0
-                    if let ftId = resolvedFuelTypeId, let fuelType = fuelTypes.first(where: { $0.id == ftId }) {
-                        print("   ✓ Triplet: ModelYear \(yearValue) → FuelType=\(fuelType.code)")
-                    } else if selectedFuelTypeId == -1 {
-                        print("   ✓ Triplet: ModelYear \(yearValue) → FuelType=U (Unknown)")
-                    } else {
-                        print("   ✓ Triplet: ModelYear \(yearValue) → FuelType=NULL (Not Assigned)")
-                    }
                 }
             }
 
-            print("✅ Saved \(tripletCount) triplet mappings (\(assignedCount) assigned, \(unknownCount) unknown, \(tripletCount - assignedCount - unknownCount) not assigned)")
+            logger.info("Saved \(tripletCount) triplet mappings: \(assignedCount) assigned, \(unknownCount) unknown, \(tripletCount - assignedCount - unknownCount) not assigned")
 
             // Reload existing mappings to update status indicators
             await loadExistingMappings()
@@ -1196,7 +1191,7 @@ class RegularizationViewModel: ObservableObject {
             await loadMappingForSelectedPair()
 
         } catch {
-            print("❌ Error saving mapping: \(error)")
+            logger.error("Error saving mapping: \(error.localizedDescription)")
         }
 
         isSaving = false
@@ -1244,7 +1239,7 @@ class RegularizationViewModel: ObservableObject {
     /// Auto-regularize pairs where Make/Model exactly match curated pairs
     func autoRegularizeExactMatches() async {
         guard let manager = regularizationManager else {
-            print("❌ RegularizationManager not available")
+            logger.error("RegularizationManager not available for auto-regularization")
             return
         }
 
@@ -1254,11 +1249,12 @@ class RegularizationViewModel: ObservableObject {
             await generateHierarchy()
             hierarchy = canonicalHierarchy
             guard hierarchy != nil else {
-                print("❌ Failed to generate hierarchy")
+                logger.error("Failed to generate hierarchy for auto-regularization")
                 return
             }
         }
 
+        let startTime = CFAbsoluteTimeGetCurrent()
         isAutoRegularizing = true
 
         // Build a lookup of canonical Make/Model combinations with their metadata
@@ -1276,7 +1272,7 @@ class RegularizationViewModel: ObservableObject {
         do {
             allUncuratedPairs = try await manager.findUncuratedPairs(includeExactMatches: true)
         } catch {
-            print("❌ Error fetching uncurated pairs for auto-regularization: \(error)")
+            logger.error("Error fetching uncurated pairs for auto-regularization: \(error.localizedDescription)")
             isAutoRegularizing = false
             return
         }
@@ -1316,7 +1312,6 @@ class RegularizationViewModel: ObservableObject {
                         let cardinalCodes = AppSettings.shared.cardinalVehicleTypeCodes
                         for cardinalCode in cardinalCodes {
                             if let matchingType = validVehicleTypes.first(where: { $0.code == cardinalCode }) {
-                                print("   🎯 Cardinal type match: \(cardinalCode) found among \(validVehicleTypes.map { $0.code }.joined(separator: ", "))")
                                 return matchingType.id
                             }
                         }
@@ -1358,7 +1353,6 @@ class RegularizationViewModel: ObservableObject {
                                 vehicleTypeId: nil  // Will be set by wildcard pair
                             )
                             tripletCount += 1
-                            print("   ✓ Triplet: ModelYear \(fuelType.modelYear ?? 0) → FuelType=\(fuelType.code)")
                         }
                     }
 
@@ -1377,36 +1371,19 @@ class RegularizationViewModel: ObservableObject {
                     )
 
                     autoRegularizedCount += 1
-
-                    // Log what was auto-assigned
-                    var autoAssignedFields: [String] = ["M/M"]
-                    if tripletCount > 0 {
-                        autoAssignedFields.append("FuelType(\(tripletCount) triplets)")
-                    }
-                    // Note: wildcardFuelTypeId is always nil (FuelType set by triplets only)
-                    if let vtId = vehicleTypeId {
-                        let wasCardinalMatch = validVehicleTypes.count > 1 &&
-                            AppSettings.shared.useCardinalTypes &&
-                            validVehicleTypes.contains(where: {
-                                $0.id == vtId && AppSettings.shared.cardinalVehicleTypeCodes.contains($0.code)
-                            })
-                        if wasCardinalMatch {
-                            autoAssignedFields.append("VehicleType(Cardinal)")
-                        } else {
-                            autoAssignedFields.append("VehicleType")
-                        }
-                    }
-                    print("✅ Auto-regularized: \(pairKey) [\(autoAssignedFields.joined(separator: ", "))]")
                 } catch {
-                    print("❌ Error auto-regularizing \(pairKey): \(error)")
+                    logger.error("Error auto-regularizing \(pairKey): \(error.localizedDescription)")
                 }
             }
         }
 
+        let duration = CFAbsoluteTimeGetCurrent() - startTime
         if autoRegularizedCount > 0 {
-            print("✅ Auto-regularized \(autoRegularizedCount) exact matches")
+            logger.notice("Auto-regularized \(autoRegularizedCount) exact matches in \(String(format: "%.3f", duration))s")
             // Reload mappings
             await loadExistingMappings()
+        } else {
+            logger.debug("No exact matches found for auto-regularization")
         }
 
         isAutoRegularizing = false
@@ -1489,20 +1466,6 @@ class RegularizationViewModel: ObservableObject {
                 // Fallback: just check existing triplets (old behavior)
                 allTripletsHaveFuelType = allExistingTripletsAssigned
             }
-
-            // DEBUG: Log triplet fuel type status for HONDA/CIVIC
-            if pair.makeName == "HONDA" && pair.modelName == "CIVIC" {
-                print("🔍 DEBUG Status Check for HONDA/CIVIC:")
-                print("   Total triplets in DB: \(tripletMappings.count)")
-                print("   Expected model years: \(expectedYearCount ?? -1)")
-                print("   Has VehicleType: \(hasVehicleType)")
-                print("   All existing triplets assigned: \(allExistingTripletsAssigned)")
-                print("   All triplets have fuel type: \(allTripletsHaveFuelType)")
-                for (index, triplet) in tripletMappings.enumerated() {
-                    let ftStatus = triplet.fuelType != nil ? "✓ \(triplet.fuelType!)" : "✗ NULL"
-                    print("   Triplet \(index + 1): ModelYear=\(triplet.modelYear ?? 0), FuelType=\(ftStatus)")
-                }
-            }
         }
 
         if hasVehicleType && allTripletsHaveFuelType {
@@ -1526,11 +1489,11 @@ class RegularizationViewModel: ObservableObject {
 
         // If mappings already exist, don't auto-populate (preserve user's existing work)
         if !existingMappings.isEmpty {
-            print("📋 Skipping auto-population - existing mappings found for \(pair.makeModelDisplay)")
+            logger.debug("Skipping auto-population - existing mappings found for \(pair.makeModelDisplay)")
             return
         }
 
-        print("🎯 Auto-populating fields for newly assigned model: \(model.name)")
+        logger.debug("Auto-populating fields for newly assigned model: \(model.name)")
 
         // STEP 1: Auto-populate Vehicle Type
         // Strategy: Use cardinal type matching (same logic as auto-regularization)
@@ -1543,22 +1506,15 @@ class RegularizationViewModel: ObservableObject {
         if validVehicleTypes.count == 1 {
             // Single vehicle type - auto-assign it
             selectedVehicleType = validVehicleTypes.first
-            print("   ✓ Auto-assigned VehicleType: \(validVehicleTypes.first!.code) (single option)")
         } else if validVehicleTypes.count > 1 && AppSettings.shared.useCardinalTypes {
             // Multiple types - try cardinal matching
             let cardinalCodes = AppSettings.shared.cardinalVehicleTypeCodes
             for cardinalCode in cardinalCodes {
                 if let matchingType = validVehicleTypes.first(where: { $0.code == cardinalCode }) {
                     selectedVehicleType = matchingType
-                    print("   ✓ Auto-assigned VehicleType: \(cardinalCode) (cardinal match)")
                     break
                 }
             }
-            if selectedVehicleType == nil {
-                print("   ⚠️ VehicleType: Multiple options found (\(validVehicleTypes.map { $0.code }.joined(separator: ", "))), no cardinal match - leaving unassigned")
-            }
-        } else {
-            print("   ⚠️ VehicleType: Multiple options or no valid types - leaving unassigned")
         }
 
         // STEP 2: Auto-populate Fuel Types by Model Year
@@ -1576,19 +1532,12 @@ class RegularizationViewModel: ObservableObject {
             if validFuelTypes.count == 1, let fuelType = validFuelTypes.first {
                 // Single fuel type - auto-assign it
                 selectedFuelTypesByYear[modelYearId] = fuelType.id
-                print("   ✓ Auto-assigned FuelType for year \(fuelType.modelYear ?? 0): \(fuelType.code)")
-            } else if validFuelTypes.isEmpty {
-                // No valid fuel types (pre-2017 NULL data) - leave as "Not Assigned"
-                // User will need to manually select "Unknown"
-                print("   ⚠️ FuelType for year \(fuelTypes.first?.modelYear ?? 0): No data available - leaving unassigned")
-            } else {
-                // Multiple fuel types - leave as "Not Assigned" for user to disambiguate
-                print("   ⚠️ FuelType for year \(fuelTypes.first?.modelYear ?? 0): Multiple options (\(validFuelTypes.map { $0.code }.joined(separator: ", "))) - leaving unassigned")
             }
         }
 
-        let assignedCount = selectedFuelTypesByYear.values.filter { $0 != nil }.count
-        print("✅ Auto-population complete: VehicleType=\(selectedVehicleType != nil ? "assigned" : "unassigned"), FuelTypes=\(assignedCount) of \(model.modelYearFuelTypes.count) years")
+        let assignedVT = selectedVehicleType != nil
+        let assignedFT = selectedFuelTypesByYear.values.filter { $0 != nil }.count
+        logger.debug("Auto-population complete: VehicleType=\(assignedVT), FuelTypes=\(assignedFT)/\(model.modelYearFuelTypes.count)")
     }
 
     /// Load existing mapping data for the selected pair
@@ -1604,7 +1553,7 @@ class RegularizationViewModel: ObservableObject {
             await generateHierarchy()
             hierarchy = canonicalHierarchy
             guard hierarchy != nil else {
-                print("❌ Failed to generate hierarchy for mapping lookup")
+                logger.error("Failed to generate hierarchy for mapping lookup")
                 clearMappingFormFields()
                 return
             }
@@ -1693,16 +1642,12 @@ class RegularizationViewModel: ObservableObject {
                 }
             }
 
-            if mapping != nil {
-                print("📋 Loaded existing mapping for \(pair.makeModelDisplay)")
-            } else {
-                print("📋 Pre-populated exact match for \(pair.makeModelDisplay)")
-            }
+            logger.debug("Loaded mapping for \(pair.makeModelDisplay): \(mapping != nil ? "existing" : "exact match")")
         } else {
             // No mapping and no exact match - clear form fields but keep pair selected
             // User can manually select canonical Make/Model for typo corrections
             clearMappingFormFields()
-            print("📋 No auto-population for \(pair.makeModelDisplay) - manual mapping required")
+            logger.debug("No auto-population for \(pair.makeModelDisplay) - manual mapping required")
         }
     }
 }
