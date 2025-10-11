@@ -1,5 +1,18 @@
 # Make/Model Standardization Workflow
 
+> ⚠️ **EXPERIMENTAL - NOT RECOMMENDED FOR PRODUCTION**
+>
+> This document describes an **experimental** string-similarity-based approach to correcting make/model typos by modifying CSV files before import. This approach is **NOT the recommended production workflow**.
+>
+> **Recommended Production Approach**: Use the **Regularization System** documented in `REGULARIZATION_BEHAVIOR.md`, which provides:
+> - User-controlled mappings via UI
+> - Reversible corrections (doesn't modify source data)
+> - Fuel type and vehicle type disambiguation
+> - Query-time regularization with toggle control
+> - Canonical hierarchy cache for performance
+>
+> **Status**: This automated CSV correction approach remains available for research purposes but should not be used for production databases without careful review of each mapping.
+
 ## Problem
 
 The 2023-2024 SAAQ data contains massive spelling variation in vehicle make and model fields:

@@ -277,12 +277,66 @@ jobs:
 - ✅ Geographic data hierarchy
 - ✅ Filter configuration management
 
+### Pending Test Coverage (October 2025 Features)
+
+The following features were added in October 2025 and **require test coverage**:
+
+#### Road Wear Index (RWI) Metric
+- ✅ **Implemented**: October 2025
+- ⚠️ **Tests Needed**:
+  - Calculation correctness (4th power law: damage ∝ axle_load^4)
+  - Vehicle-type-aware weight distribution (AU, CA, AB vehicles)
+  - Normalization toggle (normalize to first year = 1.0)
+  - Average vs Sum modes
+  - Raw vs Normalized display formats
+
+**Test Cases to Add**:
+```swift
+testRoadWearIndexCalculation()           // Verify 4th power law math
+testRoadWearIndexWeightDistribution()    // Test AU/CA/AB weight splits
+testRoadWearIndexNormalization()         // Verify normalization to year 1
+testRoadWearIndexModes()                 // Test Average vs Sum modes
+```
+
+#### Cumulative Sum Transform
+- ✅ **Implemented**: October 2025
+- ⚠️ **Tests Needed**:
+  - Cumulative sum calculation (running total)
+  - Transformation order (normalize → cumulative)
+  - Works with all metric types (Count, RWI, Average, etc.)
+  - Vehicle and license data paths
+
+**Test Cases to Add**:
+```swift
+testCumulativeSumCalculation()           // Verify running total logic
+testCumulativeSumWithNormalization()     // Test RWI normalize → cumulative order
+testCumulativeSumAllMetrics()            // Test with Count, Average, Percentage, etc.
+testCumulativeSumLicenseData()           // Test license data path
+```
+
+#### Regularization System Performance
+- ✅ **Implemented**: October 2025
+- ⚠️ **Tests Needed**:
+  - Canonical hierarchy cache (109x speedup)
+  - Background auto-regularization
+  - Database indexes on enum table IDs
+  - Triplet-based fuel type filtering
+
+**Test Cases to Add**:
+```swift
+testCanonicalHierarchyCachePerformance() // Verify 109x improvement
+testBackgroundAutoRegularization()       // Test async processing
+testRegularizationIndexes()              // Verify JOIN performance
+testTripletFuelTypeFiltering()           // Test Make/Model/Year matching
+```
+
 ### Future Test Considerations
 - Chart rendering validation
-- Export functionality testing
+- Export functionality testing (Data Package with canonical cache)
 - Memory usage under stress conditions
 - UI interaction testing
 - Network error handling (for future features)
+- RWI vehicle type edge cases (unknown types, mixed fleets)
 
 ## Maintenance Notes
 
