@@ -150,8 +150,8 @@ The application supports multiple metric types for data analysis:
    - Useful for assessing data quality across years
 
 5. **Road Wear Index (RWI)** ✨ *New in October 2025*
-   - Engineering metric based on 4th power law of road wear
-   - Formula: Damage ∝ (axle_load)^4
+   - Engineering metric based on 4th power law of road wear (damage ∝ axle_load^4)
+   - Displayed as "Road Wear Index" with tooltip explaining the 4th power law
    - **Assumptions**:
      - All vehicles have 2 axles
      - Weight equally distributed across axles

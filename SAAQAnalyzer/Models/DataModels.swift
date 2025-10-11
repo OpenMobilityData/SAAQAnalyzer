@@ -1315,9 +1315,9 @@ enum ChartMetricType: String, CaseIterable, Sendable {
     case average = "Average"
     case minimum = "Minimum"
     case maximum = "Maximum"
+    case roadWearIndex = "Road Wear Index"
     case percentage = "Percentage"
     case coverage = "Coverage"
-    case roadWearIndex = "Road Wear Index"
 
     var description: String {
         switch self {
@@ -1326,9 +1326,9 @@ enum ChartMetricType: String, CaseIterable, Sendable {
         case .average: return "Average Value"
         case .minimum: return "Minimum Value"
         case .maximum: return "Maximum Value"
+        case .roadWearIndex: return "Road Wear Index"
         case .percentage: return "Percentage in Superset"
         case .coverage: return "Coverage in Superset"
-        case .roadWearIndex: return "Road Wear Index (4th Power Law)"
         }
     }
 
@@ -1339,9 +1339,18 @@ enum ChartMetricType: String, CaseIterable, Sendable {
         case .average: return "Avg"
         case .minimum: return "Min"
         case .maximum: return "Max"
+        case .roadWearIndex: return "RWI"
         case .percentage: return "%"
         case .coverage: return "% Cov"
-        case .roadWearIndex: return "RWI"
+        }
+    }
+
+    var tooltip: String? {
+        switch self {
+        case .roadWearIndex:
+            return "Measures infrastructure impact using the engineering principle that road wear is proportional to the 4th power of axle loading. Normalized so first year = 1.0."
+        default:
+            return nil
         }
     }
 }
