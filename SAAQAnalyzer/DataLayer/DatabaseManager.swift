@@ -2218,36 +2218,31 @@ class DatabaseManager: ObservableObject {
                 }
 
                 if !filters.vehicleTypes.isEmpty {
-                    let types = Array(filters.vehicleTypes).sorted().prefix(3).map { code in
+                    let types = Array(filters.vehicleTypes).sorted().map { code in
                         getVehicleTypeDisplayName(for: code)
                     }.joined(separator: " OR ")
-                    let suffix = filters.vehicleTypes.count > 3 ? " (+\(filters.vehicleTypes.count - 3))" : ""
-                    filterComponents.append("[Type: \(types)\(suffix)]")
+                    filterComponents.append("[Type: \(types)]")
                 }
 
                 // Add other filters inline below
                 if !filters.vehicleMakes.isEmpty {
-                    let makes = Array(filters.vehicleMakes).sorted().prefix(3).joined(separator: " OR ")
-                    let suffix = filters.vehicleMakes.count > 3 ? " (+\(filters.vehicleMakes.count - 3))" : ""
-                    filterComponents.append("[Make: \(makes)\(suffix)]")
+                    let makes = Array(filters.vehicleMakes).sorted().joined(separator: " OR ")
+                    filterComponents.append("[Make: \(makes)]")
                 }
 
                 if !filters.vehicleModels.isEmpty {
-                    let models = Array(filters.vehicleModels).sorted().prefix(3).joined(separator: " OR ")
-                    let suffix = filters.vehicleModels.count > 3 ? " (+\(filters.vehicleModels.count - 3))" : ""
-                    filterComponents.append("[Model: \(models)\(suffix)]")
+                    let models = Array(filters.vehicleModels).sorted().joined(separator: " OR ")
+                    filterComponents.append("[Model: \(models)]")
                 }
 
                 if !filters.vehicleColors.isEmpty {
-                    let colors = Array(filters.vehicleColors).sorted().prefix(3).joined(separator: " OR ")
-                    let suffix = filters.vehicleColors.count > 3 ? " (+\(filters.vehicleColors.count - 3))" : ""
-                    filterComponents.append("[Color: \(colors)\(suffix)]")
+                    let colors = Array(filters.vehicleColors).sorted().joined(separator: " OR ")
+                    filterComponents.append("[Color: \(colors)]")
                 }
 
                 if !filters.modelYears.isEmpty {
-                    let years = Array(filters.modelYears).sorted(by: >).prefix(3).map { String($0) }.joined(separator: " OR ")
-                    let suffix = filters.modelYears.count > 3 ? " (+\(filters.modelYears.count - 3))" : ""
-                    filterComponents.append("[Model Year: \(years)\(suffix)]")
+                    let years = Array(filters.modelYears).sorted(by: >).map { String($0) }.joined(separator: " OR ")
+                    filterComponents.append("[Model Year: \(years)]")
                 }
 
                 if !filters.fuelTypes.isEmpty {
@@ -2329,11 +2324,10 @@ class DatabaseManager: ObservableObject {
                     }
 
                     if !filters.vehicleTypes.isEmpty {
-                        let types = Array(filters.vehicleTypes).sorted().prefix(3).map { code in
+                        let types = Array(filters.vehicleTypes).sorted().map { code in
                             getVehicleTypeDisplayName(for: code)
                         }.joined(separator: " OR ")
-                        let suffix = filters.vehicleTypes.count > 3 ? " (+\(filters.vehicleTypes.count - 3))" : ""
-                        filterComponents.append("[Type: \(types)\(suffix)]")
+                        filterComponents.append("[Type: \(types)]")
                     }
 
                     if !filters.regions.isEmpty {
@@ -2370,35 +2364,30 @@ class DatabaseManager: ObservableObject {
         }
 
         if !filters.vehicleTypes.isEmpty {
-            let types = Array(filters.vehicleTypes).sorted().prefix(3).map { code in
+            let types = Array(filters.vehicleTypes).sorted().map { code in
                 getVehicleTypeDisplayName(for: code)
             }.joined(separator: " OR ")
-            let suffix = filters.vehicleTypes.count > 3 ? " (+\(filters.vehicleTypes.count - 3))" : ""
-            components.append("[Type: \(types)\(suffix)]")
+            components.append("[Type: \(types)]")
         }
 
         if !filters.vehicleMakes.isEmpty {
-            let makes = Array(filters.vehicleMakes).sorted().prefix(3).joined(separator: " OR ")
-            let suffix = filters.vehicleMakes.count > 3 ? " (+\(filters.vehicleMakes.count - 3))" : ""
-            components.append("[Make: \(makes)\(suffix)]")
+            let makes = Array(filters.vehicleMakes).sorted().joined(separator: " OR ")
+            components.append("[Make: \(makes)]")
         }
 
         if !filters.vehicleModels.isEmpty {
-            let models = Array(filters.vehicleModels).sorted().prefix(3).joined(separator: " OR ")
-            let suffix = filters.vehicleModels.count > 3 ? " (+\(filters.vehicleModels.count - 3))" : ""
-            components.append("[Model: \(models)\(suffix)]")
+            let models = Array(filters.vehicleModels).sorted().joined(separator: " OR ")
+            components.append("[Model: \(models)]")
         }
 
         if !filters.vehicleColors.isEmpty {
-            let colors = Array(filters.vehicleColors).sorted().prefix(3).joined(separator: " OR ")
-            let suffix = filters.vehicleColors.count > 3 ? " (+\(filters.vehicleColors.count - 3))" : ""
-            components.append("[Color: \(colors)\(suffix)]")
+            let colors = Array(filters.vehicleColors).sorted().joined(separator: " OR ")
+            components.append("[Color: \(colors)]")
         }
 
         if !filters.modelYears.isEmpty {
-            let years = Array(filters.modelYears).sorted(by: >).prefix(3).map { String($0) }.joined(separator: " OR ")
-            let suffix = filters.modelYears.count > 3 ? " (+\(filters.modelYears.count - 3))" : ""
-            components.append("[Model Year: \(years)\(suffix)]")
+            let years = Array(filters.modelYears).sorted(by: >).map { String($0) }.joined(separator: " OR ")
+            components.append("[Model Year: \(years)]")
         }
 
         if !filters.fuelTypes.isEmpty {
@@ -2514,9 +2503,8 @@ class DatabaseManager: ObservableObject {
         }
 
         if !baseFilters.vehicleTypes.isEmpty {
-            let types = Array(baseFilters.vehicleTypes).sorted().prefix(3).joined(separator: " OR ")
-            let suffix = baseFilters.vehicleTypes.count > 3 ? " (+\(baseFilters.vehicleTypes.count - 3))" : ""
-            baseComponents.append("[Type: \(types)\(suffix)]")
+            let types = Array(baseFilters.vehicleTypes).sorted().joined(separator: " OR ")
+            baseComponents.append("[Type: \(types)]")
         }
 
         if !baseFilters.fuelTypes.isEmpty {
@@ -2542,21 +2530,18 @@ class DatabaseManager: ObservableObject {
         }
 
         if !baseFilters.vehicleMakes.isEmpty {
-            let makes = Array(baseFilters.vehicleMakes).sorted().prefix(3).joined(separator: " OR ")
-            let suffix = baseFilters.vehicleMakes.count > 3 ? " (+\(baseFilters.vehicleMakes.count - 3))" : ""
-            baseComponents.append("[Make: \(makes)\(suffix)]")
+            let makes = Array(baseFilters.vehicleMakes).sorted().joined(separator: " OR ")
+            baseComponents.append("[Make: \(makes)]")
         }
 
         if !baseFilters.vehicleModels.isEmpty {
-            let models = Array(baseFilters.vehicleModels).sorted().prefix(3).joined(separator: " OR ")
-            let suffix = baseFilters.vehicleModels.count > 3 ? " (+\(baseFilters.vehicleModels.count - 3))" : ""
-            baseComponents.append("[Model: \(models)\(suffix)]")
+            let models = Array(baseFilters.vehicleModels).sorted().joined(separator: " OR ")
+            baseComponents.append("[Model: \(models)]")
         }
 
         if !baseFilters.vehicleColors.isEmpty {
-            let colors = Array(baseFilters.vehicleColors).sorted().prefix(3).joined(separator: " OR ")
-            let suffix = baseFilters.vehicleColors.count > 3 ? " (+\(baseFilters.vehicleColors.count - 3))" : ""
-            baseComponents.append("[Color: \(colors)\(suffix)]")
+            let colors = Array(baseFilters.vehicleColors).sorted().joined(separator: " OR ")
+            baseComponents.append("[Color: \(colors)]")
         }
 
         // License-specific filters for baseline description
@@ -2765,9 +2750,8 @@ class DatabaseManager: ObservableObject {
             if filters.modelYears.count == 1 {
                 return "\(filters.modelYears.first!) Model Year"
             } else if !filters.modelYears.isEmpty {
-                let years = Array(filters.modelYears).sorted().prefix(3).map(String.init).joined(separator: " & ")
-                let suffix = filters.modelYears.count > 3 ? " & Others" : ""
-                return "\(years)\(suffix) Model Years"
+                let years = Array(filters.modelYears).sorted().map(String.init).joined(separator: " & ")
+                return "\(years) Model Years"
             }
         case "license types":
             if filters.licenseTypes.count == 1, let licenseType = filters.licenseTypes.first {
@@ -2801,9 +2785,8 @@ class DatabaseManager: ObservableObject {
             if filters.licenseClasses.count == 1 {
                 return "License Class \(filters.licenseClasses.first!)"
             } else if !filters.licenseClasses.isEmpty {
-                let classes = Array(filters.licenseClasses).sorted().prefix(3).joined(separator: " & ")
-                let suffix = filters.licenseClasses.count > 3 ? " & Others" : ""
-                return "License Classes \(classes)\(suffix)"
+                let classes = Array(filters.licenseClasses).sorted().joined(separator: " & ")
+                return "License Classes \(classes)"
             }
         default:
             break
@@ -2846,27 +2829,23 @@ class DatabaseManager: ObservableObject {
         }
 
         if !filters.vehicleMakes.isEmpty {
-            let makes = Array(filters.vehicleMakes).sorted().prefix(3).joined(separator: " OR ")
-            let suffix = filters.vehicleMakes.count > 3 ? " (+\(filters.vehicleMakes.count - 3))" : ""
-            components.append("[Make: \(makes)\(suffix)]")
+            let makes = Array(filters.vehicleMakes).sorted().joined(separator: " OR ")
+            components.append("[Make: \(makes)]")
         }
 
         if !filters.vehicleModels.isEmpty {
-            let models = Array(filters.vehicleModels).sorted().prefix(3).joined(separator: " OR ")
-            let suffix = filters.vehicleModels.count > 3 ? " (+\(filters.vehicleModels.count - 3))" : ""
-            components.append("[Model: \(models)\(suffix)]")
+            let models = Array(filters.vehicleModels).sorted().joined(separator: " OR ")
+            components.append("[Model: \(models)]")
         }
 
         if !filters.vehicleColors.isEmpty {
-            let colors = Array(filters.vehicleColors).sorted().prefix(3).joined(separator: " OR ")
-            let suffix = filters.vehicleColors.count > 3 ? " (+\(filters.vehicleColors.count - 3))" : ""
-            components.append("[Color: \(colors)\(suffix)]")
+            let colors = Array(filters.vehicleColors).sorted().joined(separator: " OR ")
+            components.append("[Color: \(colors)]")
         }
 
         if !filters.modelYears.isEmpty {
-            let years = Array(filters.modelYears).sorted(by: >).prefix(3).map { String($0) }.joined(separator: " OR ")
-            let suffix = filters.modelYears.count > 3 ? " (+\(filters.modelYears.count - 3))" : ""
-            components.append("[Model Year: \(years)\(suffix)]")
+            let years = Array(filters.modelYears).sorted(by: >).map { String($0) }.joined(separator: " OR ")
+            components.append("[Model Year: \(years)]")
         }
 
         if !filters.fuelTypes.isEmpty {
