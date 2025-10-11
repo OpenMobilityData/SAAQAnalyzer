@@ -152,10 +152,16 @@ The application supports multiple metric types for data analysis:
 5. **Road Wear Index (RWI)** ✨ *New in October 2025*
    - Engineering metric based on 4th power law of road wear (damage ∝ axle_load^4)
    - Displayed as "Road Wear Index" with tooltip explaining the 4th power law
-   - **Assumptions**:
-     - All vehicles have 2 axles
-     - Weight equally distributed across axles
-     - RWI = (mass/2)^4 per axle, total = mass^4 / 8
+   - **Weight Distribution** (vehicle-type aware):
+     - **Trucks (CA) & Tool vehicles (VO)**: 3 axles
+       - Front: 30%, Rear1: 35%, Rear2: 35%
+       - RWI = (0.30^4 + 0.35^4 + 0.35^4) × mass^4 = 0.0234 × mass^4
+     - **Buses (AB)**: 2 axles
+       - Front: 35%, Rear: 65%
+       - RWI = (0.35^4 + 0.65^4) × mass^4 = 0.1935 × mass^4
+     - **Cars (AU) & other vehicles**: 2 axles
+       - Front: 50%, Rear: 50%
+       - RWI = (0.50^4 + 0.50^4) × mass^4 = 0.125 × mass^4
    - **Modes**:
      - **Average**: Mean road wear index across vehicles
      - **Sum**: Total cumulative road wear
@@ -174,7 +180,10 @@ The application supports multiple metric types for data analysis:
    - **Y-axis label**: Indicates normalization state: "(Normalized)" or "(Raw)"
    - **Implementation**:
      - `DatabaseManager.swift:399-421`: Normalization helper function
+     - `DatabaseManager.swift:1227-1245`: RWI calculation with vehicle-type-aware weight distribution
+     - `DatabaseManager.swift:1923-1941`: RWI calculation (percentage query path)
      - `DatabaseManager.swift:1436-1440`: Conditional normalization application
+     - `OptimizedQueryManager.swift:606-626`: RWI calculation (optimized integer-based path)
      - `OptimizedQueryManager.swift:693-697`: Conditional normalization (optimized path)
      - `FilterPanel.swift:1731-1768`: UI mode selector and normalization toggle
      - `DataModels.swift:1127`: normalizeRoadWearIndex property

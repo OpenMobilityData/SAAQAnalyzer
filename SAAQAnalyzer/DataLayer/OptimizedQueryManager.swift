@@ -605,12 +605,26 @@ class OptimizedQueryManager {
 
                 case .roadWearIndex:
                     // Road Wear Index: 4th power law based on vehicle mass
-                    // Assumes 2 axles with equal weight distribution
-                    // RWI = (mass/2)^4 per axle, so total = 2 * (mass/2)^4 = mass^4 / 8
+                    // Weight distribution varies by vehicle type:
+                    // - Trucks (CA) & Tool vehicles (VO): 3 axles (30% front, 35% rear1, 35% rear2)
+                    //   RWI = (0.30^4 + 0.35^4 + 0.35^4) × mass^4 = 0.0234 × mass^4
+                    // - Buses (AB): 2 axles (35% front, 65% rear)
+                    //   RWI = (0.35^4 + 0.65^4) × mass^4 = 0.1935 × mass^4
+                    // - Cars (AU) & others: 2 axles (50% front, 50% rear)
+                    //   RWI = (0.50^4 + 0.50^4) × mass^4 = 0.125 × mass^4
+                    let rwiCalculation = """
+                        CASE
+                            WHEN v.vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code IN ('CA', 'VO'))
+                            THEN 0.0234 * POWER(v.net_mass_int, 4)
+                            WHEN v.vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code = 'AB')
+                            THEN 0.1935 * POWER(v.net_mass_int, 4)
+                            ELSE 0.125 * POWER(v.net_mass_int, 4)
+                        END
+                        """
                     if filters.roadWearIndexMode == .average {
-                        selectClause = "AVG(POWER(v.net_mass_int, 4)) as value"
+                        selectClause = "AVG(\(rwiCalculation)) as value"
                     } else {
-                        selectClause = "SUM(POWER(v.net_mass_int, 4)) as value"
+                        selectClause = "SUM(\(rwiCalculation)) as value"
                     }
                     additionalWhereConditions = " AND v.net_mass_int IS NOT NULL"
                 }

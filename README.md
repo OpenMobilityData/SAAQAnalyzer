@@ -49,6 +49,7 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
   - **Maximum**: Maximum values for numeric fields
   - **Percentage**: Sophisticated percentage calculations with baseline comparisons
   - **Coverage**: Data quality analysis showing NULL value statistics (see Data Coverage Analysis below)
+  - **Road Wear Index**: Engineering metric based on 4th power law for infrastructure impact analysis (see Road Wear Index Analysis below)
 - **Smart Formatting**: Automatic K/M abbreviations, unit handling, and mixed-metric support
 
 ### Percentage Analysis
@@ -71,6 +72,70 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
   - Track data quality improvements over time
   - Identify incomplete records requiring cleanup
   - Understand temporal data collection changes
+
+### Road Wear Index Analysis
+
+**Road Wear Index (RWI)** is an engineering metric that quantifies the impact of vehicles on road infrastructure using the well-established **4th power law**: road wear damage is proportional to the 4th power of axle loading.
+
+**Key Concept**: A vehicle twice as heavy causes 2^4 = **16 times** more road wear. This exponential relationship makes heavy vehicles disproportionately responsible for infrastructure damage.
+
+#### Weight Distribution Models
+
+RWI calculations use **vehicle-type-aware weight distribution** based on typical axle configurations:
+
+1. **Trucks (CA) & Tool Vehicles (VO)** - 3 axles:
+   - Front steering axle: 30% of vehicle mass
+   - Tandem rear axles: 35% each (70% total on rear)
+   - Formula: RWI = (0.30^4 + 0.35^4 + 0.35^4) × mass^4 = **0.0234 × mass^4**
+
+2. **Buses (AB)** - 2 axles:
+   - Front axle: 35% of vehicle mass
+   - Rear axle: 65% of vehicle mass (typical Montreal transit bus configuration)
+   - Formula: RWI = (0.35^4 + 0.65^4) × mass^4 = **0.1935 × mass^4**
+
+3. **Cars (AU) & Other Vehicles** - 2 axles (default):
+   - Front axle: 50% of vehicle mass
+   - Rear axle: 50% of vehicle mass
+   - Formula: RWI = (0.50^4 + 0.50^4) × mass^4 = **0.125 × mass^4**
+
+#### Display Modes
+
+**Two Calculation Modes**:
+- **Average RWI**: Mean road wear index per vehicle (useful for comparing vehicle types)
+- **Total RWI**: Cumulative road wear across entire fleet (useful for infrastructure planning)
+
+**Normalization Toggle** (configurable):
+- **Normalized Mode (default)**: First year = 1.0, subsequent years show relative change
+  - Example: 1.05 = 5% increase in road wear
+  - Ideal for tracking trends within a single vehicle type over time
+- **Raw Mode**: Shows absolute RWI values (mass^4)
+  - Essential for comparing different vehicle types on the same scale
+  - Values displayed with smart formatting (scientific notation for very large values)
+  - Useful for cross-vehicle-type comparisons (e.g., trucks vs. cars)
+
+#### Practical Examples
+
+**Impact Comparison** (for a typical 2,000 kg passenger car):
+- **Passenger car**: RWI coefficient = 0.125 → relative impact = 1.0×
+- **Bus (same mass)**: RWI coefficient = 0.1935 → relative impact = **1.55×** (55% more road wear)
+- **Truck (same mass)**: RWI coefficient = 0.0234 → relative impact = **0.19×** (81% less, due to weight spread across 3 axles)
+
+**Note**: While trucks appear to cause less damage per unit mass due to additional axles, they are typically much heavier than cars. A 15,000 kg truck (7.5× heavier) causes **316 times** more road wear than a 2,000 kg car due to the 4th power relationship.
+
+#### Use Cases
+
+- **Infrastructure Planning**: Estimate road maintenance budgets based on fleet composition
+- **Policy Evaluation**: Assess impact of vehicle electrification on road wear
+- **Fleet Management**: Compare infrastructure impact of different vehicle types
+- **Trend Analysis**: Track changes in road wear over time as fleet composition evolves
+
+#### Technical Notes
+
+- Calculations based on vehicle `net_mass` field (requires non-NULL values)
+- Vehicle type determined from `vehicle_type_id` field
+- Y-axis labels indicate normalization state: "(Normalized)" or "(Raw)"
+- Smart value formatting prevents display issues with astronomically large raw values
+- Tooltip explains 4th power law principle for user understanding
 
 ### Data Visualization
 - **Interactive Charts**: Hover tooltips, zoom, and pan capabilities
