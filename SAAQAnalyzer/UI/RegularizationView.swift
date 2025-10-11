@@ -80,7 +80,17 @@ struct UncuratedPairsListView: View {
         case percentageDescending = "Percentage (High to Low)"
     }
 
+    // Lazy-computed status counts - only calculate when filter buttons are visible
+    // Uses simple heuristic: if existingMappings is empty, all pairs are unassigned
     var statusCounts: (unassignedCount: Int, needsReviewCount: Int, completeCount: Int) {
+        let totalPairs = viewModel.uncuratedPairs.count
+
+        // Fast path: if no mappings exist yet, everything is unassigned
+        if viewModel.existingMappings.isEmpty {
+            return (unassignedCount: totalPairs, needsReviewCount: 0, completeCount: 0)
+        }
+
+        // Only do full computation if we have mappings
         var unassignedCount = 0
         var needsReviewCount = 0
         var completeCount = 0
@@ -343,6 +353,26 @@ struct UncuratedPairsListView: View {
                         }
                         .padding(.leading, 16)
                     }
+                }
+
+                // Background processing indicator
+                if viewModel.isAutoRegularizing {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .frame(width: 12, height: 12)
+                        Text("Auto-regularizing exact matches in background...")
+                            .font(.caption)
+                            .foregroundStyle(.blue)
+                        Spacer()
+                        Text("Status indicators may be delayed")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(6)
                 }
 
                 // Summary
@@ -974,17 +1004,30 @@ class RegularizationViewModel: ObservableObject {
             manager.setYearConfiguration(yearConfig)
         }
 
-        // Load vehicle types
+        // Show loading UI immediately
+        await MainActor.run {
+            isLoading = true
+        }
+
+        // Load vehicle types (fast, needed for UI)
         await loadVehicleTypes()
 
-        // Load existing mappings
+        // Load existing mappings (fast, needed for status display)
         await loadExistingMappings()
 
-        // Load uncurated pairs
+        // Load uncurated pairs (potentially slow)
         await loadUncuratedPairs()
 
-        // Auto-regularize exact matches
-        await autoRegularizeExactMatches()
+        // Hide loading UI - list is now ready
+        await MainActor.run {
+            isLoading = false
+        }
+
+        // Auto-regularize exact matches in background (SLOW - don't block UI)
+        // This will update mappings automatically after completion
+        Task.detached(priority: .background) {
+            await self.autoRegularizeExactMatches()
+        }
     }
 
     func loadVehicleTypes() async {
@@ -1380,13 +1423,17 @@ class RegularizationViewModel: ObservableObject {
         let duration = CFAbsoluteTimeGetCurrent() - startTime
         if autoRegularizedCount > 0 {
             logger.notice("Auto-regularized \(autoRegularizedCount) exact matches in \(String(format: "%.3f", duration))s")
-            // Reload mappings
+            // Reload mappings in background - don't block UI with immediate status recalculation
+            // The UI will update naturally when users interact with the list
             await loadExistingMappings()
+            logger.info("Background auto-regularization complete - status indicators will update on next refresh")
         } else {
             logger.debug("No exact matches found for auto-regularization")
         }
 
-        isAutoRegularizing = false
+        await MainActor.run {
+            isAutoRegularizing = false
+        }
     }
 
     /// Helper: Get all mappings for a Make/Model pair (includes triplets and wildcards)

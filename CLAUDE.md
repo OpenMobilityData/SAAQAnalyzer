@@ -200,7 +200,7 @@ The CSV importer handles French characters by trying multiple encodings (UTF-8, 
 
 ### Key Architectural Components
 1. **Optimized Query System**
-   - `CategoricalEnumManager.swift`: Creates and manages enumeration tables
+   - `CategoricalEnumManager.swift`: Creates and manages enumeration tables with performance indexes
    - `OptimizedQueryManager.swift`: Integer-based queries (5.6x performance improvement)
    - `FilterCacheManager.swift`: Loads filter data from enumeration tables
 
@@ -217,9 +217,12 @@ The CSV importer handles French characters by trying multiple encodings (UTF-8, 
 
 ### Performance Optimizations
 - Integer foreign keys instead of string comparisons
+- **Database indexes on enum table ID columns** - Critical for JOIN performance (Oct 2025)
 - Covering indexes for common query patterns
 - Direct use of Quebec's official numeric coding system
 - Canonical geographic code set enables cross-mode filter persistence
+- **Background processing** for expensive regularization operations (Oct 2025)
+- **Fast-path optimizations** for SwiftUI computed properties (Oct 2025)
 
 ## File Organization
 

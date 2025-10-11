@@ -316,11 +316,20 @@ class SchemaManager {
             "CREATE INDEX IF NOT EXISTS idx_licenses_mrc_type_year_id ON licenses(mrc_id, license_type_id, year_id);",
             "CREATE INDEX IF NOT EXISTS idx_licenses_region_type_year_id ON licenses(admin_region_id, license_type_id, year_id);",
 
-            // Enumeration table indexes for fast lookups
-            "CREATE INDEX IF NOT EXISTS idx_vehicle_class_enum_code ON vehicle_class_enum(code);",
+            // Enumeration table indexes for fast lookups (both code/name and id for joins)
+            "CREATE INDEX IF NOT EXISTS idx_year_enum_id ON year_enum(id);",
+            "CREATE INDEX IF NOT EXISTS idx_year_enum_year ON year_enum(year);",
+            "CREATE INDEX IF NOT EXISTS idx_make_enum_id ON make_enum(id);",
             "CREATE INDEX IF NOT EXISTS idx_make_enum_name ON make_enum(name);",
+            "CREATE INDEX IF NOT EXISTS idx_model_enum_id ON model_enum(id);",
             "CREATE INDEX IF NOT EXISTS idx_model_enum_name_make ON model_enum(name, make_id);",
+            "CREATE INDEX IF NOT EXISTS idx_model_year_enum_id ON model_year_enum(id);",
+            "CREATE INDEX IF NOT EXISTS idx_fuel_type_enum_id ON fuel_type_enum(id);",
             "CREATE INDEX IF NOT EXISTS idx_fuel_type_enum_code ON fuel_type_enum(code);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicle_type_enum_id ON vehicle_type_enum(id);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicle_type_enum_code ON vehicle_type_enum(code);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicle_class_enum_id ON vehicle_class_enum(id);",
+            "CREATE INDEX IF NOT EXISTS idx_vehicle_class_enum_code ON vehicle_class_enum(code);",
             "CREATE INDEX IF NOT EXISTS idx_admin_region_enum_code ON admin_region_enum(code);",
             "CREATE INDEX IF NOT EXISTS idx_mrc_enum_code ON mrc_enum(code);",
             "CREATE INDEX IF NOT EXISTS idx_municipality_enum_code ON municipality_enum(code);",
