@@ -1,6 +1,7 @@
 import Foundation
 import SQLite3
 import Combine
+import OSLog
 
 /// Manages SQLite database operations for SAAQ data
 class DatabaseManager: ObservableObject {
@@ -823,6 +824,30 @@ class DatabaseManager: ObservableObject {
                 status TEXT NOT NULL
             );
             """
+
+        let createCanonicalHierarchyCacheTable = """
+            CREATE TABLE IF NOT EXISTS canonical_hierarchy_cache (
+                make_id INTEGER NOT NULL,
+                make_name TEXT NOT NULL,
+                model_id INTEGER NOT NULL,
+                model_name TEXT NOT NULL,
+                model_year_id INTEGER,
+                model_year INTEGER,
+                fuel_type_id INTEGER,
+                fuel_type_code TEXT,
+                fuel_type_description TEXT,
+                vehicle_type_id INTEGER,
+                vehicle_type_code TEXT,
+                vehicle_type_description TEXT,
+                record_count INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (make_id, model_id, model_year_id, fuel_type_id, vehicle_type_id),
+                FOREIGN KEY (make_id) REFERENCES make_enum(id),
+                FOREIGN KEY (model_id) REFERENCES model_enum(id),
+                FOREIGN KEY (model_year_id) REFERENCES model_year_enum(id),
+                FOREIGN KEY (fuel_type_id) REFERENCES fuel_type_enum(id),
+                FOREIGN KEY (vehicle_type_id) REFERENCES vehicle_type_enum(id)
+            );
+            """
         
         // Create indexes for better query performance
         let createIndexes = [
@@ -894,12 +919,17 @@ class DatabaseManager: ObservableObject {
             "CREATE INDEX IF NOT EXISTS idx_mrc_enum_code ON mrc_enum(code);",
             "CREATE INDEX IF NOT EXISTS idx_municipality_enum_code ON municipality_enum(code);",
             "CREATE INDEX IF NOT EXISTS idx_age_group_enum_range ON age_group_enum(range_text);",
-            "CREATE INDEX IF NOT EXISTS idx_gender_enum_code ON gender_enum(code);"
+            "CREATE INDEX IF NOT EXISTS idx_gender_enum_code ON gender_enum(code);",
+
+            // Canonical hierarchy cache indexes for fast queries
+            "CREATE INDEX IF NOT EXISTS idx_cache_make_id ON canonical_hierarchy_cache(make_id);",
+            "CREATE INDEX IF NOT EXISTS idx_cache_model_id ON canonical_hierarchy_cache(model_id);",
+            "CREATE INDEX IF NOT EXISTS idx_cache_make_model ON canonical_hierarchy_cache(make_id, model_id);"
         ]
         
         // Create tables and indexes SYNCHRONOUSLY to ensure they exist before cache operations
         // Create main tables
-        for query in [createVehiclesTable, createLicensesTable, createGeographicTable, createImportLogTable] {
+        for query in [createVehiclesTable, createLicensesTable, createGeographicTable, createImportLogTable, createCanonicalHierarchyCacheTable] {
             if sqlite3_exec(db, query, nil, nil, nil) != SQLITE_OK {
                 if let errorMessage = sqlite3_errmsg(db) {
                     print("Error creating table: \(String(cString: errorMessage))")
@@ -4815,6 +4845,114 @@ class DatabaseManager: ObservableObject {
                     } else {
                         continuation.resume(throwing: DatabaseError.queryFailed("Failed to execute statement"))
                     }
+                }
+            }
+        }
+    }
+
+    // MARK: - Canonical Hierarchy Cache
+
+    /// Checks if canonical hierarchy cache needs to be populated
+    func isCanonicalHierarchyCacheEmpty() async -> Bool {
+        guard let db = db else { return true }
+
+        return await withCheckedContinuation { continuation in
+            dbQueue.async { [db] in
+                var stmt: OpaquePointer?
+                defer { sqlite3_finalize(stmt) }
+
+                let sql = "SELECT COUNT(*) FROM canonical_hierarchy_cache;"
+
+                if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                    if sqlite3_step(stmt) == SQLITE_ROW {
+                        let count = sqlite3_column_int(stmt, 0)
+                        continuation.resume(returning: count == 0)
+                    } else {
+                        continuation.resume(returning: true)
+                    }
+                } else {
+                    continuation.resume(returning: true)
+                }
+            }
+        }
+    }
+
+    /// Populates the canonical hierarchy cache from curated years
+    func populateCanonicalHierarchyCache(curatedYears: [Int]) async throws {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        let startTime = CFAbsoluteTimeGetCurrent()
+        AppLogger.database.info("Populating canonical hierarchy cache from curated years: \(curatedYears)")
+
+        let yearPlaceholders = curatedYears.map { _ in "?" }.joined(separator: ",")
+
+        // First, clear existing cache
+        let clearSQL = "DELETE FROM canonical_hierarchy_cache;"
+        var errorMsg: UnsafeMutablePointer<CChar>?
+        defer { sqlite3_free(errorMsg) }
+
+        if sqlite3_exec(db, clearSQL, nil, nil, &errorMsg) != SQLITE_OK {
+            let error = errorMsg != nil ? String(cString: errorMsg!) : "Unknown error"
+            throw DatabaseError.queryFailed("Failed to clear cache: \(error)")
+        }
+
+        // Insert aggregated data into cache
+        let insertSQL = """
+        INSERT INTO canonical_hierarchy_cache (
+            make_id, make_name, model_id, model_name,
+            model_year_id, model_year,
+            fuel_type_id, fuel_type_code, fuel_type_description,
+            vehicle_type_id, vehicle_type_code, vehicle_type_description,
+            record_count
+        )
+        SELECT
+            mk.id as make_id,
+            mk.name as make_name,
+            md.id as model_id,
+            md.name as model_name,
+            my.id as model_year_id,
+            my.year as model_year,
+            ft.id as fuel_type_id,
+            ft.code as fuel_type_code,
+            ft.description as fuel_type_description,
+            vt.id as vehicle_type_id,
+            vt.code as vehicle_type_code,
+            vt.description as vehicle_type_description,
+            COUNT(*) as record_count
+        FROM vehicles v
+        JOIN year_enum y ON v.year_id = y.id
+        JOIN make_enum mk ON v.make_id = mk.id
+        JOIN model_enum md ON v.model_id = md.id
+        LEFT JOIN model_year_enum my ON v.model_year_id = my.id
+        LEFT JOIN fuel_type_enum ft ON v.fuel_type_id = ft.id
+        LEFT JOIN vehicle_type_enum vt ON v.vehicle_type_id = vt.id
+        WHERE y.year IN (\(yearPlaceholders))
+        GROUP BY mk.id, md.id, my.id, ft.id, vt.id;
+        """
+
+        return try await withCheckedThrowingContinuation { continuation in
+            dbQueue.async { [db] in
+                var stmt: OpaquePointer?
+                defer { sqlite3_finalize(stmt) }
+
+                if sqlite3_prepare_v2(db, insertSQL, -1, &stmt, nil) == SQLITE_OK {
+                    // Bind curated years
+                    for (index, year) in curatedYears.enumerated() {
+                        sqlite3_bind_int(stmt, Int32(index + 1), Int32(year))
+                    }
+
+                    if sqlite3_step(stmt) == SQLITE_DONE {
+                        let duration = CFAbsoluteTimeGetCurrent() - startTime
+                        let rowCount = sqlite3_changes(db)
+                        AppLogger.database.notice("Canonical hierarchy cache populated: \(rowCount) entries in \(String(format: "%.3f", duration))s")
+                        continuation.resume()
+                    } else {
+                        let error = String(cString: sqlite3_errmsg(db))
+                        continuation.resume(throwing: DatabaseError.queryFailed("Failed to populate cache: \(error)"))
+                    }
+                } else {
+                    let error = String(cString: sqlite3_errmsg(db))
+                    continuation.resume(throwing: DatabaseError.queryFailed("Failed to prepare cache population: \(error)"))
                 }
             }
         }

@@ -94,6 +94,7 @@ class RegularizationManager {
         }
 
         guard let db = db else { throw DatabaseError.notConnected }
+        guard let dbManager = databaseManager else { throw DatabaseError.notConnected }
 
         let curatedYearsList = Array(yearConfig.curatedYears).sorted()
         guard !curatedYearsList.isEmpty else {
@@ -103,38 +104,31 @@ class RegularizationManager {
         let startTime = CFAbsoluteTimeGetCurrent()
         logger.info("Generating canonical hierarchy from \(curatedYearsList.count) curated years: \(curatedYearsList)")
 
-        // Build IN clause for curated years
-        let yearPlaceholders = curatedYearsList.map { _ in "?" }.joined(separator: ",")
+        // Check if cache needs to be populated
+        let cacheEmpty = await dbManager.isCanonicalHierarchyCacheEmpty()
+        if cacheEmpty {
+            logger.info("Canonical hierarchy cache is empty, populating...")
+            try await dbManager.populateCanonicalHierarchyCache(curatedYears: curatedYearsList)
+        }
 
-        // First, generate the base hierarchy from curated data
-
-        // Query to get all Make/Model/ModelYear/FuelType/VehicleType combinations from curated years
-        // ModelYear dimension added for FuelType grouping (enables year-specific fuel type disambiguation)
+        // Query the cache table instead of doing expensive JOINs
         let sql = """
         SELECT
-            mk.id as make_id,
-            mk.name as make_name,
-            md.id as model_id,
-            md.name as model_name,
-            my.id as model_year_id,
-            my.year as model_year,
-            ft.id as fuel_type_id,
-            ft.code as fuel_type_code,
-            ft.description as fuel_type_description,
-            vt.id as vehicle_type_id,
-            vt.code as vehicle_type_code,
-            vt.description as vehicle_type_description,
-            COUNT(*) as record_count
-        FROM vehicles v
-        JOIN year_enum y ON v.year_id = y.id
-        JOIN make_enum mk ON v.make_id = mk.id
-        JOIN model_enum md ON v.model_id = md.id
-        LEFT JOIN model_year_enum my ON v.model_year_id = my.id
-        LEFT JOIN fuel_type_enum ft ON v.fuel_type_id = ft.id
-        LEFT JOIN vehicle_type_enum vt ON v.vehicle_type_id = vt.id
-        WHERE y.year IN (\(yearPlaceholders))
-        GROUP BY mk.id, md.id, my.id, ft.id, vt.id
-        ORDER BY mk.name, md.name, my.year, ft.description, vt.code;
+            make_id,
+            make_name,
+            model_id,
+            model_name,
+            model_year_id,
+            model_year,
+            fuel_type_id,
+            fuel_type_code,
+            fuel_type_description,
+            vehicle_type_id,
+            vehicle_type_code,
+            vehicle_type_description,
+            record_count
+        FROM canonical_hierarchy_cache
+        ORDER BY make_name, model_name, model_year, fuel_type_description, vehicle_type_code;
         """
 
         let baseHierarchy = try await withCheckedThrowingContinuation { continuation in
@@ -142,10 +136,6 @@ class RegularizationManager {
             defer { sqlite3_finalize(stmt) }
 
             if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                // Bind all curated years
-                for (index, year) in curatedYearsList.enumerated() {
-                    sqlite3_bind_int(stmt, Int32(index + 1), Int32(year))
-                }
 
                 // Temporary storage for building hierarchy (now includes ModelYear dimension)
                 // Structure: makeId → modelId → modelYearId → (fuelTypes, vehicleTypes)

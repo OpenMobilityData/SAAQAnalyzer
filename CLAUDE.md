@@ -76,6 +76,9 @@ xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
   - Includes `vehicle_type_id` (TYP_VEH_CATEG_USA field - physical type like AU, CA, MC)
 - **geographic_entities**: Hierarchical geographic data (regions, MRCs, municipalities)
 - **import_log**: Tracks import operations and success/failure status
+- **canonical_hierarchy_cache**: Materialized cache for regularization queries (Oct 2025)
+  - Pre-aggregated Make/Model/Year/Fuel/VehicleType combinations from curated years
+  - Populated on-demand, persists across sessions
 - **Enumeration tables** (16 total): year_enum, vehicle_class_enum, vehicle_type_enum, make_enum, model_enum, fuel_type_enum, color_enum, cylinder_count_enum, axle_count_enum, model_year_enum, admin_region_enum, mrc_enum, municipality_enum, age_group_enum, gender_enum, license_type_enum
 
 ### Key Design Patterns
@@ -223,6 +226,10 @@ The CSV importer handles French characters by trying multiple encodings (UTF-8, 
 - Canonical geographic code set enables cross-mode filter persistence
 - **Background processing** for expensive regularization operations (Oct 2025)
 - **Fast-path optimizations** for SwiftUI computed properties (Oct 2025)
+- **Canonical hierarchy cache** - Materialized table for regularization queries (Oct 2025)
+  - Pre-aggregates Make/Model/Year/Fuel/VehicleType combinations from curated years
+  - Reduces canonical hierarchy generation from 13.4s to 0.12s (109x improvement)
+  - One-time cache population on first use, persists across app sessions
 
 ## File Organization
 
