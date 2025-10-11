@@ -2218,7 +2218,9 @@ class DatabaseManager: ObservableObject {
                 }
 
                 if !filters.vehicleTypes.isEmpty {
-                    let types = Array(filters.vehicleTypes).sorted().prefix(3).joined(separator: " OR ")
+                    let types = Array(filters.vehicleTypes).sorted().prefix(3).map { code in
+                        getVehicleTypeDisplayName(for: code)
+                    }.joined(separator: " OR ")
                     let suffix = filters.vehicleTypes.count > 3 ? " (+\(filters.vehicleTypes.count - 3))" : ""
                     filterComponents.append("[Type: \(types)\(suffix)]")
                 }
@@ -2327,7 +2329,9 @@ class DatabaseManager: ObservableObject {
                     }
 
                     if !filters.vehicleTypes.isEmpty {
-                        let types = Array(filters.vehicleTypes).sorted().prefix(3).joined(separator: " OR ")
+                        let types = Array(filters.vehicleTypes).sorted().prefix(3).map { code in
+                            getVehicleTypeDisplayName(for: code)
+                        }.joined(separator: " OR ")
                         let suffix = filters.vehicleTypes.count > 3 ? " (+\(filters.vehicleTypes.count - 3))" : ""
                         filterComponents.append("[Type: \(types)\(suffix)]")
                     }
@@ -2366,7 +2370,9 @@ class DatabaseManager: ObservableObject {
         }
 
         if !filters.vehicleTypes.isEmpty {
-            let types = Array(filters.vehicleTypes).sorted().prefix(3).joined(separator: " OR ")
+            let types = Array(filters.vehicleTypes).sorted().prefix(3).map { code in
+                getVehicleTypeDisplayName(for: code)
+            }.joined(separator: " OR ")
             let suffix = filters.vehicleTypes.count > 3 ? " (+\(filters.vehicleTypes.count - 3))" : ""
             components.append("[Type: \(types)\(suffix)]")
         }
@@ -2614,6 +2620,36 @@ class DatabaseManager: ObservableObject {
             baseComponents.joined(separator: " AND ")
         }
         return baseDescription
+    }
+
+    /// Get display name for vehicle type code (e.g., "AU" -> "Automobile or Light Truck")
+    /// Returns only the descriptive text for consistency with Vehicle Class display
+    private func getVehicleTypeDisplayName(for code: String) -> String {
+        // Handle special cases
+        if code.isEmpty || code.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "Not Specified"
+        }
+
+        if code.uppercased() == "UK" {
+            return "Unknown"
+        }
+
+        // Map vehicle type codes to descriptions
+        switch code.uppercased() {
+        case "AB": return "Bus"
+        case "AT": return "Dealer Plates"
+        case "AU": return "Automobile or Light Truck"
+        case "CA": return "Truck or Road Tractor"
+        case "CY": return "Moped"
+        case "HM": return "Motorhome"
+        case "MC": return "Motorcycle"
+        case "MN": return "Snowmobile"
+        case "NV": return "Other Off-Road Vehicle"
+        case "SN": return "Snow Blower"
+        case "VO": return "Tool Vehicle"
+        case "VT": return "All-Terrain Vehicle"
+        default: return code  // Return code as-is if not recognized
+        }
     }
 
     /// Determine which filter category was dropped when creating percentage baseline

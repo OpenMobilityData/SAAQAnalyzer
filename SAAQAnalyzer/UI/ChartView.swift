@@ -198,7 +198,7 @@ struct ChartView: View {
             }
         }
         .chartXAxis {
-            AxisMarks { value in
+            AxisMarks(values: .stride(by: xAxisStride())) { value in
                 AxisGridLine()
                     .foregroundStyle(.quaternary)
                 AxisTick()
@@ -238,11 +238,41 @@ struct ChartView: View {
         let allYears = visibleSeries.flatMap { $0.points.map { Double($0.year) } }
         let minYear = allYears.min() ?? 2020
         let maxYear = allYears.max() ?? 2024
-        
-        // Add small padding (0.5 years) on each side
-        return (minYear - 0.5)...(maxYear + 0.5)
+
+        // Add padding to ensure first and last year labels are fully visible
+        // Larger padding (1.2 years) prevents label clipping at extremes
+        return (minYear - 1.2)...(maxYear + 1.2)
     }
-    
+
+    /// Calculate appropriate X-axis stride based on year range
+    /// Returns a stride that ensures labels don't overlap
+    /// Optimized for typical SAAQ data ranges: 2011-2022 (12y), 2011-2024 (14y), 2017-2022 (6y)
+    private func xAxisStride() -> Double {
+        let visibleSeries = dataSeries.filter { $0.isVisible }
+        guard !visibleSeries.isEmpty else { return 1 }
+
+        let allYears = visibleSeries.flatMap { $0.points.map { Double($0.year) } }
+        guard let minYear = allYears.min(), let maxYear = allYears.max() else { return 1 }
+
+        let yearRange = maxYear - minYear
+
+        // Choose stride based on year range to prevent label crowding
+        // Optimized for SAAQ dataset patterns:
+        // - 2017-2022 (6 years): show every year
+        // - 2011-2022 (12 years): show every 2 years
+        // - 2011-2024 (14 years): show every 2 years
+        switch yearRange {
+        case 0...7:
+            return 1  // Show every year for short ranges (e.g., 2017-2022 fuel type queries)
+        case 8...15:
+            return 2  // Show every 2 years for typical curated ranges (2011-2022, 2011-2024)
+        case 16...25:
+            return 5  // Show every 5 years for extended ranges
+        default:
+            return 10 // Show every 10 years for very large ranges
+        }
+    }
+
     /// Calculate Y-axis domain based on data and settings
     private func yAxisDomain() -> ClosedRange<Double> {
         let visibleSeries = dataSeries.filter { $0.isVisible }
