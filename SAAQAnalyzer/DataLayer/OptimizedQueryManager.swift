@@ -704,16 +704,21 @@ class OptimizedQueryManager {
                     }
 
                     // Apply normalization for Road Wear Index if enabled
-                    let normalizedPoints = if filters.metricType == .roadWearIndex && filters.normalizeRoadWearIndex {
+                    var transformedPoints = if filters.metricType == .roadWearIndex && filters.normalizeRoadWearIndex {
                         self.databaseManager?.normalizeToFirstYear(points: dataPoints) ?? dataPoints
                     } else {
                         dataPoints
                     }
 
+                    // Apply cumulative sum if enabled
+                    if filters.showCumulativeSum {
+                        transformedPoints = self.databaseManager?.applyCumulativeSum(points: transformedPoints) ?? transformedPoints
+                    }
+
                     let series = FilteredDataSeries(
                         name: "Vehicle Count by Year (Optimized)",
                         filters: filters,
-                        points: normalizedPoints
+                        points: transformedPoints
                     )
 
                     continuation.resume(returning: series)
@@ -846,10 +851,16 @@ class OptimizedQueryManager {
                     let duration = Date().timeIntervalSince(startTime)
                     print("✅ Optimized license query completed in \(String(format: "%.3f", duration))s - \(dataPoints.count) data points")
 
+                    // Apply cumulative sum if enabled
+                    var transformedPoints = dataPoints
+                    if filters.showCumulativeSum {
+                        transformedPoints = self.databaseManager?.applyCumulativeSum(points: transformedPoints) ?? transformedPoints
+                    }
+
                     let series = FilteredDataSeries(
                         name: "License Count by Year (Optimized)",
                         filters: filters,
-                        points: dataPoints
+                        points: transformedPoints
                     )
 
                     continuation.resume(returning: series)

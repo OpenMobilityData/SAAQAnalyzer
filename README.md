@@ -137,6 +137,58 @@ RWI calculations use **vehicle-type-aware weight distribution** based on typical
 - Smart value formatting prevents display issues with astronomically large raw values
 - Tooltip explains 4th power law principle for user understanding
 
+### Cumulative Sum Visualization
+
+**Cumulative Sum** is a global toggle available for all metrics that transforms time series data to show accumulated totals over time instead of year-by-year values.
+
+#### How It Works
+
+- **Toggle Location**: Available in the Y-Axis Metric section of the filter panel
+- **Applies To**: All metric types (Count, Average, Sum, Percentage, Coverage, Road Wear Index)
+- **Transformation**: Each year's value becomes the sum of all previous years plus the current year
+- **Transform Order**: Applied after other transformations (e.g., normalization for RWI)
+
+#### Use Cases
+
+1. **Cumulative Road Wear**:
+   - See total accumulated infrastructure damage from the fleet since the first selected year
+   - Understand the compounding impact of heavy vehicles over time
+   - Useful for long-term infrastructure planning and budget forecasting
+
+2. **Growing Vehicle Population**:
+   - Track the cumulative growth of the vehicle fleet
+   - Visualize total vehicles registered over time (not replacements, but net growth)
+   - Identify periods of rapid fleet expansion
+
+3. **Data Completeness Trends**:
+   - Monitor cumulative improvements in data quality over time
+   - Track how data coverage has evolved across years
+   - Useful for understanding dataset maturity
+
+4. **Cumulative Trends**:
+   - Any metric where you want to see accumulated totals rather than annual snapshots
+   - Helpful for understanding long-term trends vs. year-over-year fluctuations
+
+#### Example
+
+**Without Cumulative Sum**: Road Wear Index might show:
+- 2017: 1.0 RWI
+- 2018: 1.05 RWI
+- 2019: 1.08 RWI
+
+**With Cumulative Sum**: Same data becomes:
+- 2017: 1.0 RWI (cumulative)
+- 2018: 2.05 RWI (1.0 + 1.05)
+- 2019: 3.13 RWI (1.0 + 1.05 + 1.08)
+
+#### UI Controls
+
+- **Toggle Switch**: "Show cumulative sum" in the Y-Axis Metric section
+- **Help Text**:
+  - OFF: "Each year shows value for that year only"
+  - ON: "Each year shows total accumulated from all previous years"
+- **Works With**: All chart types (line, bar, area) and all metric types
+
 ### Data Visualization
 - **Interactive Charts**: Hover tooltips, zoom, and pan capabilities
 - **Series Management**: Multiple data series with hide/show toggles and color coding

@@ -190,6 +190,26 @@ The application supports multiple metric types for data analysis:
      - `DataModels.swift:1546-1564`: Value formatting with normalization awareness
      - `ChartView.swift:688`: Legend display using formatValue()
 
+### Cumulative Sum Transform ✨ *New in October 2025*
+
+**Global toggle** available for all metrics that transforms time series data into cumulative values:
+
+- **Purpose**: Shows accumulated totals over time instead of year-by-year values
+- **Use Cases**:
+  - **Road Wear Index**: Total cumulative road damage from the fleet since first year
+  - **Vehicle Count**: Growing vehicle population over time
+  - **Coverage Analysis**: Cumulative data completeness improvement
+- **Behavior**: Each year's value becomes the sum of all previous years plus current year
+- **Applies After**: Normalization (for RWI), ensuring correct transformation order
+- **Implementation**:
+  - `DataModels.swift:1128`: showCumulativeSum property
+  - `DatabaseManager.swift:423-442`: applyCumulativeSum() helper function
+  - `DatabaseManager.swift:1478-1480`: Vehicle query cumulative transform
+  - `DatabaseManager.swift:1750-1752`: License query cumulative transform
+  - `OptimizedQueryManager.swift:714-716`: Optimized vehicle query transform
+  - `OptimizedQueryManager.swift:856-858`: Optimized license query transform
+  - `FilterPanel.swift:1773-1791`: UI toggle control
+
 ## Development Notes
 
 ### Performance Considerations

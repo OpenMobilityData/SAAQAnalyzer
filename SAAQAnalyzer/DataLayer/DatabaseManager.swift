@@ -420,6 +420,27 @@ class DatabaseManager: ObservableObject {
         }
     }
 
+    /// Transform time series points into cumulative sum
+    /// Each year's value becomes the sum of all previous years up to and including that year
+    func applyCumulativeSum(points: [TimeSeriesPoint]) -> [TimeSeriesPoint] {
+        guard !points.isEmpty else {
+            AppLogger.query.debug("Cannot apply cumulative sum: points array is empty")
+            return points
+        }
+
+        AppLogger.query.debug("Applying cumulative sum to \(points.count) points")
+
+        var runningTotal: Double = 0.0
+        return points.map { point in
+            runningTotal += point.value
+            return TimeSeriesPoint(
+                year: point.year,
+                value: runningTotal,
+                label: point.label
+            )
+        }
+    }
+
     /// Enhanced query output with index usage and performance classification
     private func printEnhancedQueryResult(
         queryType: String,
@@ -1447,14 +1468,19 @@ class DatabaseManager: ObservableObject {
                     }
                 } else {
                     // Apply normalization for Road Wear Index if enabled
-                    let normalizedPoints = if filters.metricType == .roadWearIndex && filters.normalizeRoadWearIndex {
+                    var transformedPoints = if filters.metricType == .roadWearIndex && filters.normalizeRoadWearIndex {
                         self?.normalizeToFirstYear(points: points) ?? points
                     } else {
                         points
                     }
 
+                    // Apply cumulative sum if enabled
+                    if filters.showCumulativeSum {
+                        transformedPoints = self?.applyCumulativeSum(points: transformedPoints) ?? transformedPoints
+                    }
+
                     // Create series with the proper name (already resolved)
-                    let series = FilteredDataSeries(name: seriesName, filters: filters, points: normalizedPoints)
+                    let series = FilteredDataSeries(name: seriesName, filters: filters, points: transformedPoints)
                     let duration = Date().timeIntervalSince(startTime)
 
                     // Use simplified output for main query (raw query provides detailed info)
@@ -1719,8 +1745,14 @@ class DatabaseManager: ObservableObject {
                         }
                     }
                 } else {
+                    // Apply cumulative sum if enabled
+                    var transformedPoints = points
+                    if filters.showCumulativeSum {
+                        transformedPoints = self?.applyCumulativeSum(points: transformedPoints) ?? transformedPoints
+                    }
+
                     // Create series with the proper name (already resolved)
-                    let series = FilteredDataSeries(name: seriesName, filters: filters, points: points)
+                    let series = FilteredDataSeries(name: seriesName, filters: filters, points: transformedPoints)
                     let duration = Date().timeIntervalSince(startTime)
 
                     // Use simplified output for main query (raw query provides detailed info)

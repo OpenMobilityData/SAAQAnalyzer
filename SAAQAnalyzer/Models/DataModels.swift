@@ -1125,6 +1125,7 @@ struct FilterConfiguration: Equatable, Sendable {
     var coverageAsPercentage: Bool = true  // true = percentage, false = raw NULL count
     var roadWearIndexMode: RoadWearIndexMode = .average  // average or sum for Road Wear Index
     var normalizeRoadWearIndex: Bool = true  // true = normalize to first year, false = show raw values
+    var showCumulativeSum: Bool = false  // true = cumulative sum over time, false = raw year-by-year values
 
     /// Mode for Road Wear Index calculation
     enum RoadWearIndexMode: String, CaseIterable, Sendable {

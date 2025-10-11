@@ -199,6 +199,7 @@ struct FilterPanel: View {
                             coverageAsPercentage: $configuration.coverageAsPercentage,
                             roadWearIndexMode: $configuration.roadWearIndexMode,
                             normalizeRoadWearIndex: $configuration.normalizeRoadWearIndex,
+                            showCumulativeSum: $configuration.showCumulativeSum,
                             currentFilters: configuration
                         )
                     } label: {
@@ -1556,6 +1557,7 @@ struct MetricConfigurationSection: View {
     @Binding var coverageAsPercentage: Bool
     @Binding var roadWearIndexMode: FilterConfiguration.RoadWearIndexMode
     @Binding var normalizeRoadWearIndex: Bool
+    @Binding var showCumulativeSum: Bool
     let currentFilters: FilterConfiguration
 
     @State private var selectedCategoryToRemove: FilterCategory?
@@ -1768,6 +1770,26 @@ struct MetricConfigurationSection: View {
                             .cornerRadius(4)
                     }
                 }
+            }
+
+            // Cumulative sum toggle (available for all metrics)
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(isOn: $showCumulativeSum) {
+                    Text("Show cumulative sum")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+                Text(showCumulativeSum
+                    ? "Each year shows total accumulated from all previous years"
+                    : "Each year shows value for that year only")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(4)
             }
 
             // Description of what will be displayed
