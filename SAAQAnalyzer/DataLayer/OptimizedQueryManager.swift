@@ -602,6 +602,17 @@ class OptimizedQueryManager {
                         // No field selected, fallback to count
                         selectClause = "COUNT(*) as value"
                     }
+
+                case .roadWearIndex:
+                    // Road Wear Index: 4th power law based on vehicle mass
+                    // Assumes 2 axles with equal weight distribution
+                    // RWI = (mass/2)^4 per axle, so total = 2 * (mass/2)^4 = mass^4 / 8
+                    if filters.roadWearIndexMode == .average {
+                        selectClause = "AVG(POWER(v.net_mass_int, 4)) as value"
+                    } else {
+                        selectClause = "SUM(POWER(v.net_mass_int, 4)) as value"
+                    }
+                    additionalWhereConditions = " AND v.net_mass_int IS NOT NULL"
                 }
 
                 // Age range filter (requires model_year join for age calculation)
@@ -678,10 +689,17 @@ class OptimizedQueryManager {
                         print("⚠️ Empty results - likely ID lookup problem or incompatible filter combination")
                     }
 
+                    // Apply normalization for Road Wear Index
+                    let normalizedPoints = if filters.metricType == .roadWearIndex {
+                        self.databaseManager?.normalizeToFirstYear(points: dataPoints) ?? dataPoints
+                    } else {
+                        dataPoints
+                    }
+
                     let series = FilteredDataSeries(
                         name: "Vehicle Count by Year (Optimized)",
                         filters: filters,
-                        points: dataPoints
+                        points: normalizedPoints
                     )
 
                     continuation.resume(returning: series)

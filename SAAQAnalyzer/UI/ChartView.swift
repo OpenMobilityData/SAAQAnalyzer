@@ -382,6 +382,9 @@ struct ChartView: View {
                     return String(format: "%.0f", value)
                 }
             }
+        case .roadWearIndex:
+            // Road Wear Index formatting - use series' own formatValue() method
+            return firstSeries.formatValue(value)
         }
     }
     

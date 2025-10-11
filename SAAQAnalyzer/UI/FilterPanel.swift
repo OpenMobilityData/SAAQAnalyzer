@@ -197,6 +197,7 @@ struct FilterPanel: View {
                             percentageBaseFilters: $configuration.percentageBaseFilters,
                             coverageField: $configuration.coverageField,
                             coverageAsPercentage: $configuration.coverageAsPercentage,
+                            roadWearIndexMode: $configuration.roadWearIndexMode,
                             currentFilters: configuration
                         )
                     } label: {
@@ -1552,6 +1553,7 @@ struct MetricConfigurationSection: View {
     @Binding var percentageBaseFilters: PercentageBaseFilters?
     @Binding var coverageField: CoverageField?
     @Binding var coverageAsPercentage: Bool
+    @Binding var roadWearIndexMode: FilterConfiguration.RoadWearIndexMode
     let currentFilters: FilterConfiguration
 
     @State private var selectedCategoryToRemove: FilterCategory?
@@ -1726,6 +1728,23 @@ struct MetricConfigurationSection: View {
                 }
             }
 
+            // Road Wear Index configuration
+            if metricType == .roadWearIndex {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Road Wear Index Mode")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Picker("Mode", selection: $roadWearIndexMode) {
+                        ForEach(FilterConfiguration.RoadWearIndexMode.allCases, id: \.self) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+            }
+
             // Description of what will be displayed
             // Skip for coverage when field is selected since we already show description above
             if metricType != .count && !(metricType == .coverage && coverageField != nil) {
@@ -1850,6 +1869,10 @@ struct MetricConfigurationSection: View {
             } else {
                 return "Select a field to analyze coverage"
             }
+        case .roadWearIndex:
+            return currentFilters.roadWearIndexMode == .average
+                ? "Average road wear index (4th power law)"
+                : "Total road wear index (4th power law)"
         }
     }
 }

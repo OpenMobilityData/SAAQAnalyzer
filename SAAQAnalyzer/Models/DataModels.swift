@@ -1123,6 +1123,20 @@ struct FilterConfiguration: Equatable, Sendable {
     var percentageBaseFilters: PercentageBaseFilters? = nil
     var coverageField: CoverageField? = nil
     var coverageAsPercentage: Bool = true  // true = percentage, false = raw NULL count
+    var roadWearIndexMode: RoadWearIndexMode = .average  // average or sum for Road Wear Index
+
+    /// Mode for Road Wear Index calculation
+    enum RoadWearIndexMode: String, CaseIterable, Sendable {
+        case average = "Average"
+        case sum = "Sum"
+
+        var description: String {
+            switch self {
+            case .average: return "Average Road Wear Index"
+            case .sum: return "Total Road Wear Index"
+            }
+        }
+    }
 
     struct AgeRange: Equatable {
         let minAge: Int
@@ -1208,6 +1222,7 @@ struct IntegerFilterConfiguration: Equatable, Sendable {
     var metricType: ChartMetricType = .count
     var metricField: ChartMetricField = .none
     var percentageBaseFilters: IntegerPercentageBaseFilters? = nil
+    var roadWearIndexMode: FilterConfiguration.RoadWearIndexMode = .average
 }
 
 // MARK: - Percentage Base Configuration
@@ -1302,6 +1317,7 @@ enum ChartMetricType: String, CaseIterable, Sendable {
     case maximum = "Maximum"
     case percentage = "Percentage"
     case coverage = "Coverage"
+    case roadWearIndex = "Road Wear Index"
 
     var description: String {
         switch self {
@@ -1312,6 +1328,7 @@ enum ChartMetricType: String, CaseIterable, Sendable {
         case .maximum: return "Maximum Value"
         case .percentage: return "Percentage in Superset"
         case .coverage: return "Coverage in Superset"
+        case .roadWearIndex: return "Road Wear Index (4th Power Law)"
         }
     }
 
@@ -1324,6 +1341,7 @@ enum ChartMetricType: String, CaseIterable, Sendable {
         case .maximum: return "Max"
         case .percentage: return "%"
         case .coverage: return "% Cov"
+        case .roadWearIndex: return "RWI"
         }
     }
 }
@@ -1471,6 +1489,8 @@ class FilteredDataSeries: Identifiable {
             } else {
                 return "NULL Count"
             }
+        case .roadWearIndex:
+            return filters.roadWearIndexMode == .average ? "Average Road Wear Index" : "Total Road Wear Index"
         }
     }
 
@@ -1509,6 +1529,16 @@ class FilteredDataSeries: Identifiable {
                 return String(format: "%.1f%%", value)
             } else {
                 return "\(Int(value)) NULL values"
+            }
+        case .roadWearIndex:
+            // After normalization, values will be close to 1.0
+            // Check if value is normalized (close to 1.0)
+            if value >= 0.01 && value <= 100.0 {
+                return String(format: "%.2f RWI", value)  // Normalized format: "1.05 RWI"
+            } else if value > 1e15 {
+                return String(format: "%.2e RWI", value)  // Scientific notation for very large values (pre-normalization)
+            } else {
+                return String(format: "%.0f RWI", value)  // Standard format
             }
         }
     }

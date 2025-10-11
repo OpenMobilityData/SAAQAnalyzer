@@ -129,6 +129,50 @@ The CSV importer handles French characters by trying multiple encodings (UTF-8, 
 - **AppKit integration**: Uses NSOpenPanel, NSSavePanel, NSAlert for file operations
 - **NavigationSplitView**: Three-column responsive layout
 
+### Available Chart Metrics
+
+The application supports multiple metric types for data analysis:
+
+1. **Count**: Record count (default)
+   - Simple count of vehicles or license holders matching filters
+
+2. **Sum/Average/Min/Max**: Aggregate functions on numeric fields
+   - Fields: Vehicle Mass (kg), Engine Displacement (cm³), Cylinders, Vehicle Age, Model Year
+   - Example legend: `"Avg Vehicle Mass (kg) in [[filters]]"`
+
+3. **Percentage**: Ratio within a baseline superset
+   - Compares filtered subset against a broader baseline
+   - Example: Percentage of electric vehicles among all vehicles in Montreal
+
+4. **Coverage**: Data completeness analysis
+   - Analyzes NULL vs non-NULL values for specific fields
+   - Two modes: Percentage coverage or raw NULL count
+   - Useful for assessing data quality across years
+
+5. **Road Wear Index (RWI)** ✨ *New in October 2025*
+   - Engineering metric based on 4th power law of road wear
+   - Formula: Damage ∝ (axle_load)^4
+   - **Assumptions**:
+     - All vehicles have 2 axles
+     - Weight equally distributed across axles
+     - RWI = (mass/2)^4 per axle, total = mass^4 / 8
+   - **Modes**:
+     - **Average**: Mean road wear index across vehicles
+     - **Sum**: Total cumulative road wear
+   - **Normalization**: Results normalized so first year = 1.0
+     - Subsequent years show relative change (e.g., 1.05 = 5% increase)
+   - **Display Format**:
+     - Normalized values: "1.05 RWI" (2 decimal places)
+     - Pre-normalization: Scientific notation for very large values
+   - **Use Cases**: Infrastructure impact analysis, fleet management, policy evaluation
+   - **Legend format**: `"Avg RWI in [[filters]]"` or `"Total RWI (All Vehicles)"`
+   - **Implementation**:
+     - `DatabaseManager.swift:399-421`: Normalization helper function
+     - `DatabaseManager.swift:1203-1211`: SQLite POWER() query
+     - `OptimizedQueryManager.swift:606-616`: Integer-optimized query
+     - `FilterPanel.swift:1731-1746`: UI mode selector
+     - `DataModels.swift:1128-1139`: RoadWearIndexMode enum
+
 ## Development Notes
 
 ### Performance Considerations
@@ -263,6 +307,42 @@ SAAQAnalyzer/
 1. Extend `ChartType` enum in `ChartView.swift`
 2. Add new case in the chart content switch statement
 3. Update toolbar picker to include new option
+
+### Adding New Metric Types
+Follow the pattern established for Road Wear Index (October 2025):
+
+1. **Data Model** (`DataModels.swift`):
+   - Add new case to `ChartMetricType` enum with description and shortLabel
+   - Add configuration properties to `FilterConfiguration` (e.g., mode enums)
+   - Update `FilteredDataSeries.yAxisLabel` switch
+   - Update `FilteredDataSeries.formatValue()` switch
+
+2. **Database Query** (`DatabaseManager.swift`):
+   - Add case to query switch in `queryVehicleData()` (or `queryLicenseData()`)
+   - Implement SQL query logic with appropriate aggregate functions
+   - Add normalization/post-processing if needed (see `normalizeToFirstYear()`)
+   - Update `generateSeriesNameAsync()` to format legend strings
+
+3. **Optimized Query** (`OptimizedQueryManager.swift`):
+   - Add case to query switch in `queryVehicleDataWithIntegers()`
+   - Use integer column names (e.g., `net_mass_int` instead of `net_mass`)
+   - Apply same normalization logic
+
+4. **UI Components** (`FilterPanel.swift`):
+   - Add configuration controls in `MetricConfigurationSection`
+   - Add binding parameter for new configuration properties
+   - Update `descriptionText` switch for filter panel summary
+
+5. **Chart Display** (`ChartView.swift`):
+   - Add case to `formatYAxisValue()` switch
+   - Delegate to series' `formatValue()` or provide custom formatting
+
+**Example Files Changed for Road Wear Index**:
+- `DataModels.swift`: Lines 1305, 1316, 1329, 1128-1139, 1492-1493, 1533-1542
+- `DatabaseManager.swift`: Lines 399-421, 1203-1211, 1436-1440, 2409-2459
+- `OptimizedQueryManager.swift`: Lines 606-616, 693-697
+- `FilterPanel.swift`: Lines 1556, 200, 1731-1746, 1853-1856
+- `ChartView.swift`: Lines 385-387
 
 ### Database Schema Changes
 1. Update table creation SQL in `DatabaseManager.createTablesIfNeeded()`

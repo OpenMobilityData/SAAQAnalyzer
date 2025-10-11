@@ -396,6 +396,30 @@ class DatabaseManager: ObservableObject {
         }
     }
 
+    /// Normalize time series points so first year = 1.0
+    /// Used for Road Wear Index to show relative changes over time
+    func normalizeToFirstYear(points: [TimeSeriesPoint]) -> [TimeSeriesPoint] {
+        guard let firstValue = points.first?.value, firstValue > 0 else {
+            // Handle edge cases: empty array or zero/negative first value
+            if points.isEmpty {
+                AppLogger.query.debug("Cannot normalize: points array is empty")
+            } else {
+                AppLogger.query.warning("Cannot normalize: first year value is \(points.first?.value ?? 0)")
+            }
+            return points
+        }
+
+        AppLogger.query.debug("Normalizing \(points.count) points to first year value: \(firstValue)")
+
+        return points.map { point in
+            TimeSeriesPoint(
+                year: point.year,
+                value: point.value / firstValue,
+                label: point.label
+            )
+        }
+    }
+
     /// Enhanced query output with index usage and performance classification
     private func printEnhancedQueryResult(
         queryType: String,
@@ -1199,6 +1223,16 @@ class DatabaseManager: ObservableObject {
                         // Fallback to count if no field selected
                         query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
                     }
+
+                case .roadWearIndex:
+                    // Road Wear Index: 4th power law based on vehicle mass
+                    // Assumes 2 axles with equal weight distribution
+                    // RWI = (mass/2)^4 per axle, so total = 2 * (mass/2)^4 = mass^4 / 8
+                    if filters.roadWearIndexMode == .average {
+                        query = "SELECT year, AVG(POWER(net_mass, 4)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
+                    } else {
+                        query = "SELECT year, SUM(POWER(net_mass, 4)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
+                    }
                 }
 
                 var bindIndex = 1
@@ -1398,8 +1432,15 @@ class DatabaseManager: ObservableObject {
                         }
                     }
                 } else {
+                    // Apply normalization for Road Wear Index
+                    let normalizedPoints = if filters.metricType == .roadWearIndex {
+                        self?.normalizeToFirstYear(points: points) ?? points
+                    } else {
+                        points
+                    }
+
                     // Create series with the proper name (already resolved)
-                    let series = FilteredDataSeries(name: seriesName, filters: filters, points: points)
+                    let series = FilteredDataSeries(name: seriesName, filters: filters, points: normalizedPoints)
                     let duration = Date().timeIntervalSince(startTime)
 
                     // Use simplified output for main query (raw query provides detailed info)
@@ -1490,6 +1531,10 @@ class DatabaseManager: ObservableObject {
                 case .coverage:
                     // Coverage not yet implemented for licenses (awaiting integer enumeration)
                     // Fallback to count
+                    query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
+
+                case .roadWearIndex:
+                    // Road Wear Index not applicable to license data - fallback to count
                     query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
                 }
 
@@ -1863,6 +1908,16 @@ class DatabaseManager: ObservableObject {
                     } else {
                         // Fallback to count if no field selected
                         query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                    }
+
+                case .roadWearIndex:
+                    // Road Wear Index: 4th power law based on vehicle mass
+                    // Assumes 2 axles with equal weight distribution
+                    // RWI = (mass/2)^4 per axle, so total = 2 * (mass/2)^4 = mass^4 / 8
+                    if filters.roadWearIndexMode == .average {
+                        query = "SELECT year, AVG(POWER(net_mass, 4)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
+                    } else {
+                        query = "SELECT year, SUM(POWER(net_mass, 4)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
                     }
                 }
 
@@ -2350,6 +2405,57 @@ class DatabaseManager: ObservableObject {
                     }
                 } else {
                     return "Coverage (No Field Selected)"
+                }
+            } else if filters.metricType == .roadWearIndex {
+                // For Road Wear Index, describe the mode (average or sum) and filters
+                let modePrefix = filters.roadWearIndexMode == .average ? "Avg RWI" : "Total RWI"
+
+                // Build filter context
+                var filterComponents: [String] = []
+
+                if !filters.vehicleClasses.isEmpty {
+                    let vehicle_classes = filters.vehicleClasses
+                        .compactMap { VehicleClass(rawValue: $0)?.description }
+                        .joined(separator: " OR ")
+                    if !vehicle_classes.isEmpty {
+                        filterComponents.append("[\(vehicle_classes)]")
+                    }
+                }
+
+                if !filters.vehicleTypes.isEmpty {
+                    let types = Array(filters.vehicleTypes).sorted().map { code in
+                        getVehicleTypeDisplayName(for: code)
+                    }.joined(separator: " OR ")
+                    filterComponents.append("[Type: \(types)]")
+                }
+
+                if !filters.vehicleMakes.isEmpty {
+                    let makes = Array(filters.vehicleMakes).sorted().joined(separator: " OR ")
+                    filterComponents.append("[Make: \(makes)]")
+                }
+
+                if !filters.vehicleModels.isEmpty {
+                    let models = Array(filters.vehicleModels).sorted().joined(separator: " OR ")
+                    filterComponents.append("[Model: \(models)]")
+                }
+
+                if !filters.regions.isEmpty {
+                    filterComponents.append("[Region: \(filters.regions.joined(separator: " OR "))]")
+                } else if !filters.mrcs.isEmpty {
+                    filterComponents.append("[MRC: \(filters.mrcs.joined(separator: " OR "))]")
+                } else if !filters.municipalities.isEmpty {
+                    let codeToName = await getMunicipalityCodeToNameMapping()
+                    let municipalityNames = filters.municipalities.compactMap { code in
+                        codeToName[code] ?? code
+                    }
+                    filterComponents.append("[Municipality: \(municipalityNames.joined(separator: " OR "))]")
+                }
+
+                // Return Road Wear Index description
+                if !filterComponents.isEmpty {
+                    return "\(modePrefix) in [\(filterComponents.joined(separator: " AND "))]"
+                } else {
+                    return "\(modePrefix) (All Vehicles)"
                 }
             }
         }
