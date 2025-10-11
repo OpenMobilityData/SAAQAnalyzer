@@ -1,29 +1,36 @@
 import Foundation
-import Combine
+import Observation
 
 /// Manages import progress tracking with detailed stage information
 @MainActor
-class ImportProgressManager: ObservableObject {
+@Observable
+class ImportProgressManager {
     /// Current import progress (0.0 to 1.0)
-    @Published var overallProgress: Double = 0.0
-    
+    var overallProgress: Double = 0.0
+
     /// Current stage being executed
-    @Published var currentStage: ImportStage = .idle
-    
+    var currentStage: ImportStage = .idle
+
     /// Detailed progress information for current stage
-    @Published var stageProgress: StageProgress = .idle
-    
+    var stageProgress: StageProgress = .idle
+
     /// Whether an import is currently in progress
-    @Published var isImporting: Bool = false
-    
+    var isImporting: Bool = false
+
     /// Import start time for duration calculation
     private var importStartTime: Date?
-    
+
     /// Total number of records being imported (set during file reading)
     private var totalRecords: Int = 0
-    
+
     /// Number of batches for database import
     private var totalBatches: Int = 0
+
+    /// Batch import tracking
+    var currentFileIndex: Int = 0
+    var totalFiles: Int = 0
+    var currentFileName: String = ""
+    var isBatchImport: Bool { totalFiles > 1 }
     
     // MARK: - Import Stages
     
@@ -41,18 +48,18 @@ class ImportProgressManager: ObservableObject {
             case .reading: return "Reading File"
             case .parsing: return "Parsing CSV Data"
             case .importing: return "Importing to Database"
-            case .indexing: return "Rebuilding Indexes"
+            case .indexing: return "Finalizing"
             case .completed: return "Import Complete"
             }
         }
-        
+
         var description: String {
             switch self {
             case .idle: return "Ready to import"
             case .reading: return "Reading and validating CSV file structure"
             case .parsing: return "Processing CSV data with parallel workers"
             case .importing: return "Writing records to database in batches"
-            case .indexing: return "Optimizing database for queries"
+            case .indexing: return "Updating statistics and refreshing caches"
             case .completed: return "Import finished successfully"
             }
         }
@@ -111,7 +118,29 @@ class ImportProgressManager: ObservableObject {
     }
     
     // MARK: - Progress Management
-    
+
+    /// Starts a new batch import operation
+    func startBatchImport(totalFiles: Int) {
+        self.totalFiles = totalFiles
+        self.currentFileIndex = 0
+        self.currentFileName = ""
+        isImporting = true
+        importStartTime = Date()
+        overallProgress = 0.0
+        currentStage = .reading
+        stageProgress = .reading
+        totalRecords = 0
+        totalBatches = 0
+        print("📦 Starting batch import of \(totalFiles) files")
+    }
+
+    /// Updates which file is being processed in a batch
+    func updateCurrentFile(index: Int, fileName: String) {
+        self.currentFileIndex = index
+        self.currentFileName = fileName
+        print("📄 Processing file \(index + 1)/\(totalFiles): \(fileName)")
+    }
+
     /// Starts a new import operation
     func startImport() {
         isImporting = true
@@ -121,6 +150,9 @@ class ImportProgressManager: ObservableObject {
         stageProgress = .reading
         totalRecords = 0
         totalBatches = 0
+        totalFiles = 1
+        currentFileIndex = 0
+        currentFileName = ""
     }
     
     /// Updates to file reading stage
@@ -168,20 +200,20 @@ class ImportProgressManager: ObservableObject {
     /// Updates to indexing stage
     func updateToIndexing() {
         currentStage = .indexing
-        stageProgress = .indexing(operation: "Rebuilding database indexes...")
+        stageProgress = .indexing(operation: "Updating query statistics...")
         overallProgress = calculateOverallProgress()
     }
-    
+
     /// Updates indexing operation description
     func updateIndexingOperation(_ operation: String) {
         guard currentStage == .indexing else { return }
         stageProgress = .indexing(operation: operation)
     }
-    
+
     /// Updates indexing for incremental mode
     func updateIncrementalIndexing() {
         guard currentStage == .indexing else { return }
-        stageProgress = .indexing(operation: "Updating statistics (incremental mode - much faster!)")
+        stageProgress = .indexing(operation: "Updating statistics...")
     }
     
     /// Completes the import with final statistics
@@ -206,6 +238,9 @@ class ImportProgressManager: ObservableObject {
         importStartTime = nil
         totalRecords = 0
         totalBatches = 0
+        totalFiles = 0
+        currentFileIndex = 0
+        currentFileName = ""
     }
     
     // MARK: - Private Helpers

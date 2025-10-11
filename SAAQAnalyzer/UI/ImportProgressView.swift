@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Comprehensive import progress indicator with detailed stage information
 struct ImportProgressView: View {
-    @ObservedObject var progressManager: ImportProgressManager
+    @Bindable var progressManager: ImportProgressManager
     @State private var animationOffset: CGFloat = 0
     
     var body: some View {
@@ -22,8 +22,7 @@ struct ImportProgressView: View {
                 actionButtons
             }
             .padding(20)
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(12)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
         }
         .onAppear {
@@ -34,24 +33,66 @@ struct ImportProgressView: View {
     // MARK: - Progress Header
     
     private var progressHeader: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
+            // Batch import indicator (if applicable) - make it very prominent
+            if progressManager.isBatchImport {
+                VStack(spacing: 6) {
+                    HStack {
+                        Image(systemName: "doc.on.doc")
+                            .foregroundColor(.white)
+                            .font(.headline)
+                        Text("Batch Import: File \(progressManager.currentFileIndex + 1) of \(progressManager.totalFiles)")
+                            .font(.headline.weight(.medium))
+                            .fontDesign(.rounded)
+                            .foregroundColor(.white)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(
+                        LinearGradient(
+                            gradient: Gradient(colors: [Color.blue, Color.blue.opacity(0.8)]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .cornerRadius(10)
+
+                    if !progressManager.currentFileName.isEmpty {
+                        HStack {
+                            Text("Current file:")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(progressManager.currentFileName)
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                        }
+                    }
+                }
+            }
+
             HStack {
                 Image(systemName: progressManager.currentStage.systemImage)
-                    .foregroundColor(.accentColor)
+                    .foregroundStyle(.tint)
                     .font(.title2)
-                
+                    .symbolRenderingMode(.hierarchical)
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(progressManager.currentStage.title)
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                    
+                        .font(.headline.weight(.medium))
+                        .fontDesign(.rounded)
+
                     Text(progressManager.currentStage.description)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
-                
+
                 Spacer()
-                
+
                 // Step indicator
                 if progressManager.currentStage != .idle {
                     stepIndicator
@@ -64,21 +105,21 @@ struct ImportProgressView: View {
         HStack(spacing: 4) {
             Text("Step")
                 .font(.caption2)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             
             Text("\(progressManager.currentStage.stepNumber)")
                 .font(.caption)
                 .fontWeight(.bold)
-                .foregroundColor(.accentColor)
+                .foregroundStyle(.tint)
             
             Text("of")
                 .font(.caption2)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             
             Text("\(ImportProgressManager.ImportStage.totalSteps)")
                 .font(.caption)
                 .fontWeight(.medium)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
@@ -92,15 +133,15 @@ struct ImportProgressView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Overall Progress")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                
+                    .font(.subheadline.weight(.medium))
+                    .fontDesign(.rounded)
+
                 Spacer()
                 
                 Text("\(Int(progressManager.overallProgress * 100))%")
-                    .font(.subheadline)
-                    .fontWeight(.bold)
-                    .foregroundColor(.accentColor)
+                    .font(.subheadline.weight(.semibold))
+                    .fontDesign(.rounded)
+                    .foregroundStyle(.tint)
             }
             
             GeometryReader { geometry in
@@ -164,13 +205,13 @@ struct ImportProgressView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Current Stage")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .textCase(.uppercase)
                         .tracking(0.5)
                     
                     Text(progressManager.stageProgress.progressText)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+                        .font(.subheadline.weight(.medium))
+                        .fontDesign(.rounded)
                         .multilineTextAlignment(.leading)
                 }
                 
@@ -219,7 +260,7 @@ struct ImportProgressView: View {
                     Text("\(Int(progress * 100))")
                         .font(.caption2)
                         .fontWeight(.bold)
-                        .foregroundColor(.accentColor)
+                        .foregroundStyle(.tint)
                 }
             }
         }
@@ -245,20 +286,22 @@ struct ImportProgressView: View {
     
     private var actionButtons: some View {
         HStack {
-            if progressManager.currentStage == .completed {
+            if progressManager.currentStage == ImportProgressManager.ImportStage.completed {
                 Button("New Import") {
                     progressManager.reset()
                 }
                 .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.roundedRectangle)
             }
-            
+
             if progressManager.isImporting {
                 Button("Cancel") {
                     // TODO: Implement cancel functionality
                     progressManager.reset()
                 }
                 .buttonStyle(.bordered)
-                .foregroundColor(.red)
+                .buttonBorderShape(.roundedRectangle)
+                .tint(.red)
             }
             
             Spacer()

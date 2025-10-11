@@ -5,16 +5,26 @@ struct FilterPanel: View {
     @Binding var configuration: FilterConfiguration
     @EnvironmentObject var databaseManager: DatabaseManager
     
-    // Available options loaded from database
+    // Available options loaded from database (shared)
     @State private var availableYears: [Int] = []
     @State private var availableRegions: [String] = []
     @State private var availableMRCs: [String] = []
     @State private var availableMunicipalities: [String] = []
+
+    // Vehicle-specific options
     @State private var availableClassifications: [String] = []
+    @State private var availableVehicleTypes: [String] = []
     @State private var availableVehicleMakes: [String] = []
     @State private var availableVehicleModels: [String] = []
     @State private var availableVehicleColors: [String] = []
     @State private var availableModelYears: [Int] = []
+
+    // License-specific options
+    @State private var availableLicenseTypes: [String] = []
+    @State private var availableAgeGroups: [String] = []
+    @State private var availableGenders: [String] = []
+    @State private var availableExperienceLevels: [String] = []
+    @State private var availableLicenseClasses: [String] = []
 
     // Municipality code-to-name mapping for UI display
     @State private var municipalityCodeToName: [String: String] = [:]
@@ -22,12 +32,14 @@ struct FilterPanel: View {
     // Loading state
     @State private var isLoadingData = true
     @State private var hasInitiallyLoaded = false
+    @State private var isLoadingLicenseCharacteristics = false
     
     // Expansion states for sections
     @State private var yearSectionExpanded = true
     @State private var geographySectionExpanded = true
     @State private var vehicleSectionExpanded = true
     @State private var ageSectionExpanded = false
+    @State private var licenseSectionExpanded = true
     @State private var metricSectionExpanded = true
     
     var body: some View {
@@ -35,15 +47,19 @@ struct FilterPanel: View {
             // Header
             HStack {
                 Label("Filters", systemImage: "line.horizontal.3.decrease.circle")
-                    .font(.headline)
-                
+                    .font(.headline.weight(.medium))
+                    .fontDesign(.rounded)
+                    .symbolRenderingMode(.hierarchical)
+                    .typesettingLanguage(.init(languageCode: .french))
+
                 Spacer()
                 
                 Button("Clear All") {
                     clearAllFilters()
                 }
-                .buttonStyle(.plain)
-                .foregroundColor(.secondary)
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .tint(.secondary)
             }
             .padding()
             
@@ -59,7 +75,7 @@ struct FilterPanel: View {
                                 .scaleEffect(0.8)
                             Text("Loading filter options...")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, minHeight: 200)
                         .padding()
@@ -78,6 +94,7 @@ struct FilterPanel: View {
                     } label: {
                         Label("Years", systemImage: "calendar")
                             .font(.subheadline)
+                            .symbolRenderingMode(.hierarchical)
                     }
                     
                     Divider()
@@ -94,39 +111,80 @@ struct FilterPanel: View {
                     } label: {
                         Label("Geographic Location", systemImage: "map")
                             .font(.subheadline)
+                            .symbolRenderingMode(.hierarchical)
                     }
                     
                     Divider()
-                    
-                    // Vehicle characteristics section
-                    DisclosureGroup(isExpanded: $vehicleSectionExpanded) {
-                        VehicleFilterSection(
-                            selectedClassifications: $configuration.vehicleClassifications,
-                            selectedVehicleMakes: $configuration.vehicleMakes,
-                            selectedVehicleModels: $configuration.vehicleModels,
-                            selectedVehicleColors: $configuration.vehicleColors,
-                            selectedModelYears: $configuration.modelYears,
-                            selectedFuelTypes: $configuration.fuelTypes,
-                            availableYears: availableYears,
-                            availableClassifications: availableClassifications,
-                            availableVehicleMakes: availableVehicleMakes,
-                            availableVehicleModels: availableVehicleModels,
-                            availableVehicleColors: availableVehicleColors,
-                            availableModelYears: availableModelYears
-                        )
-                    } label: {
-                        Label("Vehicle Characteristics", systemImage: "car")
-                            .font(.subheadline)
-                    }
-                    
-                    Divider()
-                    
-                    // Age ranges section
-                    DisclosureGroup(isExpanded: $ageSectionExpanded) {
-                        AgeRangeFilterSection(ageRanges: $configuration.ageRanges)
-                    } label: {
-                        Label("Vehicle Age", systemImage: "clock")
-                            .font(.subheadline)
+
+                    // Data type specific sections
+                    if configuration.dataEntityType == .vehicle {
+                        // Vehicle characteristics section
+                        DisclosureGroup(isExpanded: $vehicleSectionExpanded) {
+                            VehicleFilterSection(
+                                selectedVehicleClasses: $configuration.vehicleClasses,
+                                selectedVehicleTypes: $configuration.vehicleTypes,
+                                selectedVehicleMakes: $configuration.vehicleMakes,
+                                selectedVehicleModels: $configuration.vehicleModels,
+                                selectedVehicleColors: $configuration.vehicleColors,
+                                selectedModelYears: $configuration.modelYears,
+                                selectedFuelTypes: $configuration.fuelTypes,
+                                availableYears: availableYears,
+                                availableVehicleClasses: availableClassifications,
+                                availableVehicleTypes: availableVehicleTypes,
+                                availableVehicleMakes: availableVehicleMakes,
+                                availableVehicleModels: availableVehicleModels,
+                                availableVehicleColors: availableVehicleColors,
+                                availableModelYears: availableModelYears
+                            )
+                        } label: {
+                            Label("Vehicle Characteristics", systemImage: "car")
+                                .font(.subheadline)
+                                .symbolRenderingMode(.hierarchical)
+                        }
+
+                        Divider()
+
+                        // Vehicle age ranges section
+                        DisclosureGroup(isExpanded: $ageSectionExpanded) {
+                            AgeRangeFilterSection(ageRanges: $configuration.ageRanges)
+                        } label: {
+                            Label("Vehicle Age", systemImage: "clock")
+                                .font(.subheadline)
+                                .symbolRenderingMode(.hierarchical)
+                        }
+                    } else {
+                        // License characteristics section
+                        DisclosureGroup(isExpanded: $licenseSectionExpanded) {
+                            if isLoadingLicenseCharacteristics {
+                                // Loading indicator for license characteristics
+                                VStack(spacing: 12) {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                    Text("Loading license characteristics...")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 100)
+                                .padding()
+                            } else {
+                                LicenseFilterSection(
+                                    selectedLicenseTypes: $configuration.licenseTypes,
+                                    selectedAgeGroups: $configuration.ageGroups,
+                                    selectedGenders: $configuration.genders,
+                                    selectedExperienceLevels: $configuration.experienceLevels,
+                                    selectedLicenseClasses: $configuration.licenseClasses,
+                                    availableLicenseTypes: availableLicenseTypes,
+                                    availableAgeGroups: availableAgeGroups,
+                                    availableGenders: availableGenders,
+                                    availableExperienceLevels: availableExperienceLevels,
+                                    availableLicenseClasses: availableLicenseClasses
+                                )
+                            }
+                        } label: {
+                            Label("License Characteristics", systemImage: "person.crop.circle")
+                                .font(.subheadline)
+                                .symbolRenderingMode(.hierarchical)
+                        }
                     }
 
                     Divider()
@@ -137,90 +195,261 @@ struct FilterPanel: View {
                             metricType: $configuration.metricType,
                             metricField: $configuration.metricField,
                             percentageBaseFilters: $configuration.percentageBaseFilters,
+                            coverageField: $configuration.coverageField,
+                            coverageAsPercentage: $configuration.coverageAsPercentage,
+                            roadWearIndexMode: $configuration.roadWearIndexMode,
+                            normalizeRoadWearIndex: $configuration.normalizeRoadWearIndex,
+                            showCumulativeSum: $configuration.showCumulativeSum,
                             currentFilters: configuration
                         )
                     } label: {
                         Label("Y-Axis Metric", systemImage: "chart.line.uptrend.xyaxis")
                             .font(.subheadline)
+                            .symbolRenderingMode(.hierarchical)
                     }
                 }
                 .padding()
             }
+            .scrollIndicators(.visible, axes: .vertical)
         }
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 0))
         .onAppear {
             if !hasInitiallyLoaded {
-                loadAvailableOptions()
-            }
-        }
-        .onReceive(databaseManager.$dataVersion) { _ in
-            // Only reload if we might have new years or geographic data
-            // Skip reload if we're just replacing existing year data
-            if hasInitiallyLoaded {
-                Task {
-                    await refreshIfNeeded()
+                // Check if Option key is held down or environment variable is set to bypass cache loading
+                let optionKeyPressed = NSEvent.modifierFlags.contains(.option)
+                let envBypass = ProcessInfo.processInfo.environment["SAAQ_BYPASS_CACHE"] != nil
+
+                if optionKeyPressed || envBypass {
+                    if envBypass {
+                        print("⚠️ Environment variable SAAQ_BYPASS_CACHE detected - bypassing cache loading")
+                    } else {
+                        print("⚠️ Option key detected - bypassing cache loading for quick startup")
+                    }
+                    print("📦 You can now import a data package without waiting for cache rebuild")
+                    hasInitiallyLoaded = true
+                    isLoadingData = false
+                    // Set minimal data to prevent UI issues
+                    availableYears = []
+                    availableRegions = []
+                    availableMRCs = []
+                    availableMunicipalities = []
+                } else {
+                    loadAvailableOptions()
                 }
             }
         }
+        .onReceive(databaseManager.$dataVersion) { newVersion in
+            // Reload filter options when dataVersion changes
+            if hasInitiallyLoaded {
+                Task {
+                    print("🔄 Data version changed to \(newVersion), reloading all filter options")
+                    // Reload all filter options to pick up new enumeration data
+                    await loadAvailableOptions()
+                }
+            }
+        }
+        .onChange(of: configuration.dataEntityType) { _, _ in
+            // Immediately clear geographic data to prevent showing wrong mode's data
+            if hasInitiallyLoaded {
+                availableRegions = []
+                availableMRCs = []
+                availableMunicipalities = [] // Clear municipalities when switching modes
+            }
+
+            // Reload data type specific options when switching between vehicle and license
+            Task {
+                await loadDataTypeSpecificOptions()
+                // Clear filter selections that are no longer valid for the new data type
+                await cleanupInvalidFilterSelections()
+            }
+        }
+        .onChange(of: databaseManager.dataVersion) { _, _ in
+            print("🔄 Database version changed, refreshing municipality mapping")
+            refreshMunicipalityMapping()
+        }
     }
     
+    /// Quickly loads only years for incremental updates during batch imports
+    private func loadYearsOnly() async {
+        let years = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
+        await MainActor.run {
+            availableYears = years
+            print("📊 Reloaded years: \(years.count) available")
+        }
+    }
+
     /// Loads available filter options from database
     private func loadAvailableOptions() {
         Task {
-            isLoadingData = true
-            
-            // Check if we need to populate cache first
-            let cacheInfo = databaseManager.filterCacheInfo
-            print("🔍 Filter cache status: hasCache=\(cacheInfo.hasCache), years=\(cacheInfo.itemCounts.years)")
-            if !cacheInfo.hasCache {
-                print("💾 No filter cache found, populating cache before loading options...")
-                await databaseManager.refreshFilterCache()
-            } else {
-                print("✅ Using existing filter cache")
+            // Show loading if we don't already have data loaded
+            let shouldShowLoading = availableYears.isEmpty
+
+            if shouldShowLoading {
+                isLoadingData = true
             }
-            
-            // Load all available options from database/cache
-            availableYears = await databaseManager.getAvailableYears()
-            availableRegions = await databaseManager.getAvailableRegions()
-            availableMRCs = await databaseManager.getAvailableMRCs()
-            availableMunicipalities = await databaseManager.getAvailableMunicipalities()
-            availableClassifications = await databaseManager.getAvailableClassifications()
-            availableVehicleMakes = await databaseManager.getAvailableVehicleMakes()
-            availableVehicleModels = await databaseManager.getAvailableVehicleModels()
-            availableVehicleColors = await databaseManager.getAvailableVehicleColors()
-            availableModelYears = await databaseManager.getAvailableModelYears()
 
-            print("📊 Loaded filter options: \(availableYears.count) years, \(availableVehicleMakes.count) makes, \(availableVehicleModels.count) models, \(availableVehicleColors.count) colors, \(availableModelYears.count) model years")
-
-            // Load municipality mapping for UI display
-            municipalityCodeToName = await databaseManager.getMunicipalityCodeToNameMapping()
+            // Filter cache is now always available via enumeration tables
+            print("🔍 Reading cached data version: \(databaseManager.dataVersion)")
             
-            isLoadingData = false
-            hasInitiallyLoaded = true
+            // Load shared options from database/cache in parallel
+            async let years = databaseManager.getAvailableYears(for: configuration.dataEntityType)
+            async let regions = databaseManager.getAvailableRegions(for: configuration.dataEntityType)
+            async let mrcs = databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
+            async let municipalities = databaseManager.getAvailableMunicipalities(for: configuration.dataEntityType)
+            async let municipalityMapping = databaseManager.getMunicipalityCodeToNameMapping()
+
+            // Wait for all to complete
+            let loadedData = await (years, regions, mrcs, municipalities, municipalityMapping)
+
+            // Update UI state on main thread
+            await MainActor.run {
+                (availableYears, availableRegions, availableMRCs, availableMunicipalities, municipalityCodeToName) = loadedData
+                print("📊 Loaded filter options: \(availableYears.count) years, \(availableRegions.count) regions, \(availableMRCs.count) MRCs")
+
+                // Auto-select all years on initial load if none are selected
+                // OR auto-select newly available years during batch imports
+                if configuration.years.isEmpty && !availableYears.isEmpty {
+                    configuration.years = Set(availableYears)
+                    print("📊 Auto-selected all \(availableYears.count) years on initial load")
+                } else {
+                    // During batch import, auto-select any newly available years
+                    let newYears = Set(availableYears).subtracting(configuration.years)
+                    if !newYears.isEmpty {
+                        configuration.years.formUnion(newYears)
+                        print("📊 Auto-selected \(newYears.count) newly imported year(s): \(newYears.sorted())")
+                    }
+                }
+            }
+
+            // Load data type specific options
+            await loadDataTypeSpecificOptions()
+
+            await MainActor.run {
+                isLoadingData = false
+                hasInitiallyLoaded = true
+            }
+        }
+    }
+
+    /// Loads data type specific filter options
+    private func loadDataTypeSpecificOptions() async {
+        // Load new data for the current mode
+        if hasInitiallyLoaded {
+            let years = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
+            let regions = await databaseManager.getAvailableRegions(for: configuration.dataEntityType)
+            let mrcs = await databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
+            let municipalities = await databaseManager.getAvailableMunicipalities(for: configuration.dataEntityType)
+
+            await MainActor.run {
+                availableYears = years
+                availableRegions = regions
+                availableMRCs = mrcs
+                availableMunicipalities = municipalities
+
+                // Auto-select all years when switching data types if none are selected
+                // OR auto-select newly available years
+                if configuration.years.isEmpty && !years.isEmpty {
+                    configuration.years = Set(years)
+                    print("📊 Auto-selected all \(years.count) years after data type switch")
+                } else {
+                    // Auto-select any newly available years
+                    let newYears = Set(years).subtracting(configuration.years)
+                    if !newYears.isEmpty {
+                        configuration.years.formUnion(newYears)
+                        print("📊 Auto-selected \(newYears.count) newly available year(s): \(newYears.sorted())")
+                    }
+                }
+            }
+        }
+
+        switch configuration.dataEntityType {
+        case .vehicle:
+            // Load vehicle-specific options in parallel for better performance
+            async let vehicleClasses = databaseManager.getAvailableVehicleClasses()
+            async let vehicleTypes = databaseManager.getAvailableVehicleTypes()
+            async let vehicleMakes = databaseManager.getAvailableVehicleMakes()
+            async let vehicleModels = databaseManager.getAvailableVehicleModels()
+            async let vehicleColors = databaseManager.getAvailableVehicleColors()
+            async let modelYears = databaseManager.getAvailableModelYears()
+
+            // Wait for all to complete
+            let vehicleData = await (vehicleClasses, vehicleTypes, vehicleMakes, vehicleModels, vehicleColors, modelYears)
+
+            // Update UI state on main thread
+            await MainActor.run {
+                (availableClassifications, availableVehicleTypes, availableVehicleMakes, availableVehicleModels,
+                 availableVehicleColors, availableModelYears) = vehicleData
+
+                // Clear license options
+                availableLicenseTypes = []
+                availableAgeGroups = []
+                availableGenders = []
+                availableExperienceLevels = []
+                availableLicenseClasses = []
+            }
+
+        case .license:
+            // Set loading state for license characteristics
+            await MainActor.run {
+                isLoadingLicenseCharacteristics = true
+            }
+
+            // Load license-specific options in parallel for better performance
+            async let licenseTypes = databaseManager.getAvailableLicenseTypes()
+            async let ageGroups = databaseManager.getAvailableAgeGroups()
+            async let genders = databaseManager.getAvailableGenders()
+            async let experienceLevels = databaseManager.getAvailableExperienceLevels()
+            async let licenseClasses = databaseManager.getAvailableLicenseClasses()
+
+            // Wait for all to complete
+            let licenseData = await (licenseTypes, ageGroups, genders, experienceLevels, licenseClasses)
+
+            // Update UI state on main thread
+            await MainActor.run {
+                (availableLicenseTypes, availableAgeGroups, availableGenders,
+                 availableExperienceLevels, availableLicenseClasses) = licenseData
+
+                // Clear loading state
+                isLoadingLicenseCharacteristics = false
+
+                // Clear vehicle options
+                availableClassifications = []
+                availableVehicleTypes = []
+                availableVehicleMakes = []
+                availableVehicleModels = []
+                availableVehicleColors = []
+                availableModelYears = []
+            }
         }
     }
     
     /// Smart refresh that only updates if there are actual changes
     private func refreshIfNeeded() async {
+        // Check if we already have data loaded
+        if !availableYears.isEmpty {
+            print("📊 Data already loaded, skipping refresh")
+            return
+        }
+
         // Check if years have changed (most common update)
-        let newYears = await databaseManager.getAvailableYears()
-        
+        let newYears = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
+
         // Only reload everything if we have new years
         // (replacing existing year data doesn't add new years)
         if Set(newYears) != Set(availableYears) {
             print("📊 New years detected, refreshing filter options...")
             availableYears = newYears
-            
-            // Also refresh classifications in case new year has different vehicle types
-            availableClassifications = await databaseManager.getAvailableClassifications()
+
+            // Also refresh vehicleClasses in case new year has different vehicle types
+            availableClassifications = await databaseManager.getAvailableVehicleClasses()
         }
         
         // Geographic data rarely changes after initial load
         // Only check if we have no regions (indicating new geographic import)
         if availableRegions.isEmpty {
-            availableRegions = await databaseManager.getAvailableRegions()
-            availableMRCs = await databaseManager.getAvailableMRCs()
-            availableMunicipalities = await databaseManager.getAvailableMunicipalities()
+            availableRegions = await databaseManager.getAvailableRegions(for: configuration.dataEntityType)
+            availableMRCs = await databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
+            availableMunicipalities = await databaseManager.getAvailableMunicipalities(for: configuration.dataEntityType)
             municipalityCodeToName = await databaseManager.getMunicipalityCodeToNameMapping()
         }
     }
@@ -228,6 +457,57 @@ struct FilterPanel: View {
     /// Clears all filter selections
     private func clearAllFilters() {
         configuration = FilterConfiguration()
+    }
+
+    /// Removes filter selections that are no longer valid for the current data type
+    private func cleanupInvalidFilterSelections() async {
+        let currentRegions = await databaseManager.getAvailableRegions(for: configuration.dataEntityType)
+        let currentMRCs = await databaseManager.getAvailableMRCs(for: configuration.dataEntityType)
+
+        // Ensure UI updates happen on main thread
+        await MainActor.run {
+            // Remove region selections that don't exist in the current data type
+            configuration.regions = configuration.regions.filter { currentRegions.contains($0) }
+
+            // Remove MRC selections that don't exist in the current data type
+            configuration.mrcs = configuration.mrcs.filter { currentMRCs.contains($0) }
+
+            // Clear data-type-specific filters when switching modes
+            switch configuration.dataEntityType {
+            case .vehicle:
+                // Clear all license-specific filters when switching to vehicle mode
+                configuration.licenseTypes.removeAll()
+                configuration.ageGroups.removeAll()
+                configuration.genders.removeAll()
+                configuration.experienceLevels.removeAll()
+                configuration.licenseClasses.removeAll()
+
+            case .license:
+                // Clear all vehicle-specific filters when switching to license mode
+                configuration.vehicleClasses.removeAll()
+                configuration.vehicleTypes.removeAll()
+                configuration.vehicleMakes.removeAll()
+                configuration.vehicleModels.removeAll()
+                configuration.vehicleColors.removeAll()
+                configuration.modelYears.removeAll()
+                configuration.fuelTypes.removeAll()
+            }
+
+            print("🧹 Cleaned up invalid filter selections for \(configuration.dataEntityType)")
+            print("   Remaining regions: \(configuration.regions.count)")
+            print("   Remaining MRCs: \(configuration.mrcs.count)")
+        }
+    }
+
+    /// Refresh municipality mapping after data package import
+    func refreshMunicipalityMapping() {
+        Task {
+            let newMapping = await databaseManager.getMunicipalityCodeToNameMapping()
+            await MainActor.run {
+                municipalityCodeToName = newMapping
+                print("🗺️ Municipality mapping refreshed: \(newMapping.count) entries")
+            }
+        }
     }
 }
 
@@ -245,17 +525,23 @@ struct YearFilterSection: View {
                     selectedYears = Set(availableYears)
                 }
                 .buttonStyle(.bordered)
-                
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
+
                 Button("Last 5") {
                     let lastFive = availableYears.suffix(5)
                     selectedYears = Set(lastFive)
                 }
                 .buttonStyle(.bordered)
-                
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
+
                 Button("Clear") {
                     selectedYears.removeAll()
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
             }
             
             // Year checkboxes in a grid
@@ -293,7 +579,7 @@ struct SimpleGeographicFilterSection: View {
             if !availableRegions.isEmpty {
                 Text("Administrative Regions")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 SearchableFilterList(
                     items: availableRegions,
@@ -308,7 +594,7 @@ struct SimpleGeographicFilterSection: View {
                 
                 Text("MRCs")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 SearchableFilterList(
                     items: availableMRCs,
@@ -323,7 +609,7 @@ struct SimpleGeographicFilterSection: View {
 
                 Text("Municipalities")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 MunicipalityFilterList(
                     availableCodes: availableMunicipalities,
@@ -339,12 +625,12 @@ struct SimpleGeographicFilterSection: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Selected locations:")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     
                     if !configuration.regions.isEmpty {
                         HStack {
                             Image(systemName: "flag.fill")
-                                .foregroundColor(.blue)
+                                .foregroundStyle(.blue)
                             Text("\(configuration.regions.count) region(s)")
                                 .font(.caption)
                         }
@@ -353,7 +639,7 @@ struct SimpleGeographicFilterSection: View {
                     if !configuration.mrcs.isEmpty {
                         HStack {
                             Image(systemName: "building.2.fill")
-                                .foregroundColor(.green)
+                                .foregroundStyle(.green)
                             Text("\(configuration.mrcs.count) MRC(s)")
                                 .font(.caption)
                         }
@@ -362,7 +648,7 @@ struct SimpleGeographicFilterSection: View {
                     if !configuration.municipalities.isEmpty {
                         HStack {
                             Image(systemName: "location.fill")
-                                .foregroundColor(.orange)
+                                .foregroundStyle(.orange)
                             Text("\(configuration.municipalities.count) municipalit(y/ies)")
                                 .font(.caption)
                         }
@@ -381,14 +667,16 @@ struct SimpleGeographicFilterSection: View {
 // MARK: - Vehicle Filter Section
 
 struct VehicleFilterSection: View {
-    @Binding var selectedClassifications: Set<String>
+    @Binding var selectedVehicleClasses: Set<String>
+    @Binding var selectedVehicleTypes: Set<String>
     @Binding var selectedVehicleMakes: Set<String>
     @Binding var selectedVehicleModels: Set<String>
     @Binding var selectedVehicleColors: Set<String>
     @Binding var selectedModelYears: Set<Int>
     @Binding var selectedFuelTypes: Set<String>
     let availableYears: [Int]
-    let availableClassifications: [String]
+    let availableVehicleClasses: [String]
+    let availableVehicleTypes: [String]
     let availableVehicleMakes: [String]
     let availableVehicleModels: [String]
     let availableVehicleColors: [String]
@@ -401,25 +689,39 @@ struct VehicleFilterSection: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Vehicle classifications (use actual database values)
-            if !availableClassifications.isEmpty {
-                Text("Vehicle Type")
+            // Vehicle classes (use actual database values)
+            if !availableVehicleClasses.isEmpty {
+                Text("Vehicle Class")
                     .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                VehicleClassificationFilterList(
-                    availableClassifications: availableClassifications,
-                    selectedClassifications: $selectedClassifications
+                    .foregroundStyle(.secondary)
+
+                VehicleClassFilterList(
+                    availableVehicleClasses: availableVehicleClasses,
+                    selectedVehicleClasses: $selectedVehicleClasses
                 )
             }
-            
+
+            // Vehicle types (use actual database values)
+            if !availableVehicleTypes.isEmpty {
+                Divider()
+
+                Text("Vehicle Type")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                VehicleTypeFilterList(
+                    availableVehicleTypes: availableVehicleTypes,
+                    selectedVehicleTypes: $selectedVehicleTypes
+                )
+            }
+
             // Vehicle Makes
             if !availableVehicleMakes.isEmpty {
                 Divider()
 
                 Text("Vehicle Make")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 SearchableFilterList(
                     items: availableVehicleMakes,
@@ -434,7 +736,7 @@ struct VehicleFilterSection: View {
 
                 Text("Vehicle Model")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 SearchableFilterList(
                     items: availableVehicleModels,
@@ -449,7 +751,7 @@ struct VehicleFilterSection: View {
 
                 Text("Vehicle Color")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 SearchableFilterList(
                     items: availableVehicleColors,
@@ -464,7 +766,7 @@ struct VehicleFilterSection: View {
 
                 Text("Model Year")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 SearchableFilterList(
                     items: availableModelYears.map { String($0) },
@@ -486,7 +788,7 @@ struct VehicleFilterSection: View {
 
                 Text("Fuel Type (2017+)")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 SearchableFilterList(
                     items: FuelType.allCases.map { $0.description },
@@ -520,28 +822,37 @@ struct AgeRangeFilterSection: View {
             // Predefined age ranges
             Text("Quick Select")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             
             HStack {
-                Button("0-5 years") {
-                    addAgeRange(min: 0, max: 5)
+                Button("-1 to 5 years") {
+                    addAgeRange(min: -1, max: 5)
                 }
                 .buttonStyle(.bordered)
-                
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
+                .help("Includes vehicles registered before their model year (e.g., 2022 models registered in late 2021)")
+
                 Button("6-10 years") {
                     addAgeRange(min: 6, max: 10)
                 }
                 .buttonStyle(.bordered)
-                
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
+
                 Button("11-15 years") {
                     addAgeRange(min: 11, max: 15)
                 }
                 .buttonStyle(.bordered)
-                
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
+
                 Button("16+ years") {
                     addAgeRange(min: 16, max: nil)
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
             }
             
             // Custom ranges
@@ -550,7 +861,7 @@ struct AgeRangeFilterSection: View {
                 
                 Text("Selected Ranges")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 ForEach(Array(ageRanges.enumerated()), id: \.offset) { index, range in
                     HStack {
@@ -566,7 +877,7 @@ struct AgeRangeFilterSection: View {
                             ageRanges.remove(at: index)
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
                     }
@@ -579,10 +890,14 @@ struct AgeRangeFilterSection: View {
                 showAddRange.toggle()
             } label: {
                 Label("Add Custom Range", systemImage: "plus.circle")
+                    .symbolRenderingMode(.hierarchical)
             }
             .buttonStyle(.bordered)
+            .buttonBorderShape(.roundedRectangle)
+            .controlSize(.small)
             .popover(isPresented: $showAddRange) {
                 CustomAgeRangeView(ageRanges: $ageRanges)
+                    .presentationSizing(.fitted)
             }
         }
     }
@@ -632,11 +947,13 @@ struct CustomAgeRangeView: View {
                     dismiss()
                 }
                 .buttonStyle(.bordered)
-                
+                .buttonBorderShape(.roundedRectangle)
+
                 Button("Add") {
                     addRange()
                 }
                 .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.roundedRectangle)
                 .disabled(minAge.isEmpty || (hasMaxAge && maxAge.isEmpty))
             }
         }
@@ -685,7 +1002,7 @@ struct SearchableFilterList: View {
             if items.count > 8 {
                 HStack {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .font(.caption)
 
                     TextField(searchPrompt, text: $searchText)
@@ -697,7 +1014,7 @@ struct SearchableFilterList: View {
                             searchText = ""
                         }) {
                             Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
+                                .foregroundStyle(.secondary)
                                 .font(.caption)
                         }
                         .buttonStyle(.plain)
@@ -716,12 +1033,14 @@ struct SearchableFilterList: View {
                     selectedItems = Set(filteredItems)
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
                 .controlSize(.mini)
-                
+
                 Button("Clear") {
                     selectedItems.removeAll()
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
                 .controlSize(.mini)
                 
                 Spacer()
@@ -732,9 +1051,9 @@ struct SearchableFilterList: View {
                             isExpanded.toggle()
                         }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
                     .font(.caption2)
-                    .foregroundColor(.accentColor)
+                    .tint(.accentColor)
                 }
             }
             
@@ -760,6 +1079,7 @@ struct SearchableFilterList: View {
                         Text(item)
                             .font(.caption)
                             .multilineTextAlignment(.leading)
+                            .typesettingLanguage(.init(languageCode: .french))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(.vertical, 1)
@@ -771,7 +1091,7 @@ struct SearchableFilterList: View {
             if !searchText.isEmpty && filteredItems.count != items.count {
                 Text("Showing \(filteredItems.count) of \(items.count) items")
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .padding(.top, 4)
             }
         }
@@ -781,21 +1101,21 @@ struct SearchableFilterList: View {
 
 // MARK: - Vehicle Classification Filter List
 
-struct VehicleClassificationFilterList: View {
-    let availableClassifications: [String]
-    @Binding var selectedClassifications: Set<String>
+struct VehicleClassFilterList: View {
+    let availableVehicleClasses: [String]
+    @Binding var selectedVehicleClasses: Set<String>
     
     @State private var searchText = ""
     @State private var isExpanded = false
     
     private var filteredItems: [String] {
         if searchText.isEmpty {
-            return availableClassifications
+            return availableVehicleClasses
         }
-        return availableClassifications.filter { classification in
-            let displayName = getDisplayName(for: classification)
+        return availableVehicleClasses.filter { vehicleClass in
+            let displayName = getDisplayName(for: vehicleClass)
             return displayName.localizedCaseInsensitiveContains(searchText) || 
-                   classification.localizedCaseInsensitiveContains(searchText)
+              vehicleClass.localizedCaseInsensitiveContains(searchText)
         }
     }
     
@@ -807,10 +1127,10 @@ struct VehicleClassificationFilterList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Search field
-            if availableClassifications.count > 10 {
+            if availableVehicleClasses.count > 10 {
                 HStack {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .font(.caption)
                     
                     TextField("Search vehicle types...", text: $searchText)
@@ -826,42 +1146,44 @@ struct VehicleClassificationFilterList: View {
             // Quick action buttons
             HStack {
                 Button("All") {
-                    selectedClassifications = Set(filteredItems)
+                    selectedVehicleClasses = Set(filteredItems)
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
                 .controlSize(.mini)
-                
+
                 Button("Clear") {
-                    selectedClassifications.removeAll()
+                    selectedVehicleClasses.removeAll()
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
                 .controlSize(.mini)
                 
                 Spacer()
                 
-                if availableClassifications.count > 6 && searchText.isEmpty {
-                    Button(isExpanded ? "Show Less" : "Show All (\(availableClassifications.count))") {
+                if availableVehicleClasses.count > 6 && searchText.isEmpty {
+                    Button(isExpanded ? "Show Less" : "Show All (\(availableVehicleClasses.count))") {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isExpanded.toggle()
                         }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
                     .font(.caption2)
-                    .foregroundColor(.accentColor)
+                    .tint(.accentColor)
                 }
             }
             
             // Filter items
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(displayedItems, id: \.self) { classification in
+                ForEach(displayedItems, id: \.self) { vehicleClass in
                     HStack(alignment: .top, spacing: 8) {
                         Toggle(isOn: Binding(
-                            get: { selectedClassifications.contains(classification) },
+                            get: { selectedVehicleClasses.contains(vehicleClass) },
                             set: { isSelected in
                                 if isSelected {
-                                    selectedClassifications.insert(classification)
+                                    selectedVehicleClasses.insert(vehicleClass)
                                 } else {
-                                    selectedClassifications.remove(classification)
+                                    selectedVehicleClasses.remove(vehicleClass)
                                 }
                             }
                         )) {
@@ -871,42 +1193,231 @@ struct VehicleClassificationFilterList: View {
                         .controlSize(.mini)
                         
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(getDisplayName(for: classification))
+                            Text(getDisplayName(for: vehicleClass))
                                 .font(.caption)
                                 .multilineTextAlignment(.leading)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                     .padding(.vertical, 1)
-                    .help(getDescription(for: classification))  // Tooltip with description
+                    .help(getDescription(for: vehicleClass))  // Tooltip with description
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: displayedItems.count)
             
             // Search results summary
-            if !searchText.isEmpty && filteredItems.count != availableClassifications.count {
-                Text("Showing \(filteredItems.count) of \(availableClassifications.count) vehicle types")
+            if !searchText.isEmpty && filteredItems.count != availableVehicleClasses.count {
+                Text("Showing \(filteredItems.count) of \(availableVehicleClasses.count) vehicle types")
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .padding(.top, 4)
             }
         }
         .padding(.vertical, 4)
     }
     
-    // Helper methods for vehicle classification display
-    private func getDisplayName(for classification: String) -> String {
-        if let vehicleClass = VehicleClassification(rawValue: classification) {
-            return "\(classification) - \(vehicleClass.description)"
+    // Helper methods for vehicle vehicleClass display
+    private func getDisplayName(for vehicleClass: String) -> String {
+        // Handle special NULL case (empty string from database)
+        if vehicleClass.isEmpty || vehicleClass.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "NUL - Not Specified"
         }
-        return classification
+
+        // Handle UNK special case
+        if vehicleClass.uppercased() == "UNK" {
+            return "UNK - Unknown"
+        }
+
+        // Handle normal vehicle classes
+        if let vehicleClass = VehicleClass(rawValue: vehicleClass) {
+            return "\(vehicleClass.rawValue.uppercased()) - \(vehicleClass.description)"
+        }
+
+        return vehicleClass
     }
     
-    private func getDescription(for classification: String) -> String {
-        if let vehicleClass = VehicleClassification(rawValue: classification) {
+    private func getDescription(for vehicleClass: String) -> String {
+        if let vehicleClass = VehicleClass(rawValue: vehicleClass) {
             return vehicleClass.description
         }
-        return "Unknown classification: \(classification)"
+        return "Unknown vehicleClass: \(vehicleClass)"
+    }
+}
+
+// MARK: - Vehicle Type Filter List
+
+struct VehicleTypeFilterList: View {
+    let availableVehicleTypes: [String]
+    @Binding var selectedVehicleTypes: Set<String>
+
+    @State private var searchText = ""
+    @State private var isExpanded = false
+
+    private var filteredItems: [String] {
+        if searchText.isEmpty {
+            return availableVehicleTypes
+        }
+        return availableVehicleTypes.filter { vehicleType in
+            let displayName = getDisplayName(for: vehicleType)
+            return displayName.localizedCaseInsensitiveContains(searchText) ||
+              vehicleType.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    private var displayedItems: [String] {
+        // Sort with special handling: UK (Unknown) goes at the end
+        let sorted = filteredItems.sorted { item1, item2 in
+            // If either is UK, put it at the end
+            if item1.uppercased() == "UK" { return false }
+            if item2.uppercased() == "UK" { return true }
+            // Otherwise sort alphabetically
+            return item1 < item2
+        }
+        return isExpanded ? sorted : Array(sorted.prefix(6))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Search field
+            if availableVehicleTypes.count > 10 {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+
+                    TextField("Search vehicle types...", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.caption)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(6)
+            }
+
+            // Quick action buttons
+            HStack {
+                Button("All") {
+                    selectedVehicleTypes = Set(filteredItems)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.mini)
+
+                Button("Clear") {
+                    selectedVehicleTypes.removeAll()
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.mini)
+
+                Spacer()
+
+                if availableVehicleTypes.count > 6 && searchText.isEmpty {
+                    Button(isExpanded ? "Show Less" : "Show All (\(availableVehicleTypes.count))") {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isExpanded.toggle()
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption2)
+                    .tint(.accentColor)
+                }
+            }
+
+            // Filter items
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(displayedItems, id: \.self) { vehicleType in
+                    HStack(alignment: .top, spacing: 8) {
+                        Toggle(isOn: Binding(
+                            get: { selectedVehicleTypes.contains(vehicleType) },
+                            set: { isSelected in
+                                if isSelected {
+                                    selectedVehicleTypes.insert(vehicleType)
+                                } else {
+                                    selectedVehicleTypes.remove(vehicleType)
+                                }
+                            }
+                        )) {
+                            EmptyView()
+                        }
+                        .toggleStyle(.checkbox)
+                        .controlSize(.mini)
+
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(getDisplayName(for: vehicleType))
+                                .font(.caption)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.vertical, 1)
+                    .help(getDescription(for: vehicleType))  // Tooltip with description
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: displayedItems.count)
+
+            // Search results summary
+            if !searchText.isEmpty && filteredItems.count != availableVehicleTypes.count {
+                Text("Showing \(filteredItems.count) of \(availableVehicleTypes.count) vehicle types")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    // Helper methods for vehicle type display
+    private func getDisplayName(for vehicleType: String) -> String {
+        // Handle special NULL case (empty string from database)
+        if vehicleType.isEmpty || vehicleType.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "NUL - Not Specified"
+        }
+
+        // Handle UK special case (Unknown)
+        if vehicleType.uppercased() == "UK" {
+            return "UK - Unknown"
+        }
+
+        // Handle normal vehicle types
+        let typeDescription: String
+        switch vehicleType {
+        case "AB": typeDescription = "Bus"
+        case "AT": typeDescription = "Dealer Plates"
+        case "AU": typeDescription = "Automobile or Light Truck"
+        case "CA": typeDescription = "Truck or Road Tractor"
+        case "CY": typeDescription = "Moped"
+        case "HM": typeDescription = "Motorhome"
+        case "MC": typeDescription = "Motorcycle"
+        case "MN": typeDescription = "Snowmobile"
+        case "NV": typeDescription = "Other Off-Road Vehicle"
+        case "SN": typeDescription = "Snow Blower"
+        case "VO": typeDescription = "Tool Vehicle"
+        case "VT": typeDescription = "All-Terrain Vehicle"
+        default: return vehicleType
+        }
+
+        return "\(vehicleType.uppercased()) - \(typeDescription)"
+    }
+
+    private func getDescription(for vehicleType: String) -> String {
+        switch vehicleType {
+        case "AB": return "Bus"
+        case "AT": return "Dealer Plates (Auto/Temporary)"
+        case "AU": return "Automobile or Light Truck"
+        case "CA": return "Truck or Road Tractor"
+        case "CY": return "Moped"
+        case "HM": return "Motorhome"
+        case "MC": return "Motorcycle"
+        case "MN": return "Snowmobile"
+        case "NV": return "Other Off-Road Vehicle"
+        case "SN": return "Snow Blower"
+        case "UK": return "Unknown (user-assigned)"
+        case "VO": return "Tool Vehicle"
+        case "VT": return "All-Terrain Vehicle"
+        default: return "Unknown vehicle type: \(vehicleType)"
+        }
     }
 }
 
@@ -950,7 +1461,7 @@ struct MunicipalityFilterList: View {
             if displayItems.count > 8 {
                 HStack {
                     Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .font(.caption)
 
                     TextField("Search municipalities...", text: $searchText)
@@ -969,12 +1480,14 @@ struct MunicipalityFilterList: View {
                     selectedCodes = Set(filteredItems.map { $0.code })
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
                 .controlSize(.mini)
 
                 Button("Clear") {
                     selectedCodes.removeAll()
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
                 .controlSize(.mini)
 
                 Spacer()
@@ -985,9 +1498,9 @@ struct MunicipalityFilterList: View {
                             isExpanded.toggle()
                         }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
                     .font(.caption2)
-                    .foregroundColor(.accentColor)
+                    .tint(.accentColor)
                 }
             }
 
@@ -1013,6 +1526,7 @@ struct MunicipalityFilterList: View {
                         Text(item.name)
                             .font(.caption)
                             .multilineTextAlignment(.leading)
+                            .typesettingLanguage(.init(languageCode: .french))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .padding(.vertical, 1)
@@ -1024,7 +1538,7 @@ struct MunicipalityFilterList: View {
             if !searchText.isEmpty && filteredItems.count != displayItems.count {
                 Text("Showing \(filteredItems.count) of \(displayItems.count) municipalities")
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                     .padding(.top, 4)
             }
         }
@@ -1039,13 +1553,18 @@ struct MetricConfigurationSection: View {
     @Binding var metricType: ChartMetricType
     @Binding var metricField: ChartMetricField
     @Binding var percentageBaseFilters: PercentageBaseFilters?
+    @Binding var coverageField: CoverageField?
+    @Binding var coverageAsPercentage: Bool
+    @Binding var roadWearIndexMode: FilterConfiguration.RoadWearIndexMode
+    @Binding var normalizeRoadWearIndex: Bool
+    @Binding var showCumulativeSum: Bool
     let currentFilters: FilterConfiguration
 
     @State private var selectedCategoryToRemove: FilterCategory?
 
     enum FilterCategory: String, CaseIterable {
         case regions = "Admin Region"
-        case vehicleClassifications = "Vehicle Type"
+        case vehicleClasses = "Vehicle Class"
         case fuelTypes = "Fuel Type"
         case vehicleMakes = "Vehicle Make"
         case vehicleModels = "Vehicle Model"
@@ -1058,7 +1577,7 @@ struct MetricConfigurationSection: View {
     private var availableCategories: [FilterCategory] {
         var categories: [FilterCategory] = []
         if !currentFilters.regions.isEmpty { categories.append(.regions) }
-        if !currentFilters.vehicleClassifications.isEmpty { categories.append(.vehicleClassifications) }
+        if !currentFilters.vehicleClasses.isEmpty { categories.append(.vehicleClasses) }
         if !currentFilters.fuelTypes.isEmpty { categories.append(.fuelTypes) }
         if !currentFilters.vehicleMakes.isEmpty { categories.append(.vehicleMakes) }
         if !currentFilters.vehicleModels.isEmpty { categories.append(.vehicleModels) }
@@ -1066,7 +1585,30 @@ struct MetricConfigurationSection: View {
         if !currentFilters.mrcs.isEmpty { categories.append(.mrcs) }
         if !currentFilters.municipalities.isEmpty { categories.append(.municipalities) }
         if !currentFilters.ageRanges.isEmpty { categories.append(.ageRanges) }
+
+        // Ensure selected category is always included even if filter is temporarily empty
+        if let selected = selectedCategoryToRemove, !categories.contains(selected) {
+            categories.append(selected)
+        }
+
         return categories
+    }
+
+    /// Available metric types based on data entity type
+    private var availableMetricTypes: [ChartMetricType] {
+        switch currentFilters.dataEntityType {
+        case .license:
+            // License data only has meaningful count, percentage, and coverage metrics
+            return [.count, .percentage, .coverage]
+        case .vehicle:
+            // Vehicle data supports all metric types (count, sum, average, percentage, coverage)
+            return ChartMetricType.allCases
+        }
+    }
+
+    /// Available fields for coverage analysis based on data entity type
+    private var availableCoverageFields: [CoverageField] {
+        return CoverageField.allCases.filter { $0.isApplicable(to: currentFilters.dataEntityType) }
     }
 
     var body: some View {
@@ -1075,10 +1617,10 @@ struct MetricConfigurationSection: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Metric Type")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 Picker("", selection: $metricType) {
-                    ForEach(ChartMetricType.allCases, id: \.self) { type in
+                    ForEach(availableMetricTypes, id: \.self) { type in
                         Text(type.description).tag(type)
                     }
                 }
@@ -1086,12 +1628,13 @@ struct MetricConfigurationSection: View {
                 .labelsHidden()
             }
 
-            // Field selector (shown for sum and average)
-            if metricType == .sum || metricType == .average {
+            // Field selector (shown for sum, average, minimum, and maximum)
+            if metricType == .sum || metricType == .average || metricType == .minimum || metricType == .maximum {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Field to \(metricType == .sum ? "Sum" : "Average")")
+                    let preposition = (metricType == .minimum || metricType == .maximum) ? "for" : "to"
+                    Text("Field \(preposition) \(metricType.rawValue)")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
 
                     Picker("", selection: $metricField) {
                         ForEach(ChartMetricField.allCases.filter { $0 != .none }, id: \.self) { field in
@@ -1099,7 +1642,7 @@ struct MetricConfigurationSection: View {
                                 Text(field.rawValue)
                                 if let unit = field.unit {
                                     Text("(\(unit))")
-                                        .foregroundColor(.secondary)
+                                        .foregroundStyle(.secondary)
                                 }
                             }.tag(field)
                         }
@@ -1107,6 +1650,7 @@ struct MetricConfigurationSection: View {
                     .pickerStyle(.menu)
                     .labelsHidden()
                     .frame(maxWidth: .infinity)
+                    .controlSize(.small)
                 }
             }
 
@@ -1115,7 +1659,7 @@ struct MetricConfigurationSection: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Numerator Category")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                     Picker("", selection: Binding(
                         get: { selectedCategoryToRemove },
                         set: { newCategory in
@@ -1135,11 +1679,12 @@ struct MetricConfigurationSection: View {
                     .pickerStyle(.menu)
                     .labelsHidden()
                     .frame(maxWidth: .infinity)
+                    .controlSize(.small)
 
                     if selectedCategoryToRemove != nil {
-                        Text("Percentage of vehicles within other selected filters")
+                        Text("Percentage of \(currentFilters.dataEntityType == .license ? "license holders" : "vehicles") within other selected filters")
                             .font(.caption2)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(Color.gray.opacity(0.1))
@@ -1148,14 +1693,114 @@ struct MetricConfigurationSection: View {
                 }
             }
 
+            // Coverage configuration
+            if metricType == .coverage {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Field to Analyze")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Picker("", selection: $coverageField) {
+                        Text("Select field...").tag(CoverageField?.none)
+                        ForEach(availableCoverageFields, id: \.self) { field in
+                            Text(field.rawValue).tag(CoverageField?.some(field))
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+                    .controlSize(.small)
+
+                    if coverageField != nil {
+                        // Toggle between percentage and raw count
+                        Toggle(isOn: $coverageAsPercentage) {
+                            Text("Show as percentage")
+                                .font(.caption)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+
+                        Text(coverageAsPercentage
+                            ? "Percentage of records with non-NULL \(coverageField?.rawValue ?? "") values"
+                            : "Count of NULL \(coverageField?.rawValue ?? "") values")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(4)
+                    }
+                }
+            }
+
+            // Road Wear Index configuration
+            if metricType == .roadWearIndex {
+                VStack(alignment: .leading, spacing: 8) {
+                    // Mode selector (Average vs Sum)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Road Wear Index Mode")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Picker("Mode", selection: $roadWearIndexMode) {
+                            ForEach(FilterConfiguration.RoadWearIndexMode.allCases, id: \.self) { mode in
+                                Text(mode.rawValue).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+
+                    // Normalization toggle
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(isOn: $normalizeRoadWearIndex) {
+                            Text("Normalize to first year")
+                                .font(.caption)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+
+                        Text(normalizeRoadWearIndex
+                            ? "First year = 1.0, other years show relative change"
+                            : "Shows raw RWI values (mass^4)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(4)
+                    }
+                }
+            }
+
+            // Cumulative sum toggle (available for all metrics)
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(isOn: $showCumulativeSum) {
+                    Text("Show cumulative sum")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+                Text(showCumulativeSum
+                    ? "Each year shows total accumulated from all previous years"
+                    : "Each year shows value for that year only")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(4)
+            }
+
             // Description of what will be displayed
-            if metricType != .count {
+            // Skip for coverage when field is selected since we already show description above
+            if metricType != .count && !(metricType == .coverage && coverageField != nil) {
                 HStack(spacing: 4) {
                     Image(systemName: "chart.line.uptrend.xyaxis")
                         .font(.caption)
                     Text(descriptionText)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
@@ -1164,6 +1809,12 @@ struct MetricConfigurationSection: View {
             }
         }
         .padding(.vertical, 4)
+        .onChange(of: currentFilters.dataEntityType) { newDataType in
+            // Reset metric type to count if current selection is not available for the new data type
+            if !availableMetricTypes.contains(metricType) {
+                metricType = .count
+            }
+        }
     }
 
     private func createBaselineFilters(droppingCategory: FilterCategory) -> PercentageBaseFilters {
@@ -1172,8 +1823,8 @@ struct MetricConfigurationSection: View {
         switch droppingCategory {
         case .regions:
             baseFilters.regions.removeAll()
-        case .vehicleClassifications:
-            baseFilters.vehicleClassifications.removeAll()
+        case .vehicleClasses:
+            baseFilters.vehicleClasses.removeAll()
         case .fuelTypes:
             baseFilters.fuelTypes.removeAll()
         case .vehicleMakes:
@@ -1225,10 +1876,169 @@ struct MetricConfigurationSection: View {
             default:
                 return "Average \(metricField.rawValue)"
             }
+        case .minimum:
+            switch metricField {
+            case .netMass:
+                return "Minimum vehicle weight"
+            case .displacement:
+                return "Minimum engine displacement"
+            case .cylinderCount:
+                return "Minimum cylinders per vehicle"
+            case .vehicleAge:
+                return "Minimum age of vehicles"
+            case .modelYear:
+                return "Minimum model year"
+            default:
+                return "Minimum \(metricField.rawValue)"
+            }
+        case .maximum:
+            switch metricField {
+            case .netMass:
+                return "Maximum vehicle weight"
+            case .displacement:
+                return "Maximum engine displacement"
+            case .cylinderCount:
+                return "Maximum cylinders per vehicle"
+            case .vehicleAge:
+                return "Maximum age of vehicles"
+            case .modelYear:
+                return "Maximum model year"
+            default:
+                return "Maximum \(metricField.rawValue)"
+            }
         case .percentage:
             return "Percentage of baseline category"
+        case .coverage:
+            if let field = coverageField {
+                return coverageAsPercentage
+                    ? "Percentage of records with non-NULL \(field.rawValue)"
+                    : "Count of NULL \(field.rawValue) values"
+            } else {
+                return "Select a field to analyze coverage"
+            }
+        case .roadWearIndex:
+            return currentFilters.roadWearIndexMode == .average
+                ? "Average road wear index (4th power law)"
+                : "Total road wear index (4th power law)"
         }
     }
+}
 
+// MARK: - License Filter Section
+
+struct LicenseFilterSection: View {
+    @Binding var selectedLicenseTypes: Set<String>
+    @Binding var selectedAgeGroups: Set<String>
+    @Binding var selectedGenders: Set<String>
+    @Binding var selectedExperienceLevels: Set<String>
+    @Binding var selectedLicenseClasses: Set<String>
+
+    let availableLicenseTypes: [String]
+    let availableAgeGroups: [String]
+    let availableGenders: [String]
+    let availableExperienceLevels: [String]
+    let availableLicenseClasses: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // License Types
+            if !availableLicenseTypes.isEmpty {
+                Text("License Type")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                SearchableFilterList(
+                    items: availableLicenseTypes,
+                    selectedItems: $selectedLicenseTypes,
+                    searchPrompt: "Search license types..."
+                )
+            }
+
+            // Age Groups
+            if !availableAgeGroups.isEmpty {
+                Divider()
+
+                Text("Age Group")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                SearchableFilterList(
+                    items: availableAgeGroups,
+                    selectedItems: $selectedAgeGroups,
+                    searchPrompt: "Search age groups..."
+                )
+            }
+
+            // Gender
+            if !availableGenders.isEmpty {
+                Divider()
+
+                Text("Gender")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                SearchableFilterList(
+                    items: availableGenders.map { gender in
+                        switch gender {
+                        case "F": return "Female"
+                        case "M": return "Male"
+                        default: return gender
+                        }
+                    },
+                    selectedItems: Binding(
+                        get: {
+                            Set(selectedGenders.map { gender in
+                                switch gender {
+                                case "F": return "Female"
+                                case "M": return "Male"
+                                default: return gender
+                                }
+                            })
+                        },
+                        set: { displayValues in
+                            selectedGenders = Set(displayValues.map { displayValue in
+                                switch displayValue {
+                                case "Female": return "F"
+                                case "Male": return "M"
+                                default: return displayValue
+                                }
+                            })
+                        }
+                    ),
+                    searchPrompt: "Search genders..."
+                )
+            }
+
+            // Experience Levels
+            if !availableExperienceLevels.isEmpty {
+                Divider()
+
+                Text("Experience Level")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                SearchableFilterList(
+                    items: availableExperienceLevels,
+                    selectedItems: $selectedExperienceLevels,
+                    searchPrompt: "Search experience levels..."
+                )
+            }
+
+            // License Classes
+            if !availableLicenseClasses.isEmpty {
+                Divider()
+
+                Text("License Classes")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                SearchableFilterList(
+                    items: availableLicenseClasses,
+                    selectedItems: $selectedLicenseClasses,
+                    searchPrompt: "Search license classes..."
+                )
+            }
+        }
+    }
 }
 

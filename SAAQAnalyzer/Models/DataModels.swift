@@ -1,15 +1,16 @@
 import Foundation
 import SwiftUI
-import Combine
+import Observation
+import SQLite3
 
 // MARK: - Vehicle Registration Models
 
 /// Represents a vehicle registration record from SAAQ data
-struct VehicleRegistration: Codable {
+struct VehicleRegistration: Codable, Sendable {
     let year: Int                       // AN
     let vehicleSequence: String         // NOSEQ_VEH
     let classification: String          // CLAS (PAU, CMC, etc.)
-    let vehicleType: String            // TYP_VEH_CATEG_USA
+    let vehicleClass: String            // TYP_VEH_CATEG_USA
     let make: String                   // MARQ_VEH
     let model: String                  // MODEL_VEH
     let modelYear: Int?                // ANNEE_MOD
@@ -31,7 +32,7 @@ struct VehicleRegistration: Codable {
 }
 
 /// Vehicle classification types
-enum VehicleClassification: String, CaseIterable {
+enum VehicleClass: String, CaseIterable, Sendable {
     // Personal use
     case pau = "PAU"  // Automobile ou camion léger
     case pmc = "PMC"  // Motocyclette
@@ -63,9 +64,12 @@ enum VehicleClassification: String, CaseIterable {
     // Off-road use
     case hau = "HAU"  // Automobile ou camion léger (hors route)
     case hcy = "HCY"  // Cyclomoteur (hors route)
-    
-    // Additional classifications
-    case hmn = "HMN"  // Unknown/Other classification
+    case hab = "HAB"  // Autobus (hors route)
+    case hca = "HCA"  // Camion ou tracteur routier (hors route)
+    case hmn = "HMN"  // Motoneige (hors route)
+    case hvt = "HVT"  // Véhicule tout-terrain (hors route)
+    case hvo = "HVO"  // Véhicule-outil (hors route)
+    case hot = "HOT"  // Autres (hors route)
     
     var description: String {
         switch self {
@@ -93,13 +97,18 @@ enum VehicleClassification: String, CaseIterable {
         case .rot: return "Other restricted"
         case .hau: return "Off-road automobile/light truck"
         case .hcy: return "Off-road moped"
-        case .hmn: return "Other/Unknown classification"
+        case .hab: return "Off-road bus"
+        case .hca: return "Off-road truck/road tractor"
+        case .hmn: return "Off-road snowmobile"
+        case .hvt: return "Off-road all-terrain vehicle (ATV)"
+        case .hvo: return "Off-road tool vehicle"
+        case .hot: return "Other off-road"
         }
     }
 }
 
 /// Fuel type codes (available from 2017+)
-enum FuelType: String, CaseIterable {
+enum FuelType: String, CaseIterable, Sendable {
     case electric = "L"      // Électricité
     case gasoline = "E"      // Essence
     case diesel = "D"        // Diesel
@@ -131,16 +140,826 @@ enum FuelType: String, CaseIterable {
     }
 }
 
+// MARK: - Driver's License Models
+
+/// Represents a driver's license record from SAAQ data
+struct DriverLicense: Codable, Sendable {
+    let year: Int                           // AN
+    let licenseSequence: String             // NOSEQ_TITUL
+    let ageGroup: String                    // AGE_1ER_JUIN
+    let gender: String                      // SEXE
+    let mrc: String                         // MRC
+    let adminRegion: String                 // REG_ADM
+    let licenseType: String                 // TYPE_PERMIS
+    let hasLearnerPermit123: Bool           // IND_PERMISAPPRENTI_123
+    let hasLearnerPermit5: Bool             // IND_PERMISAPPRENTI_5
+    let hasLearnerPermit6A6R: Bool          // IND_PERMISAPPRENTI_6A6R
+    let hasDriverLicense1234: Bool          // IND_PERMISCONDUIRE_1234
+    let hasDriverLicense5: Bool             // IND_PERMISCONDUIRE_5
+    let hasDriverLicense6ABCE: Bool         // IND_PERMISCONDUIRE_6ABCE
+    let hasDriverLicense6D: Bool            // IND_PERMISCONDUIRE_6D
+    let hasDriverLicense8: Bool             // IND_PERMISCONDUIRE_8
+    let isProbationary: Bool                // IND_PROBATOIRE
+    let experience1234: String              // EXPERIENCE_1234
+    let experience5: String                 // EXPERIENCE_5
+    let experience6ABCE: String             // EXPERIENCE_6ABCE
+    let experienceGlobal: String            // EXPERIENCE_GLOBALE
+}
+
+// MARK: - Categorical Enumeration Models
+
+/// Base protocol for categorical enumeration
+protocol CategoricalEnum: Codable, Hashable {
+    var id: Int { get }
+    var displayValue: String { get }
+}
+
+/// Year enumeration (12 values)
+struct YearEnum: CategoricalEnum, Sendable {
+    let id: Int  // TINYINT
+    let year: Int
+
+    var displayValue: String { String(year) }
+}
+
+/// Vehicle classification enumeration (30 values)
+struct ClassificationEnum: CategoricalEnum, Sendable {
+    let id: Int  // TINYINT
+    let code: String      // PAU, CMC, etc.
+    let description: String
+
+    var displayValue: String { code }
+}
+
+/// Vehicle make enumeration (418 values)
+struct MakeEnum: CategoricalEnum, Sendable {
+    let id: Int  // SMALLINT
+    let name: String
+
+    var displayValue: String { name }
+}
+
+/// Vehicle model enumeration (9,923 values)
+struct ModelEnum: CategoricalEnum, Sendable {
+    let id: Int  // SMALLINT
+    let name: String
+    let makeId: Int
+
+    var displayValue: String { name }
+}
+
+/// Model year enumeration (120 values)
+struct ModelYearEnum: CategoricalEnum, Sendable {
+    let id: Int  // SMALLINT
+    let year: Int
+
+    var displayValue: String { String(year) }
+}
+
+/// Cylinder count enumeration (9 values)
+struct CylinderCountEnum: CategoricalEnum, Sendable {
+    let id: Int  // TINYINT
+    let count: Int
+
+    var displayValue: String { String(count) }
+}
+
+/// Axle count enumeration (6 values)
+struct AxleCountEnum: CategoricalEnum, Sendable {
+    let id: Int  // TINYINT
+    let count: Int
+
+    var displayValue: String { String(count) }
+}
+
+/// Vehicle color enumeration (21 values)
+struct ColorEnum: CategoricalEnum, Sendable {
+    let id: Int  // TINYINT
+    let name: String
+
+    var displayValue: String { name }
+}
+
+/// Fuel type enumeration (13 values)
+struct FuelTypeEnum: CategoricalEnum, Sendable {
+    let id: Int  // TINYINT
+    let code: String      // E, D, L, H, etc.
+    let description: String
+
+    var displayValue: String { description }
+}
+
+/// Administrative region enumeration (18/35 values)
+struct AdminRegionEnum: CategoricalEnum, Sendable {
+    let id: Int  // TINYINT
+    let code: String
+    let name: String
+
+    var displayValue: String { name }
+}
+
+/// MRC enumeration (106 values)
+struct MRCEnum: CategoricalEnum, Sendable {
+    let id: Int  // SMALLINT
+    let code: String
+    let name: String
+
+    var displayValue: String { name }
+}
+
+/// Municipality enumeration (129 values)
+struct MunicipalityEnum: CategoricalEnum, Sendable {
+    let id: Int  // SMALLINT
+    let code: String
+    let name: String
+
+    var displayValue: String { name }
+}
+
+/// Age group enumeration (8 values)
+struct AgeGroupEnum: CategoricalEnum, Sendable {
+    let id: Int  // TINYINT
+    let range: String     // "16-19", "20-24", etc.
+
+    var displayValue: String { range }
+}
+
+/// Gender enumeration (2 values)
+struct GenderEnum: CategoricalEnum, Sendable {
+    let id: Int  // TINYINT
+    let code: String      // M, F
+    let description: String
+
+    var displayValue: String { description }
+}
+
+/// License type enumeration (3 values)
+struct LicenseTypeEnum: CategoricalEnum, Sendable {
+    let id: Int  // TINYINT
+    let typeName: String
+    let description: String
+
+    var displayValue: String { description }
+}
+
+/// Optimized vehicle registration with enumerated categorical data
+struct OptimizedVehicleRegistration: Codable, Sendable {
+    // Core identifiers
+    let yearId: Int                    // TINYINT → year enum
+    let vehicleSequence: String        // Keep as-is for uniqueness constraint
+
+    // Categorical enums (significant storage reduction)
+    let classificationId: Int          // TINYINT → 30 classifications
+    let makeId: Int                   // SMALLINT → 418 makes
+    let modelId: Int                  // SMALLINT → 9,923 models
+    let modelYearId: Int?             // SMALLINT → 120 model years
+    let cylinderCountId: Int?         // TINYINT → 9 cylinder counts
+    let axleCountId: Int?             // TINYINT → 6 axle counts
+    let originalColorId: Int?         // TINYINT → 21 colors
+    let fuelTypeId: Int?              // TINYINT → 13 fuel types
+    let adminRegionId: Int            // TINYINT → 18/35 regions
+    let mrcId: Int                    // SMALLINT → 106 MRCs
+    let municipalityId: Int           // SMALLINT → 129 municipalities
+
+    // Optimized numeric data
+    let netMass: Int?                 // SMALLINT instead of REAL (kg)
+    let displacement: Int?            // SMALLINT instead of REAL (cm³)
+
+    /// Get actual year value
+    func getYear(from yearEnum: YearEnum) -> Int {
+        return yearEnum.year
+    }
+
+    /// Calculate vehicle age for a given year
+    func age(in year: Int, modelYear: Int?) -> Int? {
+        guard let modelYear = modelYear else { return nil }
+        return year - modelYear
+    }
+}
+
+/// Optimized driver license with enumerated categorical data
+struct OptimizedDriverLicense: Codable, Sendable {
+    // Core identifiers
+    let yearId: Int                    // TINYINT → year enum
+    let licenseSequence: String        // Keep as-is for uniqueness constraint
+
+    // Categorical enums
+    let ageGroupId: Int               // TINYINT → 8 age groups
+    let genderId: Int                 // TINYINT → 2 genders
+    let mrcId: Int                    // SMALLINT → 106 MRCs
+    let adminRegionId: Int            // TINYINT → 35 regions
+    let licenseTypeId: Int            // TINYINT → license types
+
+    // Boolean flags (remain as-is, very efficient)
+    let hasLearnerPermit123: Bool
+    let hasLearnerPermit5: Bool
+    let hasLearnerPermit6A6R: Bool
+    let hasDriverLicense1234: Bool
+    let hasDriverLicense5: Bool
+    let hasDriverLicense6ABCE: Bool
+    let hasDriverLicense6D: Bool
+    let hasDriverLicense8: Bool
+    let isProbationary: Bool
+
+    // Experience fields (could be enumerated if patterns emerge)
+    let experience1234: String
+    let experience5: String
+    let experience6ABCE: String
+    let experienceGlobal: String
+}
+
+/// Categorical lookup cache for UI performance
+@Observable
+class CategoricalLookupCache {
+    // Cached enumerations for fast UI lookups (all O(1) access)
+    private var years: [Int: YearEnum] = [:]
+    private var classifications: [Int: ClassificationEnum] = [:]
+    private var makes: [Int: MakeEnum] = [:]
+    private var models: [Int: ModelEnum] = [:]
+    private var modelYears: [Int: ModelYearEnum] = [:]
+    internal var cylinderCounts: [Int: CylinderCountEnum] = [:]
+    internal var axleCounts: [Int: AxleCountEnum] = [:]
+    private var colors: [Int: ColorEnum] = [:]
+    private var fuelTypes: [Int: FuelTypeEnum] = [:]
+    private var adminRegions: [Int: AdminRegionEnum] = [:]
+    private var mrcs: [Int: MRCEnum] = [:]
+    private var municipalities: [Int: MunicipalityEnum] = [:]
+    private var ageGroups: [Int: AgeGroupEnum] = [:]
+    private var genders: [Int: GenderEnum] = [:]
+
+    // Reverse lookups for string → ID conversion (critical for query optimization)
+    internal var yearsByValue: [Int: Int] = [:]  // year → id
+    private var classificationsByCode: [String: Int] = [:]  // code → id
+    private var makesByName: [String: Int] = [:]  // name → id
+    private var modelsByName: [String: Int] = [:]  // name → id (note: models may have duplicates across makes)
+    private var fuelTypesByCode: [String: Int] = [:]  // code → id
+    private var regionsByCode: [String: Int] = [:]  // code → id
+    private var mrcsByCode: [String: Int] = [:]  // code → id
+    private var municipalitiesByCode: [String: Int] = [:]  // code → id
+    private var ageGroupsByRange: [String: Int] = [:]  // range → id
+    private var gendersByCode: [String: Int] = [:]  // code → id
+
+    var isLoaded = false
+    var loadingProgress: Double = 0.0
+
+    /// Initialize cache from database - critical for UI responsiveness
+    func loadCache(from databaseManager: DatabaseManager) async throws {
+        print("🔄 Loading categorical lookup cache...")
+
+        await MainActor.run { loadingProgress = 0.0 }
+
+        try await loadYears(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.1 }
+
+        try await loadVehicleClasses(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.2 }
+
+        try await loadMakes(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.3 }
+
+        try await loadModels(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.4 }
+
+        try await loadModelYears(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.5 }
+
+        try await loadCylinderCounts(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.6 }
+
+        try await loadColors(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.7 }
+
+        try await loadFuelTypes(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.8 }
+
+        try await loadGeographicData(from: databaseManager)
+        await MainActor.run { loadingProgress = 0.9 }
+
+        try await loadLicenseData(from: databaseManager)
+        await MainActor.run {
+            loadingProgress = 1.0
+            isLoaded = true
+        }
+
+        print("✅ Categorical lookup cache loaded with \(getTotalCacheSize()) entries")
+    }
+
+    // MARK: - Cache Loading Methods
+
+    private func loadYears(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, year FROM year_enum ORDER BY year;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let year = Int(sqlite3_column_int(stmt, 1))
+
+                    let yearEnum = YearEnum(id: id, year: year)
+                    years[id] = yearEnum
+                    yearsByValue[year] = id
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load years: \(error)"))
+            }
+        }
+    }
+
+    private func loadVehicleClasses(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, code, description FROM vehicle_class_enum ORDER BY code;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let description = String(cString: sqlite3_column_text(stmt, 2))
+
+                    let classificationEnum = ClassificationEnum(id: id, code: code, description: description)
+                    classifications[id] = classificationEnum
+                    classificationsByCode[code] = id
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load classifications: \(error)"))
+            }
+        }
+    }
+
+    private func loadMakes(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, name FROM make_enum ORDER BY name;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let name = String(cString: sqlite3_column_text(stmt, 1))
+
+                    let makeEnum = MakeEnum(id: id, name: name)
+                    makes[id] = makeEnum
+                    makesByName[name] = id
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load makes: \(error)"))
+            }
+        }
+    }
+
+    private func loadModels(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, name, make_id FROM model_enum ORDER BY name;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let name = String(cString: sqlite3_column_text(stmt, 1))
+                    let makeId = Int(sqlite3_column_int(stmt, 2))
+
+                    let modelEnum = ModelEnum(id: id, name: name, makeId: makeId)
+                    models[id] = modelEnum
+                    // Note: models can have duplicates across makes, so we store by make+model
+                    if let make = makes[makeId] {
+                        modelsByName["\(make.name)|\(name)"] = id
+                    }
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load models: \(error)"))
+            }
+        }
+    }
+
+    private func loadModelYears(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, year FROM model_year_enum ORDER BY year;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let year = Int(sqlite3_column_int(stmt, 1))
+
+                    let modelYearEnum = ModelYearEnum(id: id, year: year)
+                    modelYears[id] = modelYearEnum
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load model years: \(error)"))
+            }
+        }
+    }
+
+    private func loadCylinderCounts(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, count FROM cylinder_count_enum ORDER BY count;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let count = Int(sqlite3_column_int(stmt, 1))
+
+                    let cylinderEnum = CylinderCountEnum(id: id, count: count)
+                    cylinderCounts[id] = cylinderEnum
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load cylinder counts: \(error)"))
+            }
+        }
+    }
+
+    private func loadColors(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, name FROM color_enum ORDER BY name;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let name = String(cString: sqlite3_column_text(stmt, 1))
+
+                    let colorEnum = ColorEnum(id: id, name: name)
+                    colors[id] = colorEnum
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load colors: \(error)"))
+            }
+        }
+    }
+
+    private func loadFuelTypes(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            let sql = "SELECT id, code, description FROM fuel_type_enum ORDER BY code;"
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let description = String(cString: sqlite3_column_text(stmt, 2))
+
+                    let fuelTypeEnum = FuelTypeEnum(id: id, code: code, description: description)
+                    fuelTypes[id] = fuelTypeEnum
+                    fuelTypesByCode[code] = id
+                }
+                continuation.resume()
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load fuel types: \(error)"))
+            }
+        }
+    }
+
+    private func loadGeographicData(from databaseManager: DatabaseManager) async throws {
+        // Load admin regions
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            // Load admin regions
+            let regionSQL = "SELECT id, code, name FROM admin_region_enum ORDER BY name;"
+            if sqlite3_prepare_v2(db, regionSQL, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let name = String(cString: sqlite3_column_text(stmt, 2))
+
+                    let regionEnum = AdminRegionEnum(id: id, code: code, name: name)
+                    adminRegions[id] = regionEnum
+                    regionsByCode[code] = id
+                }
+            }
+            sqlite3_finalize(stmt)
+            stmt = nil
+
+            // Load MRCs
+            let mrcSQL = "SELECT id, code, name FROM mrc_enum ORDER BY name;"
+            if sqlite3_prepare_v2(db, mrcSQL, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let name = String(cString: sqlite3_column_text(stmt, 2))
+
+                    let mrcEnum = MRCEnum(id: id, code: code, name: name)
+                    mrcs[id] = mrcEnum
+                    mrcsByCode[code] = id
+                }
+            }
+            sqlite3_finalize(stmt)
+            stmt = nil
+
+            // Load municipalities
+            let municipalitySQL = "SELECT id, code, name FROM municipality_enum ORDER BY name;"
+            if sqlite3_prepare_v2(db, municipalitySQL, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let name = String(cString: sqlite3_column_text(stmt, 2))
+
+                    let municipalityEnum = MunicipalityEnum(id: id, code: code, name: name)
+                    municipalities[id] = municipalityEnum
+                    municipalitiesByCode[code] = id
+                }
+            }
+
+            continuation.resume()
+        }
+    }
+
+    private func loadLicenseData(from databaseManager: DatabaseManager) async throws {
+        guard let db = databaseManager.db else { throw DatabaseError.notConnected }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            // Load age groups
+            let ageSQL = "SELECT id, range_text FROM age_group_enum ORDER BY id;"
+            if sqlite3_prepare_v2(db, ageSQL, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let range = String(cString: sqlite3_column_text(stmt, 1))
+
+                    let ageGroupEnum = AgeGroupEnum(id: id, range: range)
+                    ageGroups[id] = ageGroupEnum
+                    ageGroupsByRange[range] = id
+                }
+            }
+            sqlite3_finalize(stmt)
+            stmt = nil
+
+            // Load genders
+            let genderSQL = "SELECT id, code, description FROM gender_enum ORDER BY code;"
+            if sqlite3_prepare_v2(db, genderSQL, -1, &stmt, nil) == SQLITE_OK {
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let description = String(cString: sqlite3_column_text(stmt, 2))
+
+                    let genderEnum = GenderEnum(id: id, code: code, description: description)
+                    genders[id] = genderEnum
+                    gendersByCode[code] = id
+                }
+            }
+
+            continuation.resume()
+        }
+    }
+
+    // MARK: - Lookup Methods
+
+    /// Get display value for any categorical enum ID
+    func getDisplayValue(for id: Int, type: any CategoricalEnum.Type) -> String? {
+        switch type {
+        case is YearEnum.Type:
+            return years[id]?.displayValue
+        case is ClassificationEnum.Type:
+            return classifications[id]?.displayValue
+        case is MakeEnum.Type:
+            return makes[id]?.displayValue
+        case is ModelEnum.Type:
+            return models[id]?.displayValue
+        case is FuelTypeEnum.Type:
+            return fuelTypes[id]?.displayValue
+        case is AdminRegionEnum.Type:
+            return adminRegions[id]?.displayValue
+        case is MRCEnum.Type:
+            return mrcs[id]?.displayValue
+        case is MunicipalityEnum.Type:
+            return municipalities[id]?.displayValue
+        case is AgeGroupEnum.Type:
+            return ageGroups[id]?.displayValue
+        case is GenderEnum.Type:
+            return genders[id]?.displayValue
+        default:
+            return nil
+        }
+    }
+
+    /// Get enumeration ID for string value (critical for query performance)
+    func getEnumId(for value: String, type: any CategoricalEnum.Type) -> Int? {
+        switch type {
+        case is ClassificationEnum.Type:
+            return classificationsByCode[value]
+        case is MakeEnum.Type:
+            return makesByName[value]
+        case is FuelTypeEnum.Type:
+            return fuelTypesByCode[value]
+        case is AdminRegionEnum.Type:
+            return regionsByCode[value]
+        case is MRCEnum.Type:
+            return mrcsByCode[value]
+        case is MunicipalityEnum.Type:
+            return municipalitiesByCode[value]
+        case is AgeGroupEnum.Type:
+            return ageGroupsByRange[value]
+        case is GenderEnum.Type:
+            return gendersByCode[value]
+        default:
+            return nil
+        }
+    }
+
+    /// Get year enum ID (special case for frequently used lookups)
+    func getYearId(for year: Int) -> Int? {
+        return yearsByValue[year]
+    }
+
+    /// Get model ID for make+model combination
+    func getModelId(for model: String, make: String) -> Int? {
+        return modelsByName["\(make)|\(model)"]
+    }
+
+    // MARK: - Cache Statistics
+
+    func getTotalCacheSize() -> Int {
+        return years.count + classifications.count + makes.count + models.count +
+               modelYears.count + cylinderCounts.count + colors.count + fuelTypes.count +
+               adminRegions.count + mrcs.count + municipalities.count + ageGroups.count + genders.count
+    }
+
+    func getCacheStatistics() -> String {
+        return """
+        Categorical Cache Statistics:
+        - Years: \(years.count)
+        - Classifications: \(classifications.count)
+        - Makes: \(makes.count)
+        - Models: \(models.count)
+        - Model Years: \(modelYears.count)
+        - Fuel Types: \(fuelTypes.count)
+        - Regions: \(adminRegions.count)
+        - MRCs: \(mrcs.count)
+        - Municipalities: \(municipalities.count)
+        - Age Groups: \(ageGroups.count)
+        - Genders: \(genders.count)
+        Total: \(getTotalCacheSize()) cached entries
+        """
+    }
+}
+
+/// Driver's license types
+enum LicenseType: String, CaseIterable, Sendable {
+    case learner = "APPRENTI"       // Learner's permit
+    case probationary = "PROBATOIRE" // Probationary license
+    case regular = "RÉGULIER"       // Regular license
+
+    var description: String {
+        switch self {
+        case .learner: return "Learner's Permit"
+        case .probationary: return "Probationary License"
+        case .regular: return "Regular License"
+        }
+    }
+}
+
+/// Age groups for license holders
+enum AgeGroup: String, CaseIterable, Sendable {
+    case age16_19 = "16-19"
+    case age20_24 = "20-24"
+    case age25_34 = "25-34"
+    case age35_44 = "35-44"
+    case age45_54 = "45-54"
+    case age55_64 = "55-64"
+    case age65_74 = "65-74"
+    case age75Plus = "75+"
+
+    var description: String {
+        switch self {
+        case .age16_19: return "16-19 years"
+        case .age20_24: return "20-24 years"
+        case .age25_34: return "25-34 years"
+        case .age35_44: return "35-44 years"
+        case .age45_54: return "45-54 years"
+        case .age55_64: return "55-64 years"
+        case .age65_74: return "65-74 years"
+        case .age75Plus: return "75+ years"
+        }
+    }
+}
+
+/// Gender classification
+enum Gender: String, CaseIterable, Sendable {
+    case female = "F"
+    case male = "M"
+
+    var description: String {
+        switch self {
+        case .female: return "Female"
+        case .male: return "Male"
+        }
+    }
+}
+
+/// Driving experience levels
+enum ExperienceLevel: String, CaseIterable, Sendable {
+    case absent = "Absente"
+    case under2Years = "Moins de 2 ans"
+    case years2to5 = "2 à 5 ans"
+    case years6to9 = "6 à 9 ans"
+    case years10Plus = "10 ans ou plus"
+
+    var description: String {
+        switch self {
+        case .absent: return "No Experience"
+        case .under2Years: return "Less than 2 years"
+        case .years2to5: return "2 to 5 years"
+        case .years6to9: return "6 to 9 years"
+        case .years10Plus: return "10+ years"
+        }
+    }
+}
+
+// MARK: - Data Entity Type and Shared Protocol
+
+/// Type of data entity being analyzed
+enum DataEntityType: String, CaseIterable, Sendable {
+    case vehicle = "Vehicle"
+    case license = "License"
+
+    var description: String {
+        switch self {
+        case .vehicle: return "Vehicle Registration"
+        case .license: return "Driver's License"
+        }
+    }
+
+    var pluralDescription: String {
+        switch self {
+        case .vehicle: return "Vehicle Registrations"
+        case .license: return "Driver's Licenses"
+        }
+    }
+}
+
+/// Protocol for shared fields between vehicles and licenses
+protocol SAAQDataRecord {
+    var year: Int { get }
+    var adminRegion: String { get }
+    var mrc: String { get }
+}
+
+extension VehicleRegistration: SAAQDataRecord {}
+extension DriverLicense: SAAQDataRecord {}
+
 // MARK: - Geographic Models
 
 /// Represents a geographic entity (municipality, MRC, region)
-struct GeographicEntity: Codable, Hashable {
+struct GeographicEntity: Codable, Hashable, Sendable {
     let code: String
     let name: String
     let type: GeographicLevel
     let parentCode: String?
-    
-    enum GeographicLevel: String, Codable {
+
+    enum GeographicLevel: String, Codable, Sendable {
         case municipality
         case mrc
         case adminRegion
@@ -148,7 +967,7 @@ struct GeographicEntity: Codable, Hashable {
 }
 
 /// Administrative regions in Quebec
-enum AdministrativeRegion: String, CaseIterable {
+enum AdministrativeRegion: String, CaseIterable, Sendable {
     case basStLaurent = "01"
     case saguenayLacStJean = "02"
     case capitaleNationale = "03"
@@ -192,13 +1011,98 @@ enum AdministrativeRegion: String, CaseIterable {
 
 // MARK: - Filter Configuration
 
+// MARK: - Coverage Field Selection
+/// Fields that can be analyzed for NULL coverage
+enum CoverageField: String, CaseIterable, Sendable {
+    // Vehicle-specific fields
+    case fuelType = "Fuel Type"
+    case vehicleClass = "Vehicle Class"
+    case vehicleMake = "Vehicle Make"
+    case vehicleModel = "Vehicle Model"
+    case vehicleColor = "Vehicle Color"
+    case modelYear = "Model Year"
+    case netMass = "Vehicle Mass"
+    case displacement = "Engine Displacement"
+    case cylinderCount = "Cylinders"
+
+    // Geographic fields (applicable to both)
+    case adminRegion = "Admin Region"
+    case mrc = "MRC"
+    case municipality = "Municipality"
+
+    // License-specific fields
+    case licenseType = "License Type"
+    case ageGroup = "Age Group"
+    case gender = "Gender"
+
+    var databaseColumn: String {
+        switch self {
+        case .fuelType: return "fuel_type_id"
+        case .vehicleClass: return "vehicle_class_id"
+        case .vehicleMake: return "make_id"
+        case .vehicleModel: return "model_id"
+        case .vehicleColor: return "original_color_id"
+        case .modelYear: return "model_year_id"
+        case .netMass: return "net_mass_int"
+        case .displacement: return "displacement_int"
+        case .cylinderCount: return "cylinder_count_id"
+        case .adminRegion: return "admin_region_id"
+        case .mrc: return "mrc_id"
+        case .municipality: return "municipality_id"
+        case .licenseType: return "license_type_id"
+        case .ageGroup: return "age_group_id"
+        case .gender: return "gender_id"
+        }
+    }
+
+    /// Returns true if this field is applicable to the given data entity type
+    func isApplicable(to entityType: DataEntityType) -> Bool {
+        switch self {
+        case .fuelType, .vehicleClass, .vehicleMake, .vehicleModel, .vehicleColor,
+             .modelYear, .netMass, .displacement, .cylinderCount:
+            return entityType == .vehicle
+        case .licenseType, .ageGroup, .gender:
+            return entityType == .license
+        case .adminRegion, .mrc, .municipality:
+            return true // Applicable to both
+        }
+    }
+}
+
 /// Configuration for filtering data
-struct FilterConfiguration: Equatable {
+// MARK: - Filter Item with ID and Display Name
+struct FilterItem: Equatable, Identifiable, Sendable {
+    let id: Int
+    let displayName: String
+
+    /// Extracts the base model name from a display name with badges
+    /// Examples:
+    ///   "CRV (HONDA)" → "CRV"
+    ///   "CRV (HONDA) [uncurated: 14 records]" → "CRV"
+    ///   "CRV (HONDA) → CR-V (14 records)" → "CRV"
+    var baseModelName: String {
+        // Find the first space-paren pattern " (MAKE)"
+        if let firstParenRange = displayName.range(of: " (") {
+            return String(displayName[..<firstParenRange.lowerBound])
+        }
+        return displayName
+    }
+}
+
+// MARK: - Current Filter Configuration (String-based, will migrate to integer-based)
+struct FilterConfiguration: Equatable, Sendable {
+    // Data type selection
+    var dataEntityType: DataEntityType = .vehicle
+
+    // Shared filters (available for both vehicles and licenses)
     var years: Set<Int> = []
     var regions: Set<String> = []
     var mrcs: Set<String> = []
     var municipalities: Set<String> = []
-    var vehicleClassifications: Set<String> = []
+
+    // Vehicle-specific filters
+    var vehicleClasses: Set<String> = []
+    var vehicleTypes: Set<String> = []
     var vehicleMakes: Set<String> = []
     var vehicleModels: Set<String> = []
     var vehicleColors: Set<String> = []
@@ -206,10 +1110,35 @@ struct FilterConfiguration: Equatable {
     var fuelTypes: Set<String> = []
     var ageRanges: [AgeRange] = []
 
+    // License-specific filters
+    var licenseTypes: Set<String> = []
+    var ageGroups: Set<String> = []
+    var genders: Set<String> = []
+    var experienceLevels: Set<String> = []
+    var licenseClasses: Set<String> = []
+
     // Metric configuration
     var metricType: ChartMetricType = .count
     var metricField: ChartMetricField = .none
     var percentageBaseFilters: PercentageBaseFilters? = nil
+    var coverageField: CoverageField? = nil
+    var coverageAsPercentage: Bool = true  // true = percentage, false = raw NULL count
+    var roadWearIndexMode: RoadWearIndexMode = .average  // average or sum for Road Wear Index
+    var normalizeRoadWearIndex: Bool = true  // true = normalize to first year, false = show raw values
+    var showCumulativeSum: Bool = false  // true = cumulative sum over time, false = raw year-by-year values
+
+    /// Mode for Road Wear Index calculation
+    enum RoadWearIndexMode: String, CaseIterable, Sendable {
+        case average = "Average"
+        case sum = "Sum"
+
+        var description: String {
+            switch self {
+            case .average: return "Average Road Wear Index"
+            case .sum: return "Total Road Wear Index"
+            }
+        }
+    }
 
     struct AgeRange: Equatable {
         let minAge: Int
@@ -222,18 +1151,100 @@ struct FilterConfiguration: Equatable {
             return age >= minAge
         }
     }
+
+    /// Strips regularization badges from model display names for querying
+    /// Examples:
+    ///   "CRV (HONDA)" → "CRV"
+    ///   "CRV (HONDA) [uncurated: 14 records]" → "CRV"
+    ///   "CRV (HONDA) → CR-V (14 records)" → "CRV"
+    static func stripModelBadge(_ displayName: String) -> String {
+        // Find the first space-paren pattern " (MAKE)"
+        if let firstParenRange = displayName.range(of: " (") {
+            return String(displayName[..<firstParenRange.lowerBound])
+        }
+        return displayName
+    }
+
+    /// Strips regularization badges from Make display names for querying
+    /// Examples:
+    ///   "VOLVO" → "VOLVO"
+    ///   "VOLV0 [uncurated: 123 records]" → "VOLV0"
+    ///   "VOLV0 → VOLVO (123 records)" → "VOLV0"
+    static func stripMakeBadge(_ displayName: String) -> String {
+        // Check for regularization arrow first: "VOLV0 → VOLVO (123 records)" → "VOLV0"
+        if let arrowRange = displayName.range(of: " → ") {
+            return String(displayName[..<arrowRange.lowerBound])
+        }
+        // Check for uncurated badge: "VOLV0 [uncurated: 123 records]" → "VOLV0"
+        if let bracketRange = displayName.range(of: " [") {
+            return String(displayName[..<bracketRange.lowerBound])
+        }
+        return displayName
+    }
+
+    /// Returns vehicle models with badges stripped for database querying
+    var cleanVehicleModels: Set<String> {
+        Set(vehicleModels.map { FilterConfiguration.stripModelBadge($0) })
+    }
+
+    /// Returns vehicle makes with badges stripped for database querying
+    var cleanVehicleMakes: Set<String> {
+        Set(vehicleMakes.map { FilterConfiguration.stripMakeBadge($0) })
+    }
+}
+
+// MARK: - Future Integer-based Filter Configuration
+struct IntegerFilterConfiguration: Equatable, Sendable {
+    // Data type selection
+    var dataEntityType: DataEntityType = .vehicle
+
+    // Shared filters (available for both vehicles and licenses)
+    var years: Set<Int> = []  // Years can remain as integers
+    var regions: Set<Int> = []  // Now uses admin_region_enum IDs
+    var mrcs: Set<Int> = []  // Now uses mrc_enum IDs
+    var municipalities: Set<Int> = []  // Now uses municipality_enum IDs
+
+    // Vehicle-specific filters
+    var vehicleClasses: Set<Int> = []  // Now uses vehicle_class_enum IDs
+    var vehicleMakes: Set<Int> = []  // Now uses make_enum IDs
+    var vehicleModels: Set<Int> = []  // Now uses model_enum IDs
+    var vehicleColors: Set<Int> = []  // Now uses color_enum IDs
+    var modelYears: Set<Int> = []  // Model years can remain as integers
+    var fuelTypes: Set<Int> = []  // Now uses fuel_type_enum IDs
+    var ageRanges: [FilterConfiguration.AgeRange] = []  // Keep as-is for numeric ranges
+
+    // License-specific filters
+    var licenseTypes: Set<Int> = []  // Now uses license_type_enum IDs
+    var ageGroups: Set<Int> = []  // Now uses age_group_enum IDs
+    var genders: Set<Int> = []  // Now uses gender_enum IDs
+    var experienceLevels: Set<String> = []  // Keep as strings for now
+    var licenseClasses: Set<String> = []  // Keep as strings for now
+
+    // Metric configuration
+    var metricType: ChartMetricType = .count
+    var metricField: ChartMetricField = .none
+    var percentageBaseFilters: IntegerPercentageBaseFilters? = nil
+    var roadWearIndexMode: FilterConfiguration.RoadWearIndexMode = .average
+    var normalizeRoadWearIndex: Bool = true  // true = normalize to first year, false = show raw values
 }
 
 // MARK: - Percentage Base Configuration
 
 /// Simplified filter configuration for percentage baseline calculations
 /// Avoids recursion by not including metric configuration
-struct PercentageBaseFilters: Equatable {
+struct PercentageBaseFilters: Equatable, Sendable {
+    // Data type selection
+    var dataEntityType: DataEntityType = .vehicle
+
+    // Shared filters
     var years: Set<Int> = []
     var regions: Set<String> = []
     var mrcs: Set<String> = []
     var municipalities: Set<String> = []
-    var vehicleClassifications: Set<String> = []
+
+    // Vehicle-specific filters
+    var vehicleClasses: Set<String> = []
+    var vehicleTypes: Set<String> = []
     var vehicleMakes: Set<String> = []
     var vehicleModels: Set<String> = []
     var vehicleColors: Set<String> = []
@@ -241,20 +1252,34 @@ struct PercentageBaseFilters: Equatable {
     var fuelTypes: Set<String> = []
     var ageRanges: [FilterConfiguration.AgeRange] = []
 
+    // License-specific filters
+    var licenseTypes: Set<String> = []
+    var ageGroups: Set<String> = []
+    var genders: Set<String> = []
+    var experienceLevels: Set<String> = []
+    var licenseClasses: Set<String> = []
+
     /// Convert to full FilterConfiguration for database queries
     func toFilterConfiguration() -> FilterConfiguration {
         var config = FilterConfiguration()
+        config.dataEntityType = dataEntityType
         config.years = years
         config.regions = regions
         config.mrcs = mrcs
         config.municipalities = municipalities
-        config.vehicleClassifications = vehicleClassifications
+        config.vehicleClasses = vehicleClasses
+        config.vehicleTypes = vehicleTypes
         config.vehicleMakes = vehicleMakes
         config.vehicleModels = vehicleModels
         config.vehicleColors = vehicleColors
         config.modelYears = modelYears
         config.fuelTypes = fuelTypes
         config.ageRanges = ageRanges
+        config.licenseTypes = licenseTypes
+        config.ageGroups = ageGroups
+        config.genders = genders
+        config.experienceLevels = experienceLevels
+        config.licenseClasses = licenseClasses
         config.metricType = .count  // Always count for baseline
         return config
     }
@@ -262,17 +1287,24 @@ struct PercentageBaseFilters: Equatable {
     /// Create from existing FilterConfiguration
     static func from(_ config: FilterConfiguration) -> PercentageBaseFilters {
         var base = PercentageBaseFilters()
+        base.dataEntityType = config.dataEntityType
         base.years = config.years
         base.regions = config.regions
         base.mrcs = config.mrcs
         base.municipalities = config.municipalities
-        base.vehicleClassifications = config.vehicleClassifications
+        base.vehicleClasses = config.vehicleClasses
+        base.vehicleTypes = config.vehicleTypes
         base.vehicleMakes = config.vehicleMakes
         base.vehicleModels = config.vehicleModels
         base.vehicleColors = config.vehicleColors
         base.modelYears = config.modelYears
         base.fuelTypes = config.fuelTypes
         base.ageRanges = config.ageRanges
+        base.licenseTypes = config.licenseTypes
+        base.ageGroups = config.ageGroups
+        base.genders = config.genders
+        base.experienceLevels = config.experienceLevels
+        base.licenseClasses = config.licenseClasses
         return base
     }
 }
@@ -280,18 +1312,26 @@ struct PercentageBaseFilters: Equatable {
 // MARK: - Chart Metrics
 
 /// Types of metrics that can be displayed on the Y-axis
-enum ChartMetricType: String, CaseIterable {
+enum ChartMetricType: String, CaseIterable, Sendable {
     case count = "Count"
     case sum = "Sum"
     case average = "Average"
+    case minimum = "Minimum"
+    case maximum = "Maximum"
+    case roadWearIndex = "Road Wear Index"
     case percentage = "Percentage"
+    case coverage = "Coverage"
 
     var description: String {
         switch self {
         case .count: return "Record Count"
         case .sum: return "Sum of Values"
         case .average: return "Average Value"
-        case .percentage: return "Percentage of Category"
+        case .minimum: return "Minimum Value"
+        case .maximum: return "Maximum Value"
+        case .roadWearIndex: return "Road Wear Index"
+        case .percentage: return "Percentage in Superset"
+        case .coverage: return "Coverage in Superset"
         }
     }
 
@@ -300,47 +1340,86 @@ enum ChartMetricType: String, CaseIterable {
         case .count: return "Count"
         case .sum: return "Sum"
         case .average: return "Avg"
+        case .minimum: return "Min"
+        case .maximum: return "Max"
+        case .roadWearIndex: return "RWI"
         case .percentage: return "%"
+        case .coverage: return "% Cov"
+        }
+    }
+
+    var tooltip: String? {
+        switch self {
+        case .roadWearIndex:
+            return "Measures infrastructure impact using the engineering principle that road wear is proportional to the 4th power of axle loading. Normalized so first year = 1.0."
+        default:
+            return nil
         }
     }
 }
 
 /// Fields that can be used for sum/average calculations
-enum ChartMetricField: String, CaseIterable {
+enum ChartMetricField: String, CaseIterable, Sendable {
     case none = "None"
+
+    // Vehicle-specific fields
     case netMass = "Vehicle Mass"
     case displacement = "Engine Displacement"
     case cylinderCount = "Cylinders"
     case vehicleAge = "Vehicle Age"
     case modelYear = "Model Year"
 
+    // License-specific fields
+    case licenseHolderCount = "License Holder Count"
+    case licenseClassCount = "License Class Count"
+
     var databaseColumn: String? {
         switch self {
         case .none: return nil
+        // Vehicle fields
         case .netMass: return "net_mass"
         case .displacement: return "displacement"
         case .cylinderCount: return "cylinder_count"
         case .vehicleAge: return nil // Computed: year - model_year
         case .modelYear: return "model_year"
+        // License fields
+        case .licenseHolderCount: return nil // Count of records
+        case .licenseClassCount: return nil  // Count of license classes held
         }
     }
 
     var unit: String? {
         switch self {
         case .none: return nil
+        // Vehicle fields
         case .netMass: return "kg"
         case .displacement: return "cm³"
         case .cylinderCount: return nil
         case .vehicleAge: return "Y"
         case .modelYear: return nil
+        // License fields
+        case .licenseHolderCount: return nil
+        case .licenseClassCount: return nil
         }
     }
 
     var requiresNotNull: String? {
         switch self {
         case .vehicleAge: return "model_year"
-        case .none: return nil
+        case .none, .licenseHolderCount, .licenseClassCount: return nil
         default: return databaseColumn
+        }
+    }
+
+    /// Returns true if this field is applicable to the given data entity type
+    func isApplicable(to entityType: DataEntityType) -> Bool {
+        switch self {
+        case .none:
+            return true
+        case .netMass, .displacement, .cylinderCount, .vehicleAge, .modelYear:
+            return entityType == .vehicle
+        case .licenseHolderCount, .licenseClassCount:
+            return entityType == .license
         }
     }
 }
@@ -348,7 +1427,7 @@ enum ChartMetricField: String, CaseIterable {
 // MARK: - Time Series Data
 
 /// Represents a time series data point
-struct TimeSeriesPoint: Identifiable {
+struct TimeSeriesPoint: Identifiable, Sendable {
     let id = UUID()
     let year: Int
     let value: Double
@@ -356,13 +1435,14 @@ struct TimeSeriesPoint: Identifiable {
 }
 
 /// Filtered data series for charting
-class FilteredDataSeries: ObservableObject, Identifiable {
+@Observable
+class FilteredDataSeries: Identifiable {
     let id = UUID()
-    @Published var name: String
+    var name: String
     let filters: FilterConfiguration
-    @Published var points: [TimeSeriesPoint] = []
-    @Published var color: Color = .blue
-    @Published var isVisible: Bool = true
+    var points: [TimeSeriesPoint] = []
+    var color: Color = .blue
+    var isVisible: Bool = true
 
     // Metric configuration
     var metricType: ChartMetricType {
@@ -380,9 +1460,15 @@ class FilteredDataSeries: ObservableObject, Identifiable {
 
     /// Get formatted Y-axis label for this series
     var yAxisLabel: String {
+        let entityType = filters.dataEntityType
         switch metricType {
         case .count:
-            return "Number of Vehicles"
+            switch entityType {
+            case .vehicle:
+                return "Number of Vehicles"
+            case .license:
+                return "Number of License Holders"
+            }
         case .sum:
             if let unit = metricField.unit {
                 return "Total \(metricField.rawValue) (\(unit))"
@@ -395,16 +1481,43 @@ class FilteredDataSeries: ObservableObject, Identifiable {
             } else {
                 return "Average \(metricField.rawValue)"
             }
+        case .minimum:
+            if let unit = metricField.unit {
+                return "Minimum \(metricField.rawValue) (\(unit))"
+            } else {
+                return "Minimum \(metricField.rawValue)"
+            }
+        case .maximum:
+            if let unit = metricField.unit {
+                return "Maximum \(metricField.rawValue) (\(unit))"
+            } else {
+                return "Maximum \(metricField.rawValue)"
+            }
         case .percentage:
             return "Percentage (%)"
+        case .coverage:
+            if filters.coverageAsPercentage {
+                return "Coverage (%)"
+            } else {
+                return "NULL Count"
+            }
+        case .roadWearIndex:
+            let baseLabel = filters.roadWearIndexMode == .average ? "Average Road Wear Index" : "Total Road Wear Index"
+            return filters.normalizeRoadWearIndex ? "\(baseLabel) (Normalized)" : "\(baseLabel) (Raw)"
         }
     }
 
     /// Format a value for display (tooltips, labels, etc.)
     func formatValue(_ value: Double) -> String {
+        let entityType = filters.dataEntityType
         switch metricType {
         case .count:
-            return "\(Int(value)) vehicles"
+            switch entityType {
+            case .vehicle:
+                return "\(Int(value)) vehicles"
+            case .license:
+                return "\(Int(value)) license holders"
+            }
         case .sum:
             if metricField == .netMass {
                 // Convert kg to tonnes for large values
@@ -416,7 +1529,7 @@ class FilteredDataSeries: ObservableObject, Identifiable {
             } else {
                 return String(format: "%.0f", value)
             }
-        case .average:
+        case .average, .minimum, .maximum:
             if metricField == .vehicleAge || metricField == .displacement {
                 return String(format: "%.1f", value)
             } else {
@@ -424,6 +1537,32 @@ class FilteredDataSeries: ObservableObject, Identifiable {
             }
         case .percentage:
             return String(format: "%.1f%%", value)
+        case .coverage:
+            if filters.coverageAsPercentage {
+                return String(format: "%.1f%%", value)
+            } else {
+                return "\(Int(value)) NULL values"
+            }
+        case .roadWearIndex:
+            // Check if value is normalized (close to 1.0) or very large (raw)
+            if filters.normalizeRoadWearIndex {
+                // Normalized mode: values should be close to 1.0
+                return String(format: "%.2f RWI", value)  // "1.05 RWI"
+            } else {
+                // Raw mode: values can be astronomically large
+                if value > 1e12 {
+                    // Use scientific notation for very large values
+                    return String(format: "%.2e RWI", value)  // "1.60e+18 RWI"
+                } else if value > 1e6 {
+                    // Use millions notation
+                    return String(format: "%.2f M RWI", value / 1e6)  // "123.45 M RWI"
+                } else if value > 1e3 {
+                    // Use thousands notation
+                    return String(format: "%.2f K RWI", value / 1e3)  // "123.45 K RWI"
+                } else {
+                    return String(format: "%.0f RWI", value)  // Standard format for smaller values
+                }
+            }
         }
     }
 }
@@ -431,7 +1570,7 @@ class FilteredDataSeries: ObservableObject, Identifiable {
 // MARK: - Import Schemas
 
 /// Schema configuration for different years of data
-struct DataSchema {
+struct DataSchema: Sendable {
     let year: Int
     let hasFieldCount: Int
     let hasFuelType: Bool
@@ -448,8 +1587,8 @@ struct DataSchema {
 // MARK: - Export Models
 
 /// Configuration for exporting data
-struct ExportConfiguration {
-    enum Format {
+struct ExportConfiguration: Sendable {
+    enum Format: Sendable {
         case csv
         case png
         case pdf
@@ -471,10 +1610,62 @@ protocol AnalysisResult {
 }
 
 /// Standard analysis result implementation
-struct StandardAnalysisResult: AnalysisResult {
+struct StandardAnalysisResult: AnalysisResult, Sendable {
     let name: String
     let description: String
     let timeSeries: [TimeSeriesPoint]
+}
+
+// MARK: - Integer-based Percentage Base Configuration
+struct IntegerPercentageBaseFilters: Equatable, Sendable {
+    // Data type selection
+    var dataEntityType: DataEntityType = .vehicle
+
+    // Shared filters
+    var years: Set<Int> = []
+    var regions: Set<Int> = []
+    var mrcs: Set<Int> = []
+    var municipalities: Set<Int> = []
+
+    // Vehicle-specific filters
+    var vehicleClasses: Set<Int> = []
+    var vehicleMakes: Set<Int> = []
+    var vehicleModels: Set<Int> = []
+    var vehicleColors: Set<Int> = []
+    var modelYears: Set<Int> = []
+    var fuelTypes: Set<Int> = []
+    var ageRanges: [FilterConfiguration.AgeRange] = []
+
+    // License-specific filters
+    var licenseTypes: Set<Int> = []
+    var ageGroups: Set<Int> = []
+    var genders: Set<Int> = []
+    var experienceLevels: Set<String> = []
+    var licenseClasses: Set<String> = []
+
+    /// Convert to full IntegerFilterConfiguration for database queries
+    func toIntegerFilterConfiguration() -> IntegerFilterConfiguration {
+        var config = IntegerFilterConfiguration()
+        config.dataEntityType = dataEntityType
+        config.years = years
+        config.regions = regions
+        config.mrcs = mrcs
+        config.municipalities = municipalities
+        config.vehicleClasses = vehicleClasses
+        config.vehicleMakes = vehicleMakes
+        config.vehicleModels = vehicleModels
+        config.vehicleColors = vehicleColors
+        config.modelYears = modelYears
+        config.fuelTypes = fuelTypes
+        config.ageRanges = ageRanges
+        config.licenseTypes = licenseTypes
+        config.ageGroups = ageGroups
+        config.genders = genders
+        config.experienceLevels = experienceLevels
+        config.licenseClasses = licenseClasses
+        config.metricType = .count  // Always count for baseline
+        return config
+    }
 }
 
 // MARK: - Color Extensions for Charts
@@ -485,9 +1676,266 @@ extension Color {
         .blue, .green, .orange, .red, .purple,
         .pink, .yellow, .cyan, .indigo, .mint
     ]
-    
+
     /// Get a color for series index
     static func forSeriesIndex(_ index: Int) -> Color {
         seriesColors[index % seriesColors.count]
+    }
+}
+
+// MARK: - Make/Model Regularization Models
+
+/// Represents a mapping between unverified and canonical Make/Model pairs
+struct MakeModelRegularization: Codable, Sendable {
+    let id: Int
+    let unverifiedMakeId: Int
+    let unverifiedModelId: Int
+    let canonicalMakeId: Int
+    let canonicalModelId: Int
+    let fuelTypeId: Int?          // Optional fuel type constraint
+    let vehicleClassId: Int?        // Optional vehicle class (vehicleClass) constraint
+    let recordCount: Int           // Number of records affected by this mapping
+    let yearRangeStart: Int        // First year this mapping applies to
+    let yearRangeEnd: Int          // Last year this mapping applies to
+    let createdDate: Date
+}
+
+/// In-memory representation of a regularization mapping for UI
+struct RegularizationMapping: Identifiable, Sendable {
+    let id: Int
+    let uncuratedMakeId: Int
+    let uncuratedModelId: Int
+    let modelYearId: Int?           // NEW: NULL = applies to all years (wildcard)
+    let unverifiedMake: String
+    let unverifiedModel: String
+    let modelYear: Int?             // NEW: Actual year value (for display)
+    let canonicalMake: String
+    let canonicalModel: String
+    let fuelType: String?
+    let vehicleType: String?
+    let recordCount: Int
+    let percentageOfTotal: Double
+    let yearRange: String
+
+    var makeModelKey: String {
+        "\(unverifiedMake)/\(unverifiedModel)"
+    }
+
+    var uncuratedKey: String {
+        "\(uncuratedMakeId)_\(uncuratedModelId)"
+    }
+
+    /// Display name including model year if specific triplet
+    var displayName: String {
+        if let year = modelYear {
+            return "\(unverifiedMake) \(unverifiedModel) (\(year))"
+        } else {
+            return "\(unverifiedMake) \(unverifiedModel) (all years)"
+        }
+    }
+}
+
+/// Unverified Make/Model pair requiring regularization
+struct UnverifiedMakeModelPair: Identifiable, Sendable, Hashable {
+    let id: String  // Composite: "\(makeId)_\(modelId)"
+    let makeId: Int
+    let modelId: Int
+    let makeName: String
+    let modelName: String
+    let recordCount: Int
+    let percentageOfTotal: Double
+    let earliestYear: Int
+    let latestYear: Int
+
+    var makeModelDisplay: String {
+        "\(makeName) / \(modelName)"
+    }
+}
+
+/// Hierarchical structure for canonical Make/Model/FuelType/VehicleType combinations
+struct MakeModelHierarchy: Sendable {
+    /// Top-level: Make
+    struct Make: Identifiable, Sendable, Hashable {
+        let id: Int
+        let name: String
+        let models: [Model]
+    }
+
+    /// Second level: Model (within a Make)
+    struct Model: Identifiable, Sendable, Hashable {
+        let id: Int
+        let name: String
+        let makeId: Int
+        let modelYearFuelTypes: [Int?: [FuelTypeInfo]]  // NEW: Dictionary keyed by modelYearId (nil = unknown year)
+        let vehicleTypes: [VehicleTypeInfo]
+
+        /// Legacy accessor for backward compatibility - returns all fuel types across all years
+        var fuelTypes: [FuelTypeInfo] {
+            let allFuelTypes = modelYearFuelTypes.values.flatMap { $0 }
+            // Deduplicate by fuel type ID
+            var seen = Set<Int>()
+            return allFuelTypes.filter { fuelType in
+                if seen.contains(fuelType.id) {
+                    return false
+                }
+                seen.insert(fuelType.id)
+                return true
+            }.sorted { $0.description < $1.description }
+        }
+    }
+
+    /// Third level: Fuel Type (for a Make/Model/ModelYear combination)
+    struct FuelTypeInfo: Identifiable, Sendable, Hashable {
+        let id: Int
+        let code: String
+        let description: String
+        let recordCount: Int
+        let modelYearId: Int?      // NEW: Model year ID (nil = unknown/wildcard)
+        let modelYear: Int?        // NEW: Actual year value for display
+    }
+
+    /// Third level: Vehicle Type (for a Make/Model combination)
+    struct VehicleTypeInfo: Identifiable, Sendable, Hashable {
+        let id: Int
+        let code: String
+        let description: String
+        let recordCount: Int
+    }
+
+    let makes: [Make]
+
+    /// Find a make by ID
+    func findMake(id: Int) -> Make? {
+        makes.first { $0.id == id }
+    }
+
+    /// Find models for a make
+    func findModels(forMakeId makeId: Int) -> [Model] {
+        guard let make = findMake(id: makeId) else { return [] }
+        return make.models
+    }
+
+    /// Find a specific model
+    func findModel(id: Int, makeId: Int) -> Model? {
+        findModels(forMakeId: makeId).first { $0.id == id }
+    }
+}
+
+/// Configuration for regularization year curation status
+struct RegularizationYearConfiguration: Codable, Sendable {
+    /// Individual year with curation status
+    struct YearStatus: Codable, Identifiable, Sendable {
+        let id: Int  // The year itself
+        var year: Int { id }
+        var isCurated: Bool
+    }
+
+    var years: [YearStatus]
+
+    init(years: [YearStatus] = []) {
+        self.years = years.sorted { $0.year < $1.year }
+    }
+
+    /// Initialize with default configuration (2011-2022 curated, 2023-2024 uncurated)
+    static func defaultConfiguration() -> RegularizationYearConfiguration {
+        var yearStatuses: [YearStatus] = []
+
+        // Curated years: 2011-2022
+        for year in 2011...2022 {
+            yearStatuses.append(YearStatus(id: year, isCurated: true))
+        }
+
+        // Uncurated years: 2023-2024
+        for year in 2023...2024 {
+            yearStatuses.append(YearStatus(id: year, isCurated: false))
+        }
+
+        return RegularizationYearConfiguration(years: yearStatuses)
+    }
+
+    /// Get all curated years
+    var curatedYears: Set<Int> {
+        Set(years.filter { $0.isCurated }.map { $0.year })
+    }
+
+    /// Get all uncurated years
+    var uncuratedYears: Set<Int> {
+        Set(years.filter { !$0.isCurated }.map { $0.year })
+    }
+
+    /// Get range of curated years (min to max, even if non-contiguous)
+    var curatedYearRange: String {
+        let curated = years.filter { $0.isCurated }.map { $0.year }.sorted()
+        guard !curated.isEmpty else { return "None" }
+        if curated.count == 1 {
+            return String(format: "%d", curated[0])
+        }
+        return String(format: "%d–%d (%d years)", curated.first!, curated.last!, curated.count)
+    }
+
+    /// Get range of uncurated years (min to max, even if non-contiguous)
+    var uncuratedYearRange: String {
+        let uncurated = years.filter { !$0.isCurated }.map { $0.year }.sorted()
+        guard !uncurated.isEmpty else { return "None" }
+        if uncurated.count == 1 {
+            return String(format: "%d", uncurated[0])
+        }
+        return String(format: "%d–%d (%d years)", uncurated.first!, uncurated.last!, uncurated.count)
+    }
+
+    /// Toggle curation status for a year
+    mutating func toggleCuration(for year: Int) {
+        if let index = years.firstIndex(where: { $0.year == year }) {
+            years[index].isCurated.toggle()
+        }
+    }
+
+    /// Set curation status for a year
+    mutating func setCuration(for year: Int, isCurated: Bool) {
+        if let index = years.firstIndex(where: { $0.year == year }) {
+            years[index].isCurated = isCurated
+        }
+    }
+}
+
+/// Detailed statistics about regularization coverage by field type
+struct DetailedRegularizationStatistics: Sendable {
+    /// Total number of active regularization mappings
+    let mappingCount: Int
+
+    /// Total number of uncurated vehicle records (based on year configuration)
+    let totalUncuratedRecords: Int
+
+    /// Coverage metrics for Make/Model canonical assignment
+    let makeModelCoverage: FieldCoverage
+
+    /// Coverage metrics for Fuel Type assignment
+    let fuelTypeCoverage: FieldCoverage
+
+    /// Coverage metrics for Vehicle Type assignment
+    let vehicleTypeCoverage: FieldCoverage
+
+    /// Overall coverage percentage across all fields (based on Make/Model)
+    var overallCoverage: Double {
+        guard totalUncuratedRecords > 0 else { return 0.0 }
+        return makeModelCoverage.coveragePercentage
+    }
+
+    /// Coverage metrics for a specific field type
+    struct FieldCoverage: Sendable {
+        /// Number of uncurated records with this field assigned via regularization
+        let assignedCount: Int
+
+        /// Number of uncurated records without this field assigned
+        let unassignedCount: Int
+
+        /// Total uncurated records
+        let totalRecords: Int
+
+        /// Coverage as a percentage (0-100)
+        var coveragePercentage: Double {
+            guard totalRecords > 0 else { return 0.0 }
+            return Double(assignedCount) / Double(totalRecords) * 100.0
+        }
     }
 }

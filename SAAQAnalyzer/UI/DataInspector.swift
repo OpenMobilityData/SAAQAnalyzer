@@ -5,6 +5,12 @@ import UniformTypeIdentifiers
 struct DataInspectorView: View {
     let series: FilteredDataSeries?
     @State private var selectedTab: InspectorTab = .summary
+
+    // File export states
+    @State private var showingCSVExporter = false
+    @State private var showingPackageExporter = false
+    @State private var exportData: Data?
+    @State private var exportFileName = ""
     
     enum InspectorTab: String, CaseIterable {
         case summary = "Summary"
@@ -25,8 +31,10 @@ struct DataInspectorView: View {
             // Header
             HStack {
                 Label("Data Inspector", systemImage: "sidebar.right")
-                    .font(.headline)
-                
+                    .font(.headline.weight(.medium))
+                    .fontDesign(.rounded)
+                    .symbolRenderingMode(.hierarchical)
+
                 Spacer()
             }
             .padding()
@@ -38,6 +46,7 @@ struct DataInspectorView: View {
                 Picker("Inspector Tab", selection: $selectedTab) {
                     ForEach(InspectorTab.allCases, id: \.self) { tab in
                         Label(tab.rawValue, systemImage: tab.systemImage)
+                            .symbolRenderingMode(.hierarchical)
                             .tag(tab)
                     }
                 }
@@ -50,7 +59,12 @@ struct DataInspectorView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         switch selectedTab {
                         case .summary:
-                            SeriesSummaryView(series: series)
+                            SeriesSummaryView(
+                                series: series,
+                                showingCSVExporter: $showingCSVExporter,
+                                exportData: $exportData,
+                                exportFileName: $exportFileName
+                            )
                         case .data:
                             SeriesDataView(series: series)
                         case .statistics:
@@ -59,27 +73,59 @@ struct DataInspectorView: View {
                     }
                     .padding()
                 }
+                .scrollIndicators(.visible, axes: .vertical)
             } else {
                 // Empty state
                 VStack(spacing: 16) {
                     Image(systemName: "sidebar.right")
                         .font(.system(size: 40))
-                        .foregroundColor(.secondary)
-                    
+                        .foregroundStyle(.secondary)
+                        .symbolRenderingMode(.hierarchical)
+
                     Text("No Series Selected")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
+                        .font(.title3.weight(.medium))
+                        .fontDesign(.rounded)
+                        .foregroundStyle(.secondary)
                     
                     Text("Select a data series from the chart to view details")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding()
             }
         }
-        .background(Color(NSColor.controlBackgroundColor))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 0))
+        .fileExporter(
+            isPresented: $showingCSVExporter,
+            document: ExportableDocument(data: exportData ?? Data()),
+            contentType: .commaSeparatedText,
+            defaultFilename: exportFileName
+        ) { result in
+            handleExportResult(result)
+        }
+        .fileExporter(
+            isPresented: $showingPackageExporter,
+            document: ExportableDocument(data: exportData ?? Data()),
+            contentType: .saaqPackage,
+            defaultFilename: exportFileName
+        ) { result in
+            handleExportResult(result)
+        }
+    }
+
+    /// Handle export result
+    private func handleExportResult(_ result: Result<URL, Error>) {
+        switch result {
+        case .success(let url):
+            print("✅ File exported to: \(url.path)")
+        case .failure(let error):
+            print("❌ Export error: \(error)")
+        }
+        // Clear export data after handling
+        exportData = nil
+        exportFileName = ""
     }
 }
 
@@ -87,6 +133,11 @@ struct DataInspectorView: View {
 
 struct SeriesSummaryView: View {
     let series: FilteredDataSeries
+
+    // Export state bindings
+    @Binding var showingCSVExporter: Bool
+    @Binding var exportData: Data?
+    @Binding var exportFileName: String
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -94,18 +145,31 @@ struct SeriesSummaryView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Series Name")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 Text(series.name)
                     .font(.body)
                     .textSelection(.enabled)
             }
             
+            // Data type indicator
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Data Type")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Image(systemName: series.filters.dataEntityType == .license ? "person.crop.circle.badge.checkmark" : "car")
+                        .foregroundColor(series.filters.dataEntityType == .license ? .blue : .purple)
+                    Text(series.filters.dataEntityType.description)
+                        .font(.body)
+                }
+            }
+
             // Color indicator
             HStack {
                 Text("Color:")
                     .font(.caption)
-                    .foregroundColor(.secondary)
-                
+                    .foregroundStyle(.secondary)
+
                 RoundedRectangle(cornerRadius: 4)
                     .fill(series.color)
                     .frame(width: 60, height: 20)
@@ -115,7 +179,7 @@ struct SeriesSummaryView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Active Filters")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 FilterSummaryView(filters: series.filters)
             }
@@ -124,21 +188,27 @@ struct SeriesSummaryView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Actions")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 Button {
                     copySeriesToClipboard()
                 } label: {
                     Label("Copy Data to Clipboard", systemImage: "doc.on.clipboard")
+                        .symbolRenderingMode(.hierarchical)
                 }
                 .buttonStyle(.bordered)
-                
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
+
                 Button {
                     exportSeriesAsCSV()
                 } label: {
                     Label("Export as CSV", systemImage: "square.and.arrow.up")
+                        .symbolRenderingMode(.hierarchical)
                 }
                 .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle)
+                .controlSize(.small)
             }
         }
     }
@@ -154,24 +224,15 @@ struct SeriesSummaryView: View {
     }
     
     private func exportSeriesAsCSV() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.commaSeparatedText]
-        panel.nameFieldStringValue = "\(series.name.replacingOccurrences(of: " ", with: "_")).csv"
-        
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-            
-            var csvContent = "Year,Value\n"
-            for point in series.points {
-                csvContent += "\(point.year),\(point.value)\n"
-            }
-            
-            do {
-                try csvContent.write(to: url, atomically: true, encoding: .utf8)
-            } catch {
-                print("Error exporting CSV: \(error)")
-            }
+        var csvContent = "Year,Value\n"
+        for point in series.points {
+            csvContent += "\(point.year),\(point.value)\n"
         }
+
+        let dataType = series.filters.dataEntityType == .license ? "license" : "vehicle"
+        self.exportData = csvContent.data(using: .utf8)
+        self.exportFileName = "\(dataType)_\(series.name.replacingOccurrences(of: " ", with: "_")).csv"
+        self.showingCSVExporter = true
     }
 }
 
@@ -205,7 +266,7 @@ struct FilterSummaryView: View {
             if !filters.mrcs.isEmpty {
                 HStack {
                     Image(systemName: "building.2.fill")
-                        .foregroundColor(.green)
+                        .foregroundStyle(.green)
                         .frame(width: 16)
                     Text("MRCs: \(filters.mrcs.count)")
                         .font(.caption)
@@ -215,19 +276,19 @@ struct FilterSummaryView: View {
             if !filters.municipalities.isEmpty {
                 HStack {
                     Image(systemName: "house.fill")
-                        .foregroundColor(.orange)
+                        .foregroundStyle(.orange)
                         .frame(width: 16)
                     Text("Municipalities: \(filters.municipalities.count)")
                         .font(.caption)
                 }
             }
             
-            if !filters.vehicleClassifications.isEmpty {
+            if !filters.vehicleClasses.isEmpty {
                 HStack {
                     Image(systemName: "car")
-                        .foregroundColor(.purple)
+                        .foregroundStyle(.purple)
                         .frame(width: 16)
-                    Text("Vehicle Types: \(filters.vehicleClassifications.count)")
+                    Text("Vehicle Types: \(filters.vehicleClasses.count)")
                         .font(.caption)
                 }
             }
@@ -238,6 +299,57 @@ struct FilterSummaryView: View {
                         .foregroundColor(.red)
                         .frame(width: 16)
                     Text("Fuel Types: \(filters.fuelTypes.count)")
+                        .font(.caption)
+                }
+            }
+
+            // License-specific filters
+            if !filters.licenseTypes.isEmpty {
+                HStack {
+                    Image(systemName: "person.crop.circle.badge.checkmark")
+                        .foregroundColor(.blue)
+                        .frame(width: 16)
+                    Text("License Types: \(filters.licenseTypes.count)")
+                        .font(.caption)
+                }
+            }
+
+            if !filters.ageGroups.isEmpty {
+                HStack {
+                    Image(systemName: "person.3")
+                        .foregroundStyle(.green)
+                        .frame(width: 16)
+                    Text("Age Groups: \(filters.ageGroups.count)")
+                        .font(.caption)
+                }
+            }
+
+            if !filters.genders.isEmpty {
+                HStack {
+                    Image(systemName: "person.2")
+                        .foregroundStyle(.purple)
+                        .frame(width: 16)
+                    Text("Genders: \(filters.genders.count)")
+                        .font(.caption)
+                }
+            }
+
+            if !filters.experienceLevels.isEmpty {
+                HStack {
+                    Image(systemName: "graduationcap")
+                        .foregroundStyle(.orange)
+                        .frame(width: 16)
+                    Text("Experience Levels: \(filters.experienceLevels.count)")
+                        .font(.caption)
+                }
+            }
+
+            if !filters.licenseClasses.isEmpty {
+                HStack {
+                    Image(systemName: "list.clipboard")
+                        .foregroundStyle(.cyan)
+                        .frame(width: 16)
+                    Text("License Classes: \(filters.licenseClasses.count)")
                         .font(.caption)
                 }
             }
@@ -397,11 +509,11 @@ struct SeriesStatisticsView: View {
             
             Text("Trend Analysis")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
             
             Text("Future: Polynomial fitting will be implemented here")
                 .font(.caption2)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .italic()
         }
     }
@@ -485,12 +597,12 @@ struct StatisticRow: View {
             HStack(spacing: 4) {
                 Text(label)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 
                 if let help = help {
                     Image(systemName: "questionmark.circle")
                         .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .help(help)
                 }
             }
@@ -509,21 +621,44 @@ struct StatisticRow: View {
 
 struct ExportMenu: View {
     let chartData: [FilteredDataSeries]
+
+    // Export state bindings
+    @Binding var showingCSVExporter: Bool
+    @Binding var showingPackageExporter: Bool
+    @Binding var exportData: Data?
+    @Binding var exportFileName: String
+
+    @StateObject private var packageManager = DataPackageManager.shared
+    @State private var showingPackageAlert = false
+    @State private var packageAlertMessage = ""
+    @State private var showingPackageProgress = false
     
     var body: some View {
         Menu {
+            Label("Charts & Data", systemImage: "chart.bar")
+                .font(.caption)
             Button {
                 exportChartAsPNG()
             } label: {
                 Label("Export Chart as PNG", systemImage: "photo")
             }
-            
+
             Button {
                 exportDataAsCSV()
             } label: {
                 Label("Export Data as CSV", systemImage: "tablecells")
             }
-            
+
+            Divider()
+
+            Label("Complete Database", systemImage: "shippingbox")
+                .font(.caption)
+            Button {
+                exportDataPackage()
+            } label: {
+                Label("Export Data Package", systemImage: "shippingbox")
+            }
+
             Divider()
             
             // Sharing submenu
@@ -547,52 +682,40 @@ struct ExportMenu: View {
                 }
             }
         } label: {
-            Image(systemName: "square.and.arrow.up")
+            Label("Export", systemImage: "square.and.arrow.up")
         }
         .menuStyle(.button)
         .help("Export or share")
     }
     
     private func exportChartAsPNG() {
-        // Create a save panel
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png]
-        panel.nameFieldStringValue = "saaq_chart_\(Date().timeIntervalSince1970).png"
+        // Create basic placeholder PNG data
+        let placeholderText = "Use Chart panel export for full functionality"
+        guard let textData = placeholderText.data(using: .utf8) else { return }
 
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
+        self.exportData = textData
+        self.exportFileName = "saaq_chart_\(Date().timeIntervalSince1970).png"
+        self.showingCSVExporter = true
 
-            // Note: This creates a basic export. For a full chart export,
-            // the ChartView should handle the export directly since it has
-            // access to the actual chart content.
-            print("PNG export requested to: \(url.path)")
-            print("💡 Tip: Use the Export button in the Chart panel for full chart export functionality")
-        }
+        // Note: This creates a basic export. For a full chart export,
+        // the ChartView should handle the export directly since it has
+        // access to the actual chart content.
+        print("💡 Tip: Use the Export button in the Chart panel for full chart export functionality")
     }
     
     private func exportDataAsCSV() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.commaSeparatedText]
-        panel.nameFieldStringValue = "saaq_export_\(Date().timeIntervalSince1970).csv"
-        
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-            
-            // Create comprehensive CSV with all series
-            var csvContent = "Series,Year,Value\n"
-            
-            for series in chartData {
-                for point in series.points {
-                    csvContent += "\"\(series.name)\",\(point.year),\(point.value)\n"
-                }
-            }
-            
-            do {
-                try csvContent.write(to: url, atomically: true, encoding: .utf8)
-            } catch {
-                print("Error exporting CSV: \(error)")
+        // Create comprehensive CSV with all series
+        var csvContent = "Series,Year,Value\n"
+
+        for series in chartData {
+            for point in series.points {
+                csvContent += "\"\(series.name)\",\(point.year),\(point.value)\n"
             }
         }
+
+        self.exportData = csvContent.data(using: .utf8)
+        self.exportFileName = "saaq_export_\(Date().timeIntervalSince1970).csv"
+        self.showingCSVExporter = true
     }
     
     private func shareToPhotos() {
@@ -608,5 +731,74 @@ struct ExportMenu: View {
     private func shareViaMessages() {
         // Use NSSharingService for Messages
         print("Share via Messages")
+    }
+
+    private func exportDataPackage() {
+        // Prepare placeholder data for SwiftUI export
+        let placeholderData = "SAAQ Data Package Export - Use packageManager for full functionality".data(using: .utf8) ?? Data()
+
+        self.exportData = placeholderData
+        self.exportFileName = "SAAQData_\(Date().formatted(date: .abbreviated, time: .omitted)).saaqpackage"
+        self.showingPackageExporter = true
+
+        // Note: Full package export functionality would need to be implemented
+        // within the fileExporter completion handler using packageManager
+        print("💡 Package export initiated - implementation needs packageManager integration")
+    }
+}
+
+// Add alert modifier for the ExportMenu
+extension ExportMenu {
+    func withPackageAlerts() -> some View {
+        self
+            .alert("Data Package Export", isPresented: $showingPackageAlert) {
+                Button("OK") {
+                    showingPackageAlert = false
+                }
+            } message: {
+                Text(packageAlertMessage)
+            }
+            .overlay {
+                if showingPackageProgress {
+                    ZStack {
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+
+                        VStack(spacing: 20) {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle())
+                                .scaleEffect(1.5)
+
+                            VStack(spacing: 8) {
+                                Text("Exporting Data Package")
+                                    .font(.headline)
+
+                                if !packageManager.operationStatus.isEmpty {
+                                    Text(packageManager.operationStatus)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                if packageManager.operationProgress > 0 {
+                                    ProgressView(value: packageManager.operationProgress)
+                                        .frame(width: 200)
+
+                                    Text("\(Int(packageManager.operationProgress * 100))%")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Text("Please do not quit the application")
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
+                            }
+                            .padding(30)
+                            .background(Color(NSColor.controlBackgroundColor))
+                            .cornerRadius(10)
+                            .shadow(radius: 10)
+                        }
+                    }
+                }
+            }
     }
 }

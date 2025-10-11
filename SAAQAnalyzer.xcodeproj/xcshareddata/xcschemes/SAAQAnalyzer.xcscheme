@@ -74,6 +74,23 @@
             ReferencedContainer = "container:SAAQAnalyzer.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "SAAQ_BYPASS_CACHE"
+            value = "1"
+            isEnabled = "NO">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "SAAQ_TEST_DATABASE_PATH"
+            value = "/Users/rhoge/Downloads/SAAQData_TEST.saaqpackage/Contents/Database/saaq_data.sqlite"
+            isEnabled = "NO">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "SAAQ_TEST_MODE"
+            value = "1"
+            isEnabled = "NO">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
