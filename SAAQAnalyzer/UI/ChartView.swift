@@ -685,7 +685,7 @@ struct ChartLegend: View {
                     
                     // Data summary
                     if let lastPoint = seriesItem.points.last {
-                        Text("\(lastPoint.year.formatted(.number.grouping(.never))): \(Int(lastPoint.value).formatted())")
+                        Text("\(lastPoint.year.formatted(.number.grouping(.never))): \(seriesItem.formatValue(lastPoint.value))")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }

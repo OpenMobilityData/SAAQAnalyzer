@@ -1124,6 +1124,7 @@ struct FilterConfiguration: Equatable, Sendable {
     var coverageField: CoverageField? = nil
     var coverageAsPercentage: Bool = true  // true = percentage, false = raw NULL count
     var roadWearIndexMode: RoadWearIndexMode = .average  // average or sum for Road Wear Index
+    var normalizeRoadWearIndex: Bool = true  // true = normalize to first year, false = show raw values
 
     /// Mode for Road Wear Index calculation
     enum RoadWearIndexMode: String, CaseIterable, Sendable {
@@ -1223,6 +1224,7 @@ struct IntegerFilterConfiguration: Equatable, Sendable {
     var metricField: ChartMetricField = .none
     var percentageBaseFilters: IntegerPercentageBaseFilters? = nil
     var roadWearIndexMode: FilterConfiguration.RoadWearIndexMode = .average
+    var normalizeRoadWearIndex: Bool = true  // true = normalize to first year, false = show raw values
 }
 
 // MARK: - Percentage Base Configuration
@@ -1499,7 +1501,8 @@ class FilteredDataSeries: Identifiable {
                 return "NULL Count"
             }
         case .roadWearIndex:
-            return filters.roadWearIndexMode == .average ? "Average Road Wear Index" : "Total Road Wear Index"
+            let baseLabel = filters.roadWearIndexMode == .average ? "Average Road Wear Index" : "Total Road Wear Index"
+            return filters.normalizeRoadWearIndex ? "\(baseLabel) (Normalized)" : "\(baseLabel) (Raw)"
         }
     }
 
@@ -1540,14 +1543,24 @@ class FilteredDataSeries: Identifiable {
                 return "\(Int(value)) NULL values"
             }
         case .roadWearIndex:
-            // After normalization, values will be close to 1.0
-            // Check if value is normalized (close to 1.0)
-            if value >= 0.01 && value <= 100.0 {
-                return String(format: "%.2f RWI", value)  // Normalized format: "1.05 RWI"
-            } else if value > 1e15 {
-                return String(format: "%.2e RWI", value)  // Scientific notation for very large values (pre-normalization)
+            // Check if value is normalized (close to 1.0) or very large (raw)
+            if filters.normalizeRoadWearIndex {
+                // Normalized mode: values should be close to 1.0
+                return String(format: "%.2f RWI", value)  // "1.05 RWI"
             } else {
-                return String(format: "%.0f RWI", value)  // Standard format
+                // Raw mode: values can be astronomically large
+                if value > 1e12 {
+                    // Use scientific notation for very large values
+                    return String(format: "%.2e RWI", value)  // "1.60e+18 RWI"
+                } else if value > 1e6 {
+                    // Use millions notation
+                    return String(format: "%.2f M RWI", value / 1e6)  // "123.45 M RWI"
+                } else if value > 1e3 {
+                    // Use thousands notation
+                    return String(format: "%.2f K RWI", value / 1e3)  // "123.45 K RWI"
+                } else {
+                    return String(format: "%.0f RWI", value)  // Standard format for smaller values
+                }
             }
         }
     }

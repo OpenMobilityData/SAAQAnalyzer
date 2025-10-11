@@ -159,19 +159,27 @@ The application supports multiple metric types for data analysis:
    - **Modes**:
      - **Average**: Mean road wear index across vehicles
      - **Sum**: Total cumulative road wear
-   - **Normalization**: Results normalized so first year = 1.0
-     - Subsequent years show relative change (e.g., 1.05 = 5% increase)
+   - **Normalization Toggle** (configurable):
+     - **ON (default)**: Results normalized so first year = 1.0
+       - Subsequent years show relative change (e.g., 1.05 = 5% increase)
+       - Ideal for tracking trends over time
+     - **OFF**: Shows raw RWI values (mass^4)
+       - Useful for comparing different vehicle types on absolute scale
+       - Values displayed in scientific notation (e.g., "1.60e+18 RWI") or magnitude notation (K/M)
    - **Display Format**:
      - Normalized values: "1.05 RWI" (2 decimal places)
-     - Pre-normalization: Scientific notation for very large values
+     - Raw values: Scientific notation or K/M notation for large values
    - **Use Cases**: Infrastructure impact analysis, fleet management, policy evaluation
    - **Legend format**: `"Avg RWI in [[filters]]"` or `"Total RWI (All Vehicles)"`
+   - **Y-axis label**: Indicates normalization state: "(Normalized)" or "(Raw)"
    - **Implementation**:
      - `DatabaseManager.swift:399-421`: Normalization helper function
-     - `DatabaseManager.swift:1203-1211`: SQLite POWER() query
-     - `OptimizedQueryManager.swift:606-616`: Integer-optimized query
-     - `FilterPanel.swift:1731-1746`: UI mode selector
-     - `DataModels.swift:1128-1139`: RoadWearIndexMode enum
+     - `DatabaseManager.swift:1436-1440`: Conditional normalization application
+     - `OptimizedQueryManager.swift:693-697`: Conditional normalization (optimized path)
+     - `FilterPanel.swift:1731-1768`: UI mode selector and normalization toggle
+     - `DataModels.swift:1127`: normalizeRoadWearIndex property
+     - `DataModels.swift:1546-1564`: Value formatting with normalization awareness
+     - `ChartView.swift:688`: Legend display using formatValue()
 
 ## Development Notes
 

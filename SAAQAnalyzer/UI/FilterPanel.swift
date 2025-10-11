@@ -198,6 +198,7 @@ struct FilterPanel: View {
                             coverageField: $configuration.coverageField,
                             coverageAsPercentage: $configuration.coverageAsPercentage,
                             roadWearIndexMode: $configuration.roadWearIndexMode,
+                            normalizeRoadWearIndex: $configuration.normalizeRoadWearIndex,
                             currentFilters: configuration
                         )
                     } label: {
@@ -1554,6 +1555,7 @@ struct MetricConfigurationSection: View {
     @Binding var coverageField: CoverageField?
     @Binding var coverageAsPercentage: Bool
     @Binding var roadWearIndexMode: FilterConfiguration.RoadWearIndexMode
+    @Binding var normalizeRoadWearIndex: Bool
     let currentFilters: FilterConfiguration
 
     @State private var selectedCategoryToRemove: FilterCategory?
@@ -1730,18 +1732,41 @@ struct MetricConfigurationSection: View {
 
             // Road Wear Index configuration
             if metricType == .roadWearIndex {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Road Wear Index Mode")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    // Mode selector (Average vs Sum)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Road Wear Index Mode")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
 
-                    Picker("Mode", selection: $roadWearIndexMode) {
-                        ForEach(FilterConfiguration.RoadWearIndexMode.allCases, id: \.self) { mode in
-                            Text(mode.rawValue).tag(mode)
+                        Picker("Mode", selection: $roadWearIndexMode) {
+                            ForEach(FilterConfiguration.RoadWearIndexMode.allCases, id: \.self) { mode in
+                                Text(mode.rawValue).tag(mode)
+                            }
                         }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
+
+                    // Normalization toggle
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(isOn: $normalizeRoadWearIndex) {
+                            Text("Normalize to first year")
+                                .font(.caption)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+
+                        Text(normalizeRoadWearIndex
+                            ? "First year = 1.0, other years show relative change"
+                            : "Shows raw RWI values (mass^4)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(4)
+                    }
                 }
             }
 

@@ -1432,8 +1432,8 @@ class DatabaseManager: ObservableObject {
                         }
                     }
                 } else {
-                    // Apply normalization for Road Wear Index
-                    let normalizedPoints = if filters.metricType == .roadWearIndex {
+                    // Apply normalization for Road Wear Index if enabled
+                    let normalizedPoints = if filters.metricType == .roadWearIndex && filters.normalizeRoadWearIndex {
                         self?.normalizeToFirstYear(points: points) ?? points
                     } else {
                         points

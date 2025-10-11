@@ -689,8 +689,8 @@ class OptimizedQueryManager {
                         print("⚠️ Empty results - likely ID lookup problem or incompatible filter combination")
                     }
 
-                    // Apply normalization for Road Wear Index
-                    let normalizedPoints = if filters.metricType == .roadWearIndex {
+                    // Apply normalization for Road Wear Index if enabled
+                    let normalizedPoints = if filters.metricType == .roadWearIndex && filters.normalizeRoadWearIndex {
                         self.databaseManager?.normalizeToFirstYear(points: dataPoints) ?? dataPoints
                     } else {
                         dataPoints
