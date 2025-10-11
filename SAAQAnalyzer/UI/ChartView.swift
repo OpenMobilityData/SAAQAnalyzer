@@ -412,10 +412,10 @@ struct ChartView: View {
         let contentView = VStack(spacing: 16) {
             if dataSeries.isEmpty {
                 EmptyChartView()
-                    .frame(height: 400)
+                    .frame(height: 700)
             } else {
                 chartContent
-                    .frame(height: 400)
+                    .frame(height: 700)  // Chart area has 16:9 aspect ratio (1200x700)
                     .padding()
 
                 if showLegend && !dataSeries.isEmpty {
@@ -429,7 +429,7 @@ struct ChartView: View {
                 }
             }
         }
-        .frame(width: 900, height: 700)
+        .frame(width: 1200)  // Chart width determines horizontal space, height adjusts for legend
         .background(darkBackground)
         .environment(\.colorScheme, .dark)
         .preferredColorScheme(.dark)
