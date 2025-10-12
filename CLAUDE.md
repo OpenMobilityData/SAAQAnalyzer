@@ -201,11 +201,17 @@ The application supports multiple metric types for data analysis:
   - **Coverage Analysis**: Cumulative data completeness improvement
 - **Behavior**: Each year's value becomes the sum of all previous years plus current year
 - **Applies After**: Normalization (for RWI), ensuring correct transformation order
+- **Legend Display**: When enabled, chart legends show "Cumulative" prefix to distinguish from non-cumulative data
+  - Example: "Cumulative Avg RWI in [All Vehicles]" vs "Avg RWI in [All Vehicles]"
+  - Applies to all metric types (Count, Sum, Average, RWI, etc.)
 - **Implementation**:
   - `DataModels.swift:1128`: showCumulativeSum property
   - `DatabaseManager.swift:423-442`: applyCumulativeSum() helper function
   - `DatabaseManager.swift:1478-1480`: Vehicle query cumulative transform
   - `DatabaseManager.swift:1750-1752`: License query cumulative transform
+  - `DatabaseManager.swift:2401-2404`: Legend generation for aggregate metrics (with cumulative prefix)
+  - `DatabaseManager.swift:2473-2476`: Legend generation for RWI (with cumulative prefix)
+  - `DatabaseManager.swift:2665-2668`: Legend generation for count metric (with cumulative prefix)
   - `OptimizedQueryManager.swift:714-716`: Optimized vehicle query transform
   - `OptimizedQueryManager.swift:856-858`: Optimized license query transform
   - `FilterPanel.swift:1773-1791`: UI toggle control
