@@ -2398,6 +2398,11 @@ class DatabaseManager: ObservableObject {
                     metricLabel += " (\(unit))"
                 }
 
+                // Add "Cumulative" prefix if cumulative sum is enabled
+                if filters.showCumulativeSum {
+                    metricLabel = "Cumulative " + metricLabel
+                }
+
                 // Return in "metric field in [filters]" format
                 if !filterComponents.isEmpty {
                     return "\(metricLabel) in [\(filterComponents.joined(separator: " AND "))]"
@@ -2468,7 +2473,12 @@ class DatabaseManager: ObservableObject {
                 }
             } else if filters.metricType == .roadWearIndex {
                 // For Road Wear Index, describe the mode (average or sum) and filters
-                let modePrefix = filters.roadWearIndexMode == .average ? "Avg RWI" : "Total RWI"
+                var modePrefix = filters.roadWearIndexMode == .average ? "Avg RWI" : "Total RWI"
+
+                // Add "Cumulative" prefix if cumulative sum is enabled
+                if filters.showCumulativeSum {
+                    modePrefix = "Cumulative " + modePrefix
+                }
 
                 // Build filter context
                 var filterComponents: [String] = []
@@ -2645,11 +2655,19 @@ class DatabaseManager: ObservableObject {
         }
 
         // Return appropriate default based on data entity type
+        var result: String
         if components.isEmpty {
-            return filters.dataEntityType == .license ? "All License Holders" : "All Vehicles"
+            result = filters.dataEntityType == .license ? "All License Holders" : "All Vehicles"
         } else {
-            return components.joined(separator: " AND ")
+            result = components.joined(separator: " AND ")
         }
+
+        // Add "Cumulative" prefix if cumulative sum is enabled (for count metric)
+        if filters.showCumulativeSum && filters.metricType == .count {
+            result = "Cumulative " + result
+        }
+
+        return result
     }
 
     /// Generate a description of what the percentage baseline represents
