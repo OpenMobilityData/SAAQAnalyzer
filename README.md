@@ -99,20 +99,20 @@ See [Regularization User Guide](Documentation/REGULARIZATION_BEHAVIOR.md) for de
 ## System Requirements
 
 ### Minimum Requirements
-- **Platform**: macOS 26.0+ (Sequoia) - *Required for modern Swift concurrency and SwiftUI features*
+- **Platform**: macOS 26.0+ (Tahoe) - *Required for modern Swift concurrency and SwiftUI features*
 - **Architecture**: Universal (Intel and Apple Silicon)
 - **RAM**: 16GB - *Essential for large dataset processing*
 - **Storage**: 100GB+ free space - *Database files can grow very large*
 - **CPU**: 4+ cores - *For parallel CSV processing*
 
 ### Recommended Specifications
-- **Platform**: macOS 26.0+ (Sequoia) or later
+- **Platform**: macOS 26.0+ (Tahoe) or later
 - **RAM**: 32GB+ - *Optimal for 77M+ record datasets*
 - **Storage**: 500GB+ SSD - *Fast I/O critical for SQLite performance*
 - **CPU**: Apple Silicon (M2/M3/M4) or Intel i7/i9 with 8+ cores
 
 ### Development Requirements
-- **Xcode**: 16.0+ (for macOS 26.0 SDK)
+- **Xcode**: 26.0+ (for macOS 26.0 SDK)
 - **Swift**: 6.0+
 - **Dependencies**: SQLite3, Charts framework, UniformTypeIdentifiers, OSLog
 
@@ -136,8 +136,8 @@ See [Regularization User Guide](Documentation/REGULARIZATION_BEHAVIOR.md) for de
 ## Installation
 
 ### Prerequisites
-1. macOS 26.0 (Sequoia) or later
-2. Xcode 16.0+ from the Mac App Store
+1. macOS 26.0 (Tahoe) or later
+2. Xcode 26.0+ (free from the Mac App Store)
 
 ### Building from Source
 
