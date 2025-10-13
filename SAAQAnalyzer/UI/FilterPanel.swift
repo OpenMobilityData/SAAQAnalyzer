@@ -45,42 +45,22 @@ struct FilterPanel: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header
+            // Analytics Section Header
             HStack {
-                Label("Filters", systemImage: "line.horizontal.3.decrease.circle")
+                Label("Analytics", systemImage: "chart.line.uptrend.xyaxis")
                     .font(.headline.weight(.medium))
                     .fontDesign(.rounded)
                     .symbolRenderingMode(.hierarchical)
-                    .typesettingLanguage(.init(languageCode: .french))
 
                 Spacer()
-                
-                Button("Clear All") {
-                    clearAllFilters()
-                }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-                .tint(.secondary)
             }
             .padding()
-            
+
             Divider()
-            
-            // Filter sections
+
+            // Analytics configuration (Y-Axis Metric)
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    if isLoadingData {
-                        // Loading indicator
-                        VStack(spacing: 12) {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                            Text("Loading filter options...")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 200)
-                        .padding()
-                    }
                     // Metric configuration section
                     DisclosureGroup(isExpanded: $metricSectionExpanded) {
                         MetricConfigurationSection(
@@ -99,8 +79,50 @@ struct FilterPanel: View {
                             .font(.subheadline)
                             .symbolRenderingMode(.hierarchical)
                     }
+                }
+                .padding()
+            }
+            .scrollIndicators(.visible, axes: .vertical)
+            .frame(maxHeight: 250)  // Limit height for Analytics section
 
-                    Divider()
+            Divider()
+
+            // Filters Section Header
+            HStack {
+                Label("Filters", systemImage: "line.horizontal.3.decrease.circle")
+                    .font(.headline.weight(.medium))
+                    .fontDesign(.rounded)
+                    .symbolRenderingMode(.hierarchical)
+                    .typesettingLanguage(.init(languageCode: .french))
+
+                Spacer()
+
+                Button("Clear All") {
+                    clearAllFilters()
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+                .tint(.secondary)
+            }
+            .padding()
+
+            Divider()
+
+            // Filter sections
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if isLoadingData {
+                        // Loading indicator
+                        VStack(spacing: 12) {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Loading filter options...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 200)
+                        .padding()
+                    }
 
                     // Filter Options section
                     DisclosureGroup(isExpanded: $filterOptionsSectionExpanded) {
