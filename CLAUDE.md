@@ -62,12 +62,14 @@ xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
    - `DataModels.swift`: Core data structures including VehicleRegistration, GeographicEntity, FilterConfiguration, and enums for classifications
 
 3. **UI Layer** (`UI/`)
-   - `FilterPanel.swift`: Left panel with hierarchical filtering organized in priority order:
-     1. Y-Axis Metric (what to measure)
-     2. Filter Options (how filters behave - includes "Limit to Curated Years Only" toggle)
-     3. Years (when)
-     4. Geographic Location (where)
-     5. Vehicle/License Characteristics (what/who)
+   - `FilterPanel.swift`: Left panel with two distinct top-level sections (Oct 2025):
+     - **Analytics Section**: Configuration for what to measure
+       - Y-Axis Metric (count, sum, average, RWI, percentage, coverage)
+     - **Filters Section**: Configuration for what subset of data to analyze
+       1. Filter Options (includes "Limit to Curated Years Only" toggle)
+       2. Years (when)
+       3. Geographic Location (where)
+       4. Vehicle/License Characteristics (what/who)
    - `ChartView.swift`: Center panel with Charts framework integration (line, bar, area charts)
    - `DataInspector.swift`: Right panel for detailed data inspection
 
