@@ -97,7 +97,19 @@ class OptimizedQueryManager {
         var genderIds: [Int] = []
 
         // Convert years to IDs
-        for year in filters.years {
+        // If limiting to curated years, intersect with curated years set
+        var yearsToQuery = filters.years
+        if filters.limitToCuratedYears {
+            // Get curated years from RegularizationManager
+            if let regManager = databaseManager?.regularizationManager {
+                let yearConfig = regManager.getYearConfiguration()
+                let curatedYears = yearConfig.curatedYears
+                yearsToQuery = filters.years.intersection(curatedYears)
+                print("🎯 Limiting to curated years: \(yearsToQuery.sorted())")
+            }
+        }
+
+        for year in yearsToQuery {
             if let id = try await enumManager.getEnumId(table: "year_enum", column: "year", value: String(year)) {
                 yearIds.append(id)
             }

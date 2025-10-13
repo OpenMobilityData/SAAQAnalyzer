@@ -1127,6 +1127,10 @@ struct FilterConfiguration: Equatable, Sendable {
     var normalizeRoadWearIndex: Bool = true  // true = normalize to first year, false = show raw values
     var showCumulativeSum: Bool = false  // true = cumulative sum over time, false = raw year-by-year values
 
+    // Regularization and filter UI configuration
+    var limitToCuratedYears: Bool = false  // true = exclude uncurated years from queries and filter dropdowns
+    var hierarchicalMakeModel: Bool = false  // true = Model dropdown shows only models for selected Make(s)
+
     /// Mode for Road Wear Index calculation
     enum RoadWearIndexMode: String, CaseIterable, Sendable {
         case average = "Average"

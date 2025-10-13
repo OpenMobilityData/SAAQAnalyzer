@@ -448,13 +448,44 @@ class FilterCacheManager {
         return cachedVehicleTypes
     }
 
-    func getAvailableMakes() async throws -> [FilterItem] {
+    func getAvailableMakes(limitToCuratedYears: Bool = false) async throws -> [FilterItem] {
         if !isInitialized { try await initializeCache() }
+
+        // If limiting to curated years, filter out uncurated-only Makes
+        if limitToCuratedYears {
+            return cachedMakes.filter { make in
+                let makeId = String(make.id)
+                // Exclude if this Make exists ONLY in uncurated years
+                return uncuratedMakes[makeId] == nil
+            }
+        }
+
         return cachedMakes
     }
 
-    func getAvailableModels() async throws -> [FilterItem] {
+    func getAvailableModels(limitToCuratedYears: Bool = false) async throws -> [FilterItem] {
         if !isInitialized { try await initializeCache() }
+
+        // If limiting to curated years, filter out uncurated Make/Model pairs
+        if limitToCuratedYears {
+            return cachedModels.filter { model in
+                // Extract makeId and modelId from the cached model
+                // The model's ID is the modelId, we need to find its makeId from the display name
+                // Format: "Model (Make)" or "Model (Make) [badges...]"
+
+                // Parse makeId from model_enum JOIN - we need to query this differently
+                // For now, check if the model has an uncurated badge in its display name
+                let displayName = model.displayName
+
+                // If display contains "[uncurated:" badge, it's an uncurated pair
+                if displayName.contains("[uncurated:") {
+                    return false
+                }
+
+                return true
+            }
+        }
+
         return cachedModels
     }
 

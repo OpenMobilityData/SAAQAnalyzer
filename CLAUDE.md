@@ -62,7 +62,12 @@ xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
    - `DataModels.swift`: Core data structures including VehicleRegistration, GeographicEntity, FilterConfiguration, and enums for classifications
 
 3. **UI Layer** (`UI/`)
-   - `FilterPanel.swift`: Left panel with hierarchical filtering (years, geography, vehicle types, fuel types, age ranges)
+   - `FilterPanel.swift`: Left panel with hierarchical filtering organized in priority order:
+     1. Y-Axis Metric (what to measure)
+     2. Filter Options (how filters behave - includes "Limit to Curated Years Only" toggle)
+     3. Years (when)
+     4. Geographic Location (where)
+     5. Vehicle/License Characteristics (what/who)
    - `ChartView.swift`: Center panel with Charts framework integration (line, bar, area charts)
    - `DataInspector.swift`: Right panel for detailed data inspection
 
@@ -293,6 +298,9 @@ The application supports multiple metric types for data analysis:
    - `CategoricalEnumManager.swift`: Creates and manages enumeration tables with performance indexes
    - `OptimizedQueryManager.swift`: Integer-based queries (5.6x performance improvement)
    - `FilterCacheManager.swift`: Loads filter data from enumeration tables
+     - Supports "Limit to Curated Years Only" filtering (Oct 2025)
+     - Efficient in-memory filtering of uncurated Make/Model pairs
+     - Dual-layer filtering: UI dropdowns + query restrictions
 
 2. **Geographic Code Handling**
    - Municipality codes are the only numeric codes requiring transformation to human-readable names

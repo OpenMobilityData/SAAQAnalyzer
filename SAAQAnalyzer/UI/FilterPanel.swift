@@ -41,6 +41,7 @@ struct FilterPanel: View {
     @State private var ageSectionExpanded = false
     @State private var licenseSectionExpanded = true
     @State private var metricSectionExpanded = true
+    @State private var filterOptionsSectionExpanded = false
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -80,6 +81,41 @@ struct FilterPanel: View {
                         .frame(maxWidth: .infinity, minHeight: 200)
                         .padding()
                     }
+                    // Metric configuration section
+                    DisclosureGroup(isExpanded: $metricSectionExpanded) {
+                        MetricConfigurationSection(
+                            metricType: $configuration.metricType,
+                            metricField: $configuration.metricField,
+                            percentageBaseFilters: $configuration.percentageBaseFilters,
+                            coverageField: $configuration.coverageField,
+                            coverageAsPercentage: $configuration.coverageAsPercentage,
+                            roadWearIndexMode: $configuration.roadWearIndexMode,
+                            normalizeRoadWearIndex: $configuration.normalizeRoadWearIndex,
+                            showCumulativeSum: $configuration.showCumulativeSum,
+                            currentFilters: configuration
+                        )
+                    } label: {
+                        Label("Y-Axis Metric", systemImage: "chart.line.uptrend.xyaxis")
+                            .font(.subheadline)
+                            .symbolRenderingMode(.hierarchical)
+                    }
+
+                    Divider()
+
+                    // Filter Options section
+                    DisclosureGroup(isExpanded: $filterOptionsSectionExpanded) {
+                        FilterOptionsSection(
+                            limitToCuratedYears: $configuration.limitToCuratedYears,
+                            hierarchicalMakeModel: $configuration.hierarchicalMakeModel
+                        )
+                    } label: {
+                        Label("Filter Options", systemImage: "slider.horizontal.3")
+                            .font(.subheadline)
+                            .symbolRenderingMode(.hierarchical)
+                    }
+
+                    Divider()
+
                     // Years section
                     DisclosureGroup(isExpanded: $yearSectionExpanded) {
                         YearFilterSection(
@@ -89,14 +125,16 @@ struct FilterPanel: View {
                                 set: { newYears in
                                     configuration.years = newYears
                                 }
-                            )
+                            ),
+                            limitToCuratedYears: configuration.limitToCuratedYears,
+                            curatedYears: Set(databaseManager.regularizationManager?.getYearConfiguration().curatedYears ?? [])
                         )
                     } label: {
                         Label("Years", systemImage: "calendar")
                             .font(.subheadline)
                             .symbolRenderingMode(.hierarchical)
                     }
-                    
+
                     Divider()
                     
                     // Geographic hierarchy section
@@ -187,26 +225,6 @@ struct FilterPanel: View {
                         }
                     }
 
-                    Divider()
-
-                    // Metric configuration section
-                    DisclosureGroup(isExpanded: $metricSectionExpanded) {
-                        MetricConfigurationSection(
-                            metricType: $configuration.metricType,
-                            metricField: $configuration.metricField,
-                            percentageBaseFilters: $configuration.percentageBaseFilters,
-                            coverageField: $configuration.coverageField,
-                            coverageAsPercentage: $configuration.coverageAsPercentage,
-                            roadWearIndexMode: $configuration.roadWearIndexMode,
-                            normalizeRoadWearIndex: $configuration.normalizeRoadWearIndex,
-                            showCumulativeSum: $configuration.showCumulativeSum,
-                            currentFilters: configuration
-                        )
-                    } label: {
-                        Label("Y-Axis Metric", systemImage: "chart.line.uptrend.xyaxis")
-                            .font(.subheadline)
-                            .symbolRenderingMode(.hierarchical)
-                    }
                 }
                 .padding()
             }
@@ -266,6 +284,13 @@ struct FilterPanel: View {
         .onChange(of: databaseManager.dataVersion) { _, _ in
             print("🔄 Database version changed, refreshing municipality mapping")
             refreshMunicipalityMapping()
+        }
+        .onChange(of: configuration.limitToCuratedYears) { _, _ in
+            // Reload filter options when curated years toggle changes
+            Task {
+                print("🔄 Curated years filter changed, reloading data type specific options")
+                await loadDataTypeSpecificOptions()
+            }
         }
     }
     
@@ -365,20 +390,26 @@ struct FilterPanel: View {
         switch configuration.dataEntityType {
         case .vehicle:
             // Load vehicle-specific options in parallel for better performance
+            // Pass limitToCuratedYears to filter out uncurated Makes/Models if enabled
             async let vehicleClasses = databaseManager.getAvailableVehicleClasses()
             async let vehicleTypes = databaseManager.getAvailableVehicleTypes()
-            async let vehicleMakes = databaseManager.getAvailableVehicleMakes()
-            async let vehicleModels = databaseManager.getAvailableVehicleModels()
+            let vehicleMakesItems = try? await databaseManager.filterCacheManager?.getAvailableMakes(limitToCuratedYears: configuration.limitToCuratedYears) ?? []
+            let vehicleModelsItems = try? await databaseManager.filterCacheManager?.getAvailableModels(limitToCuratedYears: configuration.limitToCuratedYears) ?? []
             async let vehicleColors = databaseManager.getAvailableVehicleColors()
             async let modelYears = databaseManager.getAvailableModelYears()
 
             // Wait for all to complete
-            let vehicleData = await (vehicleClasses, vehicleTypes, vehicleMakes, vehicleModels, vehicleColors, modelYears)
+            let vehicleData = await (vehicleClasses, vehicleTypes, vehicleColors, modelYears)
+
+            // Convert FilterItems to display names
+            let vehicleMakes = vehicleMakesItems?.map { $0.displayName } ?? []
+            let vehicleModels = vehicleModelsItems?.map { $0.displayName } ?? []
 
             // Update UI state on main thread
             await MainActor.run {
-                (availableClassifications, availableVehicleTypes, availableVehicleMakes, availableVehicleModels,
-                 availableVehicleColors, availableModelYears) = vehicleData
+                (availableClassifications, availableVehicleTypes, availableVehicleColors, availableModelYears) = vehicleData
+                availableVehicleMakes = vehicleMakes
+                availableVehicleModels = vehicleModels
 
                 // Clear license options
                 availableLicenseTypes = []
@@ -516,7 +547,9 @@ struct FilterPanel: View {
 struct YearFilterSection: View {
     let availableYears: [Int]
     @Binding var selectedYears: Set<Int>
-    
+    let limitToCuratedYears: Bool
+    let curatedYears: Set<Int>
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             // Quick select buttons
@@ -543,10 +576,12 @@ struct YearFilterSection: View {
                 .buttonBorderShape(.roundedRectangle)
                 .controlSize(.small)
             }
-            
+
             // Year checkboxes in a grid
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 70))], spacing: 8) {
                 ForEach(availableYears, id: \.self) { year in
+                    let isUncurated = limitToCuratedYears && !curatedYears.contains(year)
+
                     Toggle(String(year), isOn: Binding(
                         get: { selectedYears.contains(year) },
                         set: { isSelected in
@@ -558,6 +593,9 @@ struct YearFilterSection: View {
                         }
                     ))
                     .toggleStyle(.checkbox)
+                    .disabled(isUncurated)
+                    .opacity(isUncurated ? 0.4 : 1.0)
+                    .help(isUncurated ? "This year is not curated and will be excluded from queries" : "")
                 }
             }
         }
@@ -2039,6 +2077,60 @@ struct LicenseFilterSection: View {
                 )
             }
         }
+    }
+}
+
+// MARK: - Filter Options Section
+
+struct FilterOptionsSection: View {
+    @Binding var limitToCuratedYears: Bool
+    @Binding var hierarchicalMakeModel: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Limit to Curated Years toggle
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(isOn: $limitToCuratedYears) {
+                    Text("Limit to Curated Years Only")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+                Text(limitToCuratedYears
+                    ? "Showing only data from curated years (filters exclude uncurated Make/Model pairs)"
+                    : "Showing all years (uncurated items marked with badges)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(4)
+            }
+
+            Divider()
+
+            // Hierarchical Make/Model filtering toggle
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(isOn: $hierarchicalMakeModel) {
+                    Text("Hierarchical Make/Model Filtering")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+                Text(hierarchicalMakeModel
+                    ? "Model dropdown shows only models for selected Make(s)"
+                    : "Model dropdown shows all available models")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(4)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 
