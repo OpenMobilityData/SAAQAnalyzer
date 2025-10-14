@@ -325,6 +325,16 @@ struct ChartView: View {
         // Only show units if all visible series use the same metric and field
         let showUnits = allSameMetric
 
+        // Check if data is normalized (values clustered around 1.0)
+        let allValues = visibleSeries.flatMap { $0.points.map { $0.value } }
+        let isNormalized = firstSeries.filters.normalizeToFirstYear &&
+                          allValues.allSatisfy { $0 >= 0.1 && $0 <= 10.0 }
+
+        // If normalized, use higher precision formatting
+        if isNormalized {
+            return String(format: "%.2f", value)
+        }
+
         switch firstSeries.metricType {
         case .count:
             // Format as integer for counts

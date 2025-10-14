@@ -478,12 +478,44 @@ You can enable/disable any combination of filters to focus on specific workflows
 - Smart auto-assignment still runs in the background regardless of filter settings
 - The list dynamically updates as you toggle filters
 
+## Filter Options Features
+
+### "Limit to Curated Years Only" Toggle
+
+This feature allows you to work exclusively with curated data by:
+- **Filtering dropdowns**: Removes uncurated Make/Model pairs (those with `[uncurated: X records]` badges) from filter dropdowns
+- **Restricting queries**: Prevents queries from executing against uncurated years (e.g., 2023-2024)
+- **Visual feedback**: Uncurated year checkboxes are greyed out (40% opacity) and disabled when toggle is active
+
+**Use Cases:**
+- Clean analysis without uncurated data badges cluttering the UI
+- Focus exclusively on years with curated Make/Model data (typically 2011-2022)
+- Compare curated years without interference from typos or variants in recent data
+
+**Location:** Filter Options section (second section from top in filter panel)
+
+**Behavior:**
+```
+Toggle OFF (default): All Makes/Models visible, all years queryable
+Toggle ON:           Only curated Makes/Models in dropdowns, only curated years in queries
+```
+
+### "Hierarchical Make/Model Filtering" Toggle
+
+**Status:** UI toggle exists but feature not yet implemented (Phase 3)
+
+**Planned Behavior:**
+- When enabled, Model dropdown only shows models for currently selected Make(s)
+- Reduces cognitive load when working with large Make/Model lists
+- Works independently of curated years toggle
+
 ## Tips
 
 1. **To see original data quality:** Turn regularization OFF and filter by uncurated years (2023-2024)
 2. **To analyze merged history:** Turn regularization ON and select any year range
 3. **To correct typos:** Use RegularizationView to map uncurated variants to canonical values
 4. **Badge interpretation:** The badge shows you what's in the database, not what will be queried (that depends on the regularization toggle)
+5. **To work with curated data only:** Enable "Limit to Curated Years Only" in Filter Options
 
 ## Regularization Statistics Display
 
