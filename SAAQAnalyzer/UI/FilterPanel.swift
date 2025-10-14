@@ -318,6 +318,22 @@ struct FilterPanel: View {
                 await loadDataTypeSpecificOptions()
             }
         }
+        .onChange(of: configuration.hierarchicalMakeModel) { _, _ in
+            // Reload models when hierarchical filtering toggle changes
+            Task {
+                print("🔄 Hierarchical filtering changed, reloading models")
+                await loadDataTypeSpecificOptions()
+            }
+        }
+        .onChange(of: configuration.vehicleMakes) { _, _ in
+            // Reload models when Make selection changes (only if hierarchical filtering enabled)
+            if configuration.hierarchicalMakeModel {
+                Task {
+                    print("🔄 Make selection changed, reloading models for hierarchical filtering")
+                    await loadDataTypeSpecificOptions()
+                }
+            }
+        }
     }
     
     /// Quickly loads only years for incremental updates during batch imports
@@ -420,7 +436,20 @@ struct FilterPanel: View {
             async let vehicleClasses = databaseManager.getAvailableVehicleClasses()
             async let vehicleTypes = databaseManager.getAvailableVehicleTypes()
             let vehicleMakesItems = try? await databaseManager.filterCacheManager?.getAvailableMakes(limitToCuratedYears: configuration.limitToCuratedYears) ?? []
-            let vehicleModelsItems = try? await databaseManager.filterCacheManager?.getAvailableModels(limitToCuratedYears: configuration.limitToCuratedYears) ?? []
+
+            // For hierarchical filtering, extract make IDs from selected makes
+            var selectedMakeIds: Set<Int>? = nil
+            if configuration.hierarchicalMakeModel && !configuration.vehicleMakes.isEmpty {
+                // Extract makeId from display names by matching against loaded makes
+                selectedMakeIds = Set(vehicleMakesItems?.filter { make in
+                    configuration.vehicleMakes.contains(make.displayName)
+                }.map { $0.id } ?? [])
+            }
+
+            let vehicleModelsItems = try? await databaseManager.filterCacheManager?.getAvailableModels(
+                limitToCuratedYears: configuration.limitToCuratedYears,
+                forMakeIds: selectedMakeIds
+            ) ?? []
             async let vehicleColors = databaseManager.getAvailableVehicleColors()
             async let modelYears = databaseManager.getAvailableModelYears()
 
