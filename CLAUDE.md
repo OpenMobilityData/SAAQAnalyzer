@@ -172,13 +172,11 @@ The application supports multiple metric types for data analysis:
    - **Modes**:
      - **Average**: Mean road wear index across vehicles
      - **Sum**: Total cumulative road wear
-   - **Normalization Toggle** (configurable):
-     - **ON (default)**: Results normalized so first year = 1.0
-       - Subsequent years show relative change (e.g., 1.05 = 5% increase)
-       - Ideal for tracking trends over time
-     - **OFF**: Shows raw RWI values (mass^4)
-       - Useful for comparing different vehicle types on absolute scale
-       - Values displayed in scientific notation (e.g., "1.60e+18 RWI") or magnitude notation (K/M)
+   - **Normalization** (see "Normalize to First Year" feature below)
+     - When enabled, first year = 1.0, subsequent years show relative change
+     - Works with RWI and all other metric types
+     - Raw RWI values (mass^4) displayed when normalization is off
+     - Values displayed in scientific notation (e.g., "1.60e+18 RWI") or magnitude notation (K/M) when not normalized
    - **Display Format**:
      - Normalized values: "1.05 RWI" (2 decimal places)
      - Raw values: Scientific notation or K/M notation for large values
@@ -189,12 +187,13 @@ The application supports multiple metric types for data analysis:
      - `DatabaseManager.swift:399-421`: Normalization helper function
      - `DatabaseManager.swift:1227-1245`: RWI calculation with vehicle-type-aware weight distribution
      - `DatabaseManager.swift:1923-1941`: RWI calculation (percentage query path)
-     - `DatabaseManager.swift:1436-1440`: Conditional normalization application
+     - `DatabaseManager.swift:1436-1440`: Conditional normalization application (see Normalize to First Year below)
      - `OptimizedQueryManager.swift:606-626`: RWI calculation (optimized integer-based path)
-     - `OptimizedQueryManager.swift:693-697`: Conditional normalization (optimized path)
-     - `FilterPanel.swift:1731-1768`: UI mode selector and normalization toggle
-     - `DataModels.swift:1127`: normalizeRoadWearIndex property
+     - `OptimizedQueryManager.swift:693-697`: Conditional normalization (optimized path, see Normalize to First Year)
+     - `FilterPanel.swift:1731-1768`: UI mode selector (RWI-specific)
+     - `DataModels.swift:1127`: normalizeToFirstYear property (global, see below)
      - `DataModels.swift:1546-1564`: Value formatting with normalization awareness
+     - `ChartView.swift:328-336`: Y-axis formatting with automatic precision detection for normalized values
      - `ChartView.swift:688`: Legend display using formatValue()
 
 ### Cumulative Sum Transform ✨ *New in October 2025*
@@ -222,6 +221,31 @@ The application supports multiple metric types for data analysis:
   - `OptimizedQueryManager.swift:714-716`: Optimized vehicle query transform
   - `OptimizedQueryManager.swift:856-858`: Optimized license query transform
   - `FilterPanel.swift:1773-1791`: UI toggle control
+
+### Normalize to First Year ✨ *Promoted to Global in October 2025*
+
+**Global toggle** available for all metrics that normalizes time series data so first year = 1.0:
+
+- **Purpose**: Shows relative change over time instead of absolute values
+- **Use Cases**:
+  - **All Metrics**: Compare growth rates across different measurements (vehicles, mass, RWI, etc.)
+  - **Percentages**: Convert to decimal fractions (50% → 1.0, 60% → 1.2 for 20% increase)
+  - **Trend Analysis**: First year = 1.0, subsequent years show relative change (1.05 = 5% increase)
+- **Behavior**: Divides all years by first year value (2011: 1000 → 1.0, 2012: 1100 → 1.1)
+- **Applies Before**: Cumulative sum (if enabled), ensuring correct transformation order
+- **Display Precision**: Automatically shows 2 decimal places for normalized values (detects range 0.1-10.0)
+- **Edge Cases**: Returns original values if first year is zero or negative (prevents division by zero)
+- **Implementation**:
+  - `DataModels.swift:1127`: normalizeToFirstYear property
+  - `DataModels.swift:1232`: normalizeToFirstYear in IntegerFilterConfiguration
+  - `DatabaseManager.swift:399-421`: normalizeToFirstYear() helper function
+  - `DatabaseManager.swift:1471-1480`: Vehicle query normalization (applied to all metrics)
+  - `DatabaseManager.swift:1749-1758`: License query normalization (applied to all metrics)
+  - `OptimizedQueryManager.swift:719-723`: Optimized vehicle query normalization
+  - `OptimizedQueryManager.swift:867-876`: Optimized license query normalization
+  - `FilterPanel.swift:1817-1835`: UI toggle control (global section, below RWI config)
+  - `ChartView.swift:328-336`: Automatic 2-decimal precision detection for normalized values
+  - `DataModels.swift:1516-1519`: Legend value formatting with normalization awareness
 
 ## Development Notes
 

@@ -715,8 +715,8 @@ class OptimizedQueryManager {
                         print("⚠️ Empty results - likely ID lookup problem or incompatible filter combination")
                     }
 
-                    // Apply normalization for Road Wear Index if enabled
-                    var transformedPoints = if filters.metricType == .roadWearIndex && filters.normalizeRoadWearIndex {
+                    // Apply normalization if enabled (works with all metrics)
+                    var transformedPoints = if filters.normalizeToFirstYear {
                         self.databaseManager?.normalizeToFirstYear(points: dataPoints) ?? dataPoints
                     } else {
                         dataPoints
@@ -863,8 +863,14 @@ class OptimizedQueryManager {
                     let duration = Date().timeIntervalSince(startTime)
                     print("✅ Optimized license query completed in \(String(format: "%.3f", duration))s - \(dataPoints.count) data points")
 
-                    // Apply cumulative sum if enabled
-                    var transformedPoints = dataPoints
+                    // Apply normalization if enabled (works with all metrics)
+                    var transformedPoints = if filters.normalizeToFirstYear {
+                        self.databaseManager?.normalizeToFirstYear(points: dataPoints) ?? dataPoints
+                    } else {
+                        dataPoints
+                    }
+
+                    // Apply cumulative sum if enabled (applied after normalization)
                     if filters.showCumulativeSum {
                         transformedPoints = self.databaseManager?.applyCumulativeSum(points: transformedPoints) ?? transformedPoints
                     }

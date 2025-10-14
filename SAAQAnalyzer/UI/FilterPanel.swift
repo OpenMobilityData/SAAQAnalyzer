@@ -70,7 +70,7 @@ struct FilterPanel: View {
                             coverageField: $configuration.coverageField,
                             coverageAsPercentage: $configuration.coverageAsPercentage,
                             roadWearIndexMode: $configuration.roadWearIndexMode,
-                            normalizeRoadWearIndex: $configuration.normalizeRoadWearIndex,
+                            normalizeToFirstYear: $configuration.normalizeToFirstYear,
                             showCumulativeSum: $configuration.showCumulativeSum,
                             currentFilters: configuration
                         )
@@ -1617,7 +1617,7 @@ struct MetricConfigurationSection: View {
     @Binding var coverageField: CoverageField?
     @Binding var coverageAsPercentage: Bool
     @Binding var roadWearIndexMode: FilterConfiguration.RoadWearIndexMode
-    @Binding var normalizeRoadWearIndex: Bool
+    @Binding var normalizeToFirstYear: Bool
     @Binding var showCumulativeSum: Bool
     let currentFilters: FilterConfiguration
 
@@ -1811,26 +1811,27 @@ struct MetricConfigurationSection: View {
                         .labelsHidden()
                     }
 
-                    // Normalization toggle
-                    VStack(alignment: .leading, spacing: 4) {
-                        Toggle(isOn: $normalizeRoadWearIndex) {
-                            Text("Normalize to first year")
-                                .font(.caption)
-                        }
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-
-                        Text(normalizeRoadWearIndex
-                            ? "First year = 1.0, other years show relative change"
-                            : "Shows raw RWI values (mass^4)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.gray.opacity(0.1))
-                            .cornerRadius(4)
-                    }
                 }
+            }
+
+            // Normalize to first year toggle (available for all metrics)
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(isOn: $normalizeToFirstYear) {
+                    Text("Normalize to first year")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+                Text(normalizeToFirstYear
+                    ? "First year = 1.0, other years show relative change (e.g., 1.05 = 5% increase)"
+                    : "Shows raw metric values")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(4)
             }
 
             // Cumulative sum toggle (available for all metrics)

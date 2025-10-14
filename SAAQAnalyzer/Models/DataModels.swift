@@ -1124,7 +1124,7 @@ struct FilterConfiguration: Equatable, Sendable {
     var coverageField: CoverageField? = nil
     var coverageAsPercentage: Bool = true  // true = percentage, false = raw NULL count
     var roadWearIndexMode: RoadWearIndexMode = .average  // average or sum for Road Wear Index
-    var normalizeRoadWearIndex: Bool = true  // true = normalize to first year, false = show raw values
+    var normalizeToFirstYear: Bool = true  // true = normalize to first year (first year = 1.0), false = show raw values
     var showCumulativeSum: Bool = false  // true = cumulative sum over time, false = raw year-by-year values
 
     // Regularization and filter UI configuration
@@ -1229,7 +1229,7 @@ struct IntegerFilterConfiguration: Equatable, Sendable {
     var metricField: ChartMetricField = .none
     var percentageBaseFilters: IntegerPercentageBaseFilters? = nil
     var roadWearIndexMode: FilterConfiguration.RoadWearIndexMode = .average
-    var normalizeRoadWearIndex: Bool = true  // true = normalize to first year, false = show raw values
+    var normalizeToFirstYear: Bool = true  // true = normalize to first year (first year = 1.0), false = show raw values
 }
 
 // MARK: - Percentage Base Configuration
@@ -1507,12 +1507,17 @@ class FilteredDataSeries: Identifiable {
             }
         case .roadWearIndex:
             let baseLabel = filters.roadWearIndexMode == .average ? "Average Road Wear Index" : "Total Road Wear Index"
-            return filters.normalizeRoadWearIndex ? "\(baseLabel) (Normalized)" : "\(baseLabel) (Raw)"
+            return filters.normalizeToFirstYear ? "\(baseLabel) (Normalized)" : "\(baseLabel) (Raw)"
         }
     }
 
     /// Format a value for display (tooltips, labels, etc.)
     func formatValue(_ value: Double) -> String {
+        // If normalized, use higher precision for values near 1.0
+        if filters.normalizeToFirstYear && value >= 0.1 && value <= 10.0 {
+            return String(format: "%.2f", value)
+        }
+
         let entityType = filters.dataEntityType
         switch metricType {
         case .count:
@@ -1549,7 +1554,7 @@ class FilteredDataSeries: Identifiable {
             }
         case .roadWearIndex:
             // Check if value is normalized (close to 1.0) or very large (raw)
-            if filters.normalizeRoadWearIndex {
+            if filters.normalizeToFirstYear {
                 // Normalized mode: values should be close to 1.0
                 return String(format: "%.2f RWI", value)  // "1.05 RWI"
             } else {

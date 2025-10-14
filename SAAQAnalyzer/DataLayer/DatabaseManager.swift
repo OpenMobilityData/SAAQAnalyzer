@@ -1467,14 +1467,14 @@ class DatabaseManager: ObservableObject {
                         }
                     }
                 } else {
-                    // Apply normalization for Road Wear Index if enabled
-                    var transformedPoints = if filters.metricType == .roadWearIndex && filters.normalizeRoadWearIndex {
+                    // Apply normalization if enabled (works with all metrics)
+                    var transformedPoints = if filters.normalizeToFirstYear {
                         self?.normalizeToFirstYear(points: points) ?? points
                     } else {
                         points
                     }
 
-                    // Apply cumulative sum if enabled
+                    // Apply cumulative sum if enabled (applied after normalization)
                     if filters.showCumulativeSum {
                         transformedPoints = self?.applyCumulativeSum(points: transformedPoints) ?? transformedPoints
                     }
@@ -1745,8 +1745,14 @@ class DatabaseManager: ObservableObject {
                         }
                     }
                 } else {
-                    // Apply cumulative sum if enabled
-                    var transformedPoints = points
+                    // Apply normalization if enabled (works with all metrics)
+                    var transformedPoints = if filters.normalizeToFirstYear {
+                        self?.normalizeToFirstYear(points: points) ?? points
+                    } else {
+                        points
+                    }
+
+                    // Apply cumulative sum if enabled (applied after normalization)
                     if filters.showCumulativeSum {
                         transformedPoints = self?.applyCumulativeSum(points: transformedPoints) ?? transformedPoints
                     }
