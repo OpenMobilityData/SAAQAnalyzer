@@ -1158,15 +1158,26 @@ struct SearchableFilterList: View {
     @State private var isExpanded = false
     
     private var filteredItems: [String] {
+        // ALWAYS include selected items (even if they don't match search)
+        // Then add unselected items that match search
+        let selectedInItems = items.filter { selectedItems.contains($0) }
+
         if searchText.isEmpty {
-            return items
+            // No search: return all items with selected first
+            let unselectedInItems = items.filter { !selectedItems.contains($0) }
+            return selectedInItems.sorted() + unselectedInItems.sorted()
         }
-        return items.filter { $0.localizedCaseInsensitiveContains(searchText) }
+
+        // With search: selected items first (all of them), then matching unselected items
+        let matchingUnselected = items.filter { item in
+            !selectedItems.contains(item) && item.localizedCaseInsensitiveContains(searchText)
+        }
+        return selectedInItems.sorted() + matchingUnselected.sorted()
     }
-    
+
     private var displayedItems: [String] {
-        let sorted = filteredItems.sorted()
-        return isExpanded ? sorted : Array(sorted.prefix(5))
+        // No additional sorting needed - filteredItems already has correct order
+        return isExpanded ? filteredItems : Array(filteredItems.prefix(5))
     }
     
     var body: some View {
@@ -1282,19 +1293,29 @@ struct VehicleClassFilterList: View {
     @State private var isExpanded = false
     
     private var filteredItems: [String] {
+        // ALWAYS include selected items (even if they don't match search)
+        // Then add unselected items that match search
+        let selectedInItems = availableVehicleClasses.filter { selectedVehicleClasses.contains($0) }
+
         if searchText.isEmpty {
-            return availableVehicleClasses
+            // No search: return all items with selected first
+            let unselectedInItems = availableVehicleClasses.filter { !selectedVehicleClasses.contains($0) }
+            return selectedInItems.sorted() + unselectedInItems.sorted()
         }
-        return availableVehicleClasses.filter { vehicleClass in
+
+        // With search: selected items first (all of them), then matching unselected items
+        let matchingUnselected = availableVehicleClasses.filter { vehicleClass in
+            if selectedVehicleClasses.contains(vehicleClass) { return false }
             let displayName = getDisplayName(for: vehicleClass)
-            return displayName.localizedCaseInsensitiveContains(searchText) || 
-              vehicleClass.localizedCaseInsensitiveContains(searchText)
+            return displayName.localizedCaseInsensitiveContains(searchText) ||
+                   vehicleClass.localizedCaseInsensitiveContains(searchText)
         }
+        return selectedInItems.sorted() + matchingUnselected.sorted()
     }
-    
+
     private var displayedItems: [String] {
-        let sorted = filteredItems.sorted()
-        return isExpanded ? sorted : Array(sorted.prefix(6))
+        // No additional sorting needed - filteredItems already has correct order
+        return isExpanded ? filteredItems : Array(filteredItems.prefix(6))
     }
     
     var body: some View {
@@ -1427,18 +1448,29 @@ struct VehicleTypeFilterList: View {
     @State private var isExpanded = false
 
     private var filteredItems: [String] {
+        // ALWAYS include selected items (even if they don't match search)
+        // Then add unselected items that match search
+        let selectedInItems = availableVehicleTypes.filter { selectedVehicleTypes.contains($0) }
+
         if searchText.isEmpty {
-            return availableVehicleTypes
+            // No search: return all items with selected first
+            let unselectedInItems = availableVehicleTypes.filter { !selectedVehicleTypes.contains($0) }
+            return selectedInItems.sorted() + unselectedInItems.sorted()
         }
-        return availableVehicleTypes.filter { vehicleType in
+
+        // With search: selected items first (all of them), then matching unselected items
+        let matchingUnselected = availableVehicleTypes.filter { vehicleType in
+            if selectedVehicleTypes.contains(vehicleType) { return false }
             let displayName = getDisplayName(for: vehicleType)
             return displayName.localizedCaseInsensitiveContains(searchText) ||
-              vehicleType.localizedCaseInsensitiveContains(searchText)
+                   vehicleType.localizedCaseInsensitiveContains(searchText)
         }
+        return selectedInItems.sorted() + matchingUnselected.sorted()
     }
 
     private var displayedItems: [String] {
         // Sort with special handling: UK (Unknown) goes at the end
+        // Apply this sorting WITHIN each group (selected vs unselected)
         let sorted = filteredItems.sorted { item1, item2 in
             // If either is UK, put it at the end
             if item1.uppercased() == "UK" { return false }
@@ -1618,13 +1650,25 @@ struct MunicipalityFilterList: View {
     }
 
     private var filteredItems: [(name: String, code: String)] {
+        // ALWAYS include selected items (even if they don't match search)
+        // Then add unselected items that match search
+        let selectedInItems = displayItems.filter { selectedCodes.contains($0.code) }
+
         if searchText.isEmpty {
-            return displayItems
+            // No search: return all items with selected first
+            let unselectedInItems = displayItems.filter { !selectedCodes.contains($0.code) }
+            return selectedInItems.sorted { $0.name < $1.name } + unselectedInItems.sorted { $0.name < $1.name }
         }
-        return displayItems.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+
+        // With search: selected items first (all of them), then matching unselected items
+        let matchingUnselected = displayItems.filter { item in
+            !selectedCodes.contains(item.code) && item.name.localizedCaseInsensitiveContains(searchText)
+        }
+        return selectedInItems.sorted { $0.name < $1.name } + matchingUnselected.sorted { $0.name < $1.name }
     }
 
     private var displayedItems: [(name: String, code: String)] {
+        // No additional sorting needed - filteredItems already has correct order
         return isExpanded ? filteredItems : Array(filteredItems.prefix(5))
     }
 
