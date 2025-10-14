@@ -1512,6 +1512,15 @@ class FilteredDataSeries: Identifiable {
 
     /// Format a value for display (tooltips, labels, etc.)
     func formatValue(_ value: Double) -> String {
+        // Helper function to format integers with thousands separators
+        func formatWithThousandsSeparator(_ intValue: Int) -> String {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            formatter.groupingSeparator = ","
+            formatter.usesGroupingSeparator = true
+            return formatter.string(from: NSNumber(value: intValue)) ?? "\(intValue)"
+        }
+
         // If normalized, use higher precision for values near 1.0
         if filters.normalizeToFirstYear && value >= 0.1 && value <= 10.0 {
             return String(format: "%.2f", value)
@@ -1520,11 +1529,12 @@ class FilteredDataSeries: Identifiable {
         let entityType = filters.dataEntityType
         switch metricType {
         case .count:
+            let formattedCount = formatWithThousandsSeparator(Int(value))
             switch entityType {
             case .vehicle:
-                return "\(Int(value)) vehicles"
+                return "\(formattedCount) vehicles"
             case .license:
-                return "\(Int(value)) license holders"
+                return "\(formattedCount) license holders"
             }
         case .sum:
             if metricField == .netMass {
@@ -1532,16 +1542,19 @@ class FilteredDataSeries: Identifiable {
                 if value > 10000 {
                     return String(format: "%.1f tonnes", value / 1000)
                 } else {
-                    return String(format: "%.0f kg", value)
+                    let formattedValue = formatWithThousandsSeparator(Int(value))
+                    return "\(formattedValue) kg"
                 }
             } else {
-                return String(format: "%.0f", value)
+                let formattedValue = formatWithThousandsSeparator(Int(value))
+                return formattedValue
             }
         case .average, .minimum, .maximum:
             if metricField == .vehicleAge || metricField == .displacement {
                 return String(format: "%.1f", value)
             } else {
-                return String(format: "%.0f", value)
+                let formattedValue = formatWithThousandsSeparator(Int(value))
+                return formattedValue
             }
         case .percentage:
             return String(format: "%.1f%%", value)
@@ -1549,7 +1562,8 @@ class FilteredDataSeries: Identifiable {
             if filters.coverageAsPercentage {
                 return String(format: "%.1f%%", value)
             } else {
-                return "\(Int(value)) NULL values"
+                let formattedValue = formatWithThousandsSeparator(Int(value))
+                return "\(formattedValue) NULL values"
             }
         case .roadWearIndex:
             // Check if value is normalized (close to 1.0) or very large (raw)
@@ -1568,7 +1582,8 @@ class FilteredDataSeries: Identifiable {
                     // Use thousands notation
                     return String(format: "%.2f K RWI", value / 1e3)  // "123.45 K RWI"
                 } else {
-                    return String(format: "%.0f RWI", value)  // Standard format for smaller values
+                    let formattedValue = formatWithThousandsSeparator(Int(value))
+                    return "\(formattedValue) RWI"  // Standard format for smaller values with separators
                 }
             }
         }
