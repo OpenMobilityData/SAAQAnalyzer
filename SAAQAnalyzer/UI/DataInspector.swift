@@ -482,8 +482,12 @@ struct SeriesStatisticsView: View {
         let median: Double
         let min: Double
         let max: Double
+        let range: Double  // max - min
         let standardDeviation: Double
         let growthRate: Double?  // Compound annual growth rate
+        let increaseFromFirst: Double?  // Absolute change from first year
+        let percentIncreaseFromFirst: Double?  // Percentage change from first year
+        let firstYear: Int?  // First year in series
     }
     
     var body: some View {
@@ -494,8 +498,9 @@ struct SeriesStatisticsView: View {
             StatisticRow(label: "Median", value: formatNumber(statistics.median))
             StatisticRow(label: "Minimum", value: formatNumber(statistics.min))
             StatisticRow(label: "Maximum", value: formatNumber(statistics.max))
+            StatisticRow(label: "Range", value: formatNumber(statistics.range))
             StatisticRow(label: "Std. Deviation", value: formatNumber(statistics.standardDeviation))
-            
+
             if let growthRate = statistics.growthRate {
                 StatisticRow(
                     label: "CAGR",
@@ -503,14 +508,34 @@ struct SeriesStatisticsView: View {
                     help: "Compound Annual Growth Rate"
                 )
             }
-            
+
+            // Change from first year statistics
+            if let firstYear = statistics.firstYear,
+               let increaseFromFirst = statistics.increaseFromFirst {
+                Divider()
+
+                StatisticRow(
+                    label: "Increase from \(firstYear)",
+                    value: formatNumber(increaseFromFirst),
+                    help: "Absolute change from first year"
+                )
+
+                if let percentIncrease = statistics.percentIncreaseFromFirst {
+                    StatisticRow(
+                        label: "% Increase from \(firstYear)",
+                        value: formatPercentage(percentIncrease),
+                        help: "Percentage change from first year"
+                    )
+                }
+            }
+
             // Trend analysis placeholder
             Divider()
-            
+
             Text("Trend Analysis")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            
+
             Text("Future: Polynomial fitting will be implemented here")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -523,7 +548,7 @@ struct SeriesStatisticsView: View {
         let count = values.count
         let sum = values.reduce(0, +)
         let mean = count > 0 ? sum / Double(count) : 0
-        
+
         // Median
         let sortedValues = values.sorted()
         let median: Double
@@ -534,28 +559,55 @@ struct SeriesStatisticsView: View {
         } else {
             median = 0
         }
-        
-        // Min/Max
+
+        // Min/Max and Range
         let min = values.min() ?? 0
         let max = values.max() ?? 0
-        
+        let range = max - min
+
         // Standard deviation
         let variance = values.reduce(0) { total, value in
             total + pow(value - mean, 2)
         } / Double(count > 1 ? count - 1 : 1)
         let standardDeviation = sqrt(variance)
-        
+
+        // Sort points by year to ensure first/last are chronological
+        let sortedPoints = series.points.sorted { $0.year < $1.year }
+
         // CAGR (if we have at least 2 years of data)
         let growthRate: Double?
-        if let firstPoint = series.points.first,
-           let lastPoint = series.points.last,
+        if let firstPoint = sortedPoints.first,
+           let lastPoint = sortedPoints.last,
            firstPoint.year != lastPoint.year && firstPoint.value > 0 {
             let years = Double(lastPoint.year - firstPoint.year)
             growthRate = pow(lastPoint.value / firstPoint.value, 1.0 / years) - 1.0
         } else {
             growthRate = nil
         }
-        
+
+        // Change from first year statistics
+        let increaseFromFirst: Double?
+        let percentIncreaseFromFirst: Double?
+        let firstYear: Int?
+
+        if let firstPoint = sortedPoints.first,
+           let lastPoint = sortedPoints.last,
+           firstPoint.year != lastPoint.year {
+            firstYear = firstPoint.year
+            increaseFromFirst = lastPoint.value - firstPoint.value
+
+            // Calculate percentage increase (handle division by zero)
+            if firstPoint.value != 0 {
+                percentIncreaseFromFirst = (lastPoint.value - firstPoint.value) / firstPoint.value
+            } else {
+                percentIncreaseFromFirst = nil
+            }
+        } else {
+            firstYear = nil
+            increaseFromFirst = nil
+            percentIncreaseFromFirst = nil
+        }
+
         return Statistics(
             count: count,
             sum: sum,
@@ -563,8 +615,12 @@ struct SeriesStatisticsView: View {
             median: median,
             min: min,
             max: max,
+            range: range,
             standardDeviation: standardDeviation,
-            growthRate: growthRate
+            growthRate: growthRate,
+            increaseFromFirst: increaseFromFirst,
+            percentIncreaseFromFirst: percentIncreaseFromFirst,
+            firstYear: firstYear
         )
     }
     
