@@ -389,7 +389,8 @@ struct FilterPanel: View {
     }
 
     /// Loads data type specific filter options
-    private func loadDataTypeSpecificOptions() async {
+    /// - Parameter autoSelectYears: Whether to auto-select years (default: true). Set to false when called from hierarchical filtering to avoid AttributeGraph crashes.
+    private func loadDataTypeSpecificOptions(autoSelectYears: Bool = true) async {
         // Load new data for the current mode
         if hasInitiallyLoaded {
             let years = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
@@ -403,17 +404,20 @@ struct FilterPanel: View {
                 availableMRCs = mrcs
                 availableMunicipalities = municipalities
 
-                // Auto-select all years when switching data types if none are selected
-                // OR auto-select newly available years
-                if configuration.years.isEmpty && !years.isEmpty {
-                    configuration.years = Set(years)
-                    print("📊 Auto-selected all \(years.count) years after data type switch")
-                } else {
-                    // Auto-select any newly available years
-                    let newYears = Set(years).subtracting(configuration.years)
-                    if !newYears.isEmpty {
-                        configuration.years.formUnion(newYears)
-                        print("📊 Auto-selected \(newYears.count) newly available year(s): \(newYears.sorted())")
+                // Only auto-select years when explicitly requested (not during hierarchical filter resets)
+                if autoSelectYears {
+                    // Auto-select all years when switching data types if none are selected
+                    // OR auto-select newly available years
+                    if configuration.years.isEmpty && !years.isEmpty {
+                        configuration.years = Set(years)
+                        print("📊 Auto-selected all \(years.count) years after data type switch")
+                    } else {
+                        // Auto-select any newly available years
+                        let newYears = Set(years).subtracting(configuration.years)
+                        if !newYears.isEmpty {
+                            configuration.years.formUnion(newYears)
+                            print("📊 Auto-selected \(newYears.count) newly available year(s): \(newYears.sorted())")
+                        }
                     }
                 }
             }
@@ -579,12 +583,21 @@ struct FilterPanel: View {
     }
 
     /// Filter models by selected makes (manual button action)
+    /// This is a minimal function that ONLY updates the model list - nothing else.
+    /// Avoids AttributeGraph crashes by not triggering cascading binding updates.
     private func filterModelsBySelectedMakes() async {
         if configuration.vehicleMakes.isEmpty {
-            // No makes selected, show all
-            await loadDataTypeSpecificOptions()
+            // No makes selected, reload ALL models only
+            let vehicleModelsItems = try? await databaseManager.filterCacheManager?
+                .getAvailableModels(
+                    limitToCuratedYears: configuration.limitToCuratedYears,
+                    forMakeIds: nil  // nil = all models
+                ) ?? []
+
             await MainActor.run {
+                availableVehicleModels = vehicleModelsItems?.map { $0.displayName } ?? []
                 isModelListFiltered = false
+                print("🔄 Reset to all \(availableVehicleModels.count) models")
             }
             return
         }
@@ -598,10 +611,17 @@ struct FilterPanel: View {
         }.map { $0.id } ?? [])
 
         guard !selectedMakeIds.isEmpty else {
-            // No valid make IDs, show all
-            await loadDataTypeSpecificOptions()
+            // No valid make IDs, show all models
+            let vehicleModelsItems = try? await databaseManager.filterCacheManager?
+                .getAvailableModels(
+                    limitToCuratedYears: configuration.limitToCuratedYears,
+                    forMakeIds: nil  // nil = all models
+                ) ?? []
+
             await MainActor.run {
+                availableVehicleModels = vehicleModelsItems?.map { $0.displayName } ?? []
                 isModelListFiltered = false
+                print("🔄 Reset to all \(availableVehicleModels.count) models (invalid make IDs)")
             }
             return
         }
