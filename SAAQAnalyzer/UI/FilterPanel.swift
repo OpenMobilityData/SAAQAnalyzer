@@ -582,8 +582,10 @@ struct FilterPanel: View {
     private func filterModelsBySelectedMakes() async {
         if configuration.vehicleMakes.isEmpty {
             // No makes selected, show all
-            isModelListFiltered = false
             await loadDataTypeSpecificOptions()
+            await MainActor.run {
+                isModelListFiltered = false
+            }
             return
         }
 
@@ -597,8 +599,10 @@ struct FilterPanel: View {
 
         guard !selectedMakeIds.isEmpty else {
             // No valid make IDs, show all
-            isModelListFiltered = false
             await loadDataTypeSpecificOptions()
+            await MainActor.run {
+                isModelListFiltered = false
+            }
             return
         }
 
@@ -804,7 +808,7 @@ struct VehicleFilterSection: View {
     private var hasFuelTypeYears: Bool {
         availableYears.contains { $0 >= 2017 }
     }
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Vehicle classes (use actual database values)
@@ -859,19 +863,31 @@ struct VehicleFilterSection: View {
 
                     Spacer()
 
-                    // Manual filter button (only show when makes are selected)
-                    if selectedMakesCount > 0 {
+                    // Manual filter button (show when makes are selected OR when list is filtered)
+                    if selectedMakesCount > 0 || isModelListFiltered {
                         Button(action: onFilterByMakes) {
                             HStack(spacing: 4) {
                                 Image(systemName: isModelListFiltered ? "line.horizontal.3.decrease.circle.fill" : "line.horizontal.3.decrease.circle")
-                                Text(isModelListFiltered ? "Show All Models" : "Filter by Selected Makes (\(selectedMakesCount))")
+                                if isModelListFiltered && selectedMakesCount > 0 {
+                                    // List is filtered AND makes are still selected - show status
+                                    Text("Filtering by \(selectedMakesCount) Make\(selectedMakesCount > 1 ? "s" : "")")
+                                } else if isModelListFiltered {
+                                    // List is filtered but no makes selected - can show all
+                                    Text("Show All Models")
+                                } else {
+                                    // Makes selected but not yet filtered - offer to filter
+                                    Text("Filter by Selected Makes (\(selectedMakesCount))")
+                                }
                             }
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.mini)
-                        .help(isModelListFiltered
-                            ? "Show all available models"
-                            : "Show only models for selected make(s)")
+                        .disabled(isModelListFiltered && selectedMakesCount > 0)
+                        .help(isModelListFiltered && selectedMakesCount > 0
+                            ? "Deselect makes to show all models"
+                            : (isModelListFiltered
+                                ? "Show all available models"
+                                : "Show only models for selected make(s)"))
                     }
                 }
 

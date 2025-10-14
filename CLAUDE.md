@@ -75,7 +75,8 @@ xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
        3. Geographic Location (where)
        4. Vehicle/License Characteristics (what/who)
           - **Hierarchical Make/Model Filtering** - Manual button appears when Makes selected (Oct 2025)
-            - Button: "Filter by Selected Makes (N)" / "Show All Models"
+            - Button states: "Filter by Selected Makes (N)" / "Filtering by N Make(s)" (disabled) / "Show All Models"
+            - Three-state UX: ready to filter / actively filtering (status) / can reset
             - Fast in-memory filtering using FilterCacheManager
             - Avoids SwiftUI AttributeGraph crashes from automatic filtering
    - `ChartView.swift`: Center panel with Charts framework integration (line, bar, area charts)
