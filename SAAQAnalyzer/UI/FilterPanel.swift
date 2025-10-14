@@ -83,7 +83,8 @@ struct FilterPanel: View {
                 .padding()
             }
             .scrollIndicators(.visible, axes: .vertical)
-            .frame(maxHeight: 250)  // Limit height for Analytics section
+            .frame(maxHeight: metricSectionExpanded ? 250 : nil)  // Limit height only when expanded
+            .fixedSize(horizontal: false, vertical: metricSectionExpanded ? false : true)  // Shrink to fit when collapsed
 
             Divider()
 
@@ -116,7 +117,7 @@ struct FilterPanel: View {
                         VStack(spacing: 12) {
                             ProgressView()
                                 .scaleEffect(0.8)
-                            Text("Loading filter options...")
+                            Text("Loading filter data...")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
