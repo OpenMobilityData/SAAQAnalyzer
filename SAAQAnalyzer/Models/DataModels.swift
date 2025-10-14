@@ -1124,7 +1124,7 @@ struct FilterConfiguration: Equatable, Sendable {
     var coverageField: CoverageField? = nil
     var coverageAsPercentage: Bool = true  // true = percentage, false = raw NULL count
     var roadWearIndexMode: RoadWearIndexMode = .average  // average or sum for Road Wear Index
-    var normalizeToFirstYear: Bool = true  // true = normalize to first year (first year = 1.0), false = show raw values
+    var normalizeToFirstYear: Bool = false  // true = normalize to first year (first year = 1.0), false = show raw values
     var showCumulativeSum: Bool = false  // true = cumulative sum over time, false = raw year-by-year values
 
     // Regularization and filter UI configuration
@@ -1229,7 +1229,7 @@ struct IntegerFilterConfiguration: Equatable, Sendable {
     var metricField: ChartMetricField = .none
     var percentageBaseFilters: IntegerPercentageBaseFilters? = nil
     var roadWearIndexMode: FilterConfiguration.RoadWearIndexMode = .average
-    var normalizeToFirstYear: Bool = true  // true = normalize to first year (first year = 1.0), false = show raw values
+    var normalizeToFirstYear: Bool = false  // true = normalize to first year (first year = 1.0), false = show raw values
 }
 
 // MARK: - Percentage Base Configuration

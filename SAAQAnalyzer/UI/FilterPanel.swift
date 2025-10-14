@@ -42,6 +42,9 @@ struct FilterPanel: View {
     @State private var licenseSectionExpanded = true
     @State private var metricSectionExpanded = true
     @State private var filterOptionsSectionExpanded = false
+
+    // Analytics section height for draggable divider
+    @State private var analyticsHeight: CGFloat = 400
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -59,32 +62,32 @@ struct FilterPanel: View {
             Divider()
 
             // Analytics configuration (Y-Axis Metric)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Metric configuration section
-                    DisclosureGroup(isExpanded: $metricSectionExpanded) {
-                        MetricConfigurationSection(
-                            metricType: $configuration.metricType,
-                            metricField: $configuration.metricField,
-                            percentageBaseFilters: $configuration.percentageBaseFilters,
-                            coverageField: $configuration.coverageField,
-                            coverageAsPercentage: $configuration.coverageAsPercentage,
-                            roadWearIndexMode: $configuration.roadWearIndexMode,
-                            normalizeToFirstYear: $configuration.normalizeToFirstYear,
-                            showCumulativeSum: $configuration.showCumulativeSum,
-                            currentFilters: configuration
-                        )
-                    } label: {
-                        Label("Y-Axis Metric", systemImage: "chart.line.uptrend.xyaxis")
-                            .font(.subheadline)
-                            .symbolRenderingMode(.hierarchical)
-                    }
+            VStack(alignment: .leading, spacing: 16) {
+                // Metric configuration section
+                DisclosureGroup(isExpanded: $metricSectionExpanded) {
+                    MetricConfigurationSection(
+                        metricType: $configuration.metricType,
+                        metricField: $configuration.metricField,
+                        percentageBaseFilters: $configuration.percentageBaseFilters,
+                        coverageField: $configuration.coverageField,
+                        coverageAsPercentage: $configuration.coverageAsPercentage,
+                        roadWearIndexMode: $configuration.roadWearIndexMode,
+                        normalizeToFirstYear: $configuration.normalizeToFirstYear,
+                        showCumulativeSum: $configuration.showCumulativeSum,
+                        currentFilters: configuration
+                    )
+                } label: {
+                    Label("Y-Axis Metric", systemImage: "chart.line.uptrend.xyaxis")
+                        .font(.subheadline)
+                        .symbolRenderingMode(.hierarchical)
                 }
-                .padding()
             }
-            .scrollIndicators(.visible, axes: .vertical)
-            .frame(maxHeight: metricSectionExpanded ? 250 : nil)  // Limit height only when expanded
-            .fixedSize(horizontal: false, vertical: metricSectionExpanded ? false : true)  // Shrink to fit when collapsed
+            .padding()
+            .frame(maxHeight: metricSectionExpanded ? analyticsHeight : nil)
+            .animation(.easeInOut(duration: 0.2), value: metricSectionExpanded)
+
+            // Draggable divider
+            DraggableDivider(height: $analyticsHeight)
 
             Divider()
 
@@ -2109,6 +2112,9 @@ struct LicenseFilterSection: View {
 struct FilterOptionsSection: View {
     @Binding var limitToCuratedYears: Bool
     @Binding var hierarchicalMakeModel: Bool
+    @AppStorage("regularizationEnabled") private var regularizationEnabled = false
+    @AppStorage("regularizationCoupling") private var regularizationCoupling = true
+    @EnvironmentObject var databaseManager: DatabaseManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -2153,8 +2159,110 @@ struct FilterOptionsSection: View {
                     .background(Color.gray.opacity(0.1))
                     .cornerRadius(4)
             }
+
+            Divider()
+
+            // Query Regularization toggle
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(isOn: $regularizationEnabled) {
+                    Text("Enable Query Regularization")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+                Text(regularizationEnabled
+                    ? "Queries merge uncurated Make/Model variants into canonical values"
+                    : "Uncurated Make/Model variants remain separate")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(4)
+
+                // Coupling toggle (only visible when regularization is enabled)
+                if regularizationEnabled {
+                    Toggle(isOn: $regularizationCoupling) {
+                        Text("Couple Make/Model in Queries")
+                            .font(.caption)
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .padding(.top, 4)
+
+                    Text(regularizationCoupling
+                        ? "Filtering by Model includes associated Make"
+                        : "Make and Model filters remain independent")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(4)
+                }
+            }
         }
         .padding(.vertical, 4)
+        .onChange(of: regularizationEnabled) { _, newValue in
+            updateRegularizationInQueryManager(enabled: newValue, coupling: regularizationCoupling)
+        }
+        .onChange(of: regularizationCoupling) { _, newValue in
+            updateRegularizationInQueryManager(enabled: regularizationEnabled, coupling: newValue)
+        }
+    }
+
+    private func updateRegularizationInQueryManager(enabled: Bool, coupling: Bool) {
+        if let queryManager = databaseManager.optimizedQueryManager {
+            queryManager.regularizationEnabled = enabled
+            queryManager.regularizationCoupling = coupling
+            if enabled {
+                print("✅ Regularization ENABLED in queries (\(coupling ? "coupled" : "decoupled") mode)")
+            } else {
+                print("⚪️ Regularization DISABLED in queries")
+            }
+        }
+    }
+}
+
+// MARK: - Draggable Divider
+
+struct DraggableDivider: View {
+    @Binding var height: CGFloat
+    @State private var isDragging = false
+
+    private let minHeight: CGFloat = 200
+    private let maxHeight: CGFloat = 600
+
+    var body: some View {
+        HStack {
+            Spacer()
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(isDragging ? Color.accentColor : Color.secondary)
+                .font(.caption)
+            Spacer()
+        }
+        .frame(height: 20)
+        .background(isDragging ? Color.accentColor.opacity(0.1) : Color.clear)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            if hovering {
+                NSCursor.resizeUpDown.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    isDragging = true
+                    let newHeight = height + value.translation.height
+                    height = min(max(newHeight, minHeight), maxHeight)
+                }
+                .onEnded { _ in
+                    isDragging = false
+                }
+        )
     }
 }
 
