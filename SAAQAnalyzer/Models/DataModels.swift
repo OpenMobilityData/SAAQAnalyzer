@@ -1129,7 +1129,6 @@ struct FilterConfiguration: Equatable, Sendable {
 
     // Regularization and filter UI configuration
     var limitToCuratedYears: Bool = false  // true = exclude uncurated years from queries and filter dropdowns
-    var hierarchicalMakeModel: Bool = false  // true = Model dropdown shows only models for selected Make(s)
 
     /// Mode for Road Wear Index calculation
     enum RoadWearIndexMode: String, CaseIterable, Sendable {

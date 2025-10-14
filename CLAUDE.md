@@ -69,12 +69,15 @@ xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
      - **Filters Section**: Configuration for what subset of data to analyze
        1. Filter Options (includes toggles for:)
           - "Limit to Curated Years Only" - Filters out uncurated Make/Model pairs
-          - "Hierarchical Make/Model Filtering" - Model dropdown shows only models for selected Make(s) (UI exists, not yet wired)
           - "Enable Query Regularization" - Merges uncurated variants into canonical values
           - "Couple Make/Model in Queries" - Conditional toggle, includes Make when filtering by Model
        2. Years (when)
        3. Geographic Location (where)
        4. Vehicle/License Characteristics (what/who)
+          - **Hierarchical Make/Model Filtering** - Manual button appears when Makes selected (Oct 2025)
+            - Button: "Filter by Selected Makes (N)" / "Show All Models"
+            - Fast in-memory filtering using FilterCacheManager
+            - Avoids SwiftUI AttributeGraph crashes from automatic filtering
    - `ChartView.swift`: Center panel with Charts framework integration (line, bar, area charts)
    - `DataInspector.swift`: Right panel for detailed data inspection
 

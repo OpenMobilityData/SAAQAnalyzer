@@ -45,7 +45,10 @@ struct FilterPanel: View {
 
     // Analytics section height for draggable divider
     @State private var analyticsHeight: CGFloat = 400
-    
+
+    // Hierarchical filtering state
+    @State private var isModelListFiltered: Bool = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Analytics Section Header
@@ -131,8 +134,7 @@ struct FilterPanel: View {
                     // Filter Options section
                     DisclosureGroup(isExpanded: $filterOptionsSectionExpanded) {
                         FilterOptionsSection(
-                            limitToCuratedYears: $configuration.limitToCuratedYears,
-                            hierarchicalMakeModel: $configuration.hierarchicalMakeModel
+                            limitToCuratedYears: $configuration.limitToCuratedYears
                         )
                     } label: {
                         Label("Filter Options", systemImage: "slider.horizontal.3")
@@ -198,7 +200,10 @@ struct FilterPanel: View {
                                 availableVehicleMakes: availableVehicleMakes,
                                 availableVehicleModels: availableVehicleModels,
                                 availableVehicleColors: availableVehicleColors,
-                                availableModelYears: availableModelYears
+                                availableModelYears: availableModelYears,
+                                isModelListFiltered: $isModelListFiltered,
+                                selectedMakesCount: configuration.vehicleMakes.count,
+                                onFilterByMakes: { Task { await filterModelsBySelectedMakes() } }
                             )
                         } label: {
                             Label("Vehicle Characteristics", systemImage: "car")
@@ -315,23 +320,8 @@ struct FilterPanel: View {
             // Reload filter options when curated years toggle changes
             Task {
                 print("🔄 Curated years filter changed, reloading data type specific options")
+                isModelListFiltered = false  // Reset filter state
                 await loadDataTypeSpecificOptions()
-            }
-        }
-        .onChange(of: configuration.hierarchicalMakeModel) { _, _ in
-            // Reload models when hierarchical filtering toggle changes
-            Task {
-                print("🔄 Hierarchical filtering changed, reloading models")
-                await loadDataTypeSpecificOptions()
-            }
-        }
-        .onChange(of: configuration.vehicleMakes) { _, _ in
-            // Reload models when Make selection changes (only if hierarchical filtering enabled)
-            if configuration.hierarchicalMakeModel {
-                Task {
-                    print("🔄 Make selection changed, reloading models for hierarchical filtering")
-                    await loadDataTypeSpecificOptions()
-                }
             }
         }
     }
@@ -437,18 +427,10 @@ struct FilterPanel: View {
             async let vehicleTypes = databaseManager.getAvailableVehicleTypes()
             let vehicleMakesItems = try? await databaseManager.filterCacheManager?.getAvailableMakes(limitToCuratedYears: configuration.limitToCuratedYears) ?? []
 
-            // For hierarchical filtering, extract make IDs from selected makes
-            var selectedMakeIds: Set<Int>? = nil
-            if configuration.hierarchicalMakeModel && !configuration.vehicleMakes.isEmpty {
-                // Extract makeId from display names by matching against loaded makes
-                selectedMakeIds = Set(vehicleMakesItems?.filter { make in
-                    configuration.vehicleMakes.contains(make.displayName)
-                }.map { $0.id } ?? [])
-            }
-
+            // Always load all models (hierarchical filtering is now manual via button)
             let vehicleModelsItems = try? await databaseManager.filterCacheManager?.getAvailableModels(
                 limitToCuratedYears: configuration.limitToCuratedYears,
-                forMakeIds: selectedMakeIds
+                forMakeIds: nil
             ) ?? []
             async let vehicleColors = databaseManager.getAvailableVehicleColors()
             async let modelYears = databaseManager.getAvailableModelYears()
@@ -593,6 +575,44 @@ struct FilterPanel: View {
                 municipalityCodeToName = newMapping
                 print("🗺️ Municipality mapping refreshed: \(newMapping.count) entries")
             }
+        }
+    }
+
+    /// Filter models by selected makes (manual button action)
+    private func filterModelsBySelectedMakes() async {
+        if configuration.vehicleMakes.isEmpty {
+            // No makes selected, show all
+            isModelListFiltered = false
+            await loadDataTypeSpecificOptions()
+            return
+        }
+
+        // Get selected make IDs
+        let vehicleMakesItems = try? await databaseManager.filterCacheManager?
+            .getAvailableMakes(limitToCuratedYears: configuration.limitToCuratedYears) ?? []
+
+        let selectedMakeIds = Set(vehicleMakesItems?.filter { make in
+            configuration.vehicleMakes.contains(make.displayName)
+        }.map { $0.id } ?? [])
+
+        guard !selectedMakeIds.isEmpty else {
+            // No valid make IDs, show all
+            isModelListFiltered = false
+            await loadDataTypeSpecificOptions()
+            return
+        }
+
+        // Load filtered models
+        let vehicleModelsItems = try? await databaseManager.filterCacheManager?
+            .getAvailableModels(
+                limitToCuratedYears: configuration.limitToCuratedYears,
+                forMakeIds: selectedMakeIds
+            ) ?? []
+
+        await MainActor.run {
+            availableVehicleModels = vehicleModelsItems?.map { $0.displayName } ?? []
+            isModelListFiltered = true
+            print("🔄 Filtered models to \(availableVehicleModels.count) for \(configuration.vehicleMakes.count) selected make(s)")
         }
     }
 }
@@ -774,7 +794,12 @@ struct VehicleFilterSection: View {
     let availableVehicleModels: [String]
     let availableVehicleColors: [String]
     let availableModelYears: [Int]
-    
+
+    // Model filtering parameters
+    @Binding var isModelListFiltered: Bool
+    let selectedMakesCount: Int
+    let onFilterByMakes: () -> Void
+
     // Check if any year from 2017+ is selected (for fuel type filter)
     private var hasFuelTypeYears: Bool {
         availableYears.contains { $0 >= 2017 }
@@ -827,9 +852,28 @@ struct VehicleFilterSection: View {
             if !availableVehicleModels.isEmpty {
                 Divider()
 
-                Text("Vehicle Model")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("Vehicle Model")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    // Manual filter button (only show when makes are selected)
+                    if selectedMakesCount > 0 {
+                        Button(action: onFilterByMakes) {
+                            HStack(spacing: 4) {
+                                Image(systemName: isModelListFiltered ? "line.horizontal.3.decrease.circle.fill" : "line.horizontal.3.decrease.circle")
+                                Text(isModelListFiltered ? "Show All Models" : "Filter by Selected Makes (\(selectedMakesCount))")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                        .help(isModelListFiltered
+                            ? "Show all available models"
+                            : "Show only models for selected make(s)")
+                    }
+                }
 
                 SearchableFilterList(
                     items: availableVehicleModels,
@@ -2140,7 +2184,6 @@ struct LicenseFilterSection: View {
 
 struct FilterOptionsSection: View {
     @Binding var limitToCuratedYears: Bool
-    @Binding var hierarchicalMakeModel: Bool
     @AppStorage("regularizationEnabled") private var regularizationEnabled = false
     @AppStorage("regularizationCoupling") private var regularizationCoupling = true
     @EnvironmentObject var databaseManager: DatabaseManager
@@ -2159,28 +2202,6 @@ struct FilterOptionsSection: View {
                 Text(limitToCuratedYears
                     ? "Showing only data from curated years (filters exclude uncurated Make/Model pairs)"
                     : "Showing all years (uncurated items marked with badges)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(4)
-            }
-
-            Divider()
-
-            // Hierarchical Make/Model filtering toggle
-            VStack(alignment: .leading, spacing: 4) {
-                Toggle(isOn: $hierarchicalMakeModel) {
-                    Text("Hierarchical Make/Model Filtering")
-                        .font(.caption)
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-
-                Text(hierarchicalMakeModel
-                    ? "Model dropdown shows only models for selected Make(s)"
-                    : "Model dropdown shows all available models")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
