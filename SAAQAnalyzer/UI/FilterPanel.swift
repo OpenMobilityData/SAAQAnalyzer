@@ -4,7 +4,7 @@ import SwiftUI
 struct FilterPanel: View {
     @Binding var configuration: FilterConfiguration
     @EnvironmentObject var databaseManager: DatabaseManager
-    
+
     // Available options loaded from database (shared)
     @State private var availableYears: [Int] = []
     @State private var availableRegions: [String] = []
@@ -40,8 +40,8 @@ struct FilterPanel: View {
     @State private var vehicleSectionExpanded = true
     @State private var ageSectionExpanded = false
     @State private var licenseSectionExpanded = true
-    @State private var metricSectionExpanded = true
-    @State private var filterOptionsSectionExpanded = false
+    @State private var metricSectionExpanded = false  // Y-Axis Metric collapsed on launch
+    @State private var filterOptionsSectionExpanded = true  // Filter Options expanded on launch
 
     // Analytics section height for draggable divider
     @State private var analyticsHeight: CGFloat = 400
@@ -255,7 +255,6 @@ struct FilterPanel: View {
                                 .symbolRenderingMode(.hierarchical)
                         }
                     }
-
                 }
                 .padding()
             }
@@ -2264,6 +2263,7 @@ struct LicenseFilterSection: View {
 
 struct FilterOptionsSection: View {
     @Binding var limitToCuratedYears: Bool
+    @AppStorage("limitToCuratedYears") private var limitToCuratedYearsStorage = true
     @AppStorage("regularizationEnabled") private var regularizationEnabled = false
     @AppStorage("regularizationCoupling") private var regularizationCoupling = true
     @EnvironmentObject var databaseManager: DatabaseManager
@@ -2272,12 +2272,22 @@ struct FilterOptionsSection: View {
         VStack(alignment: .leading, spacing: 12) {
             // Limit to Curated Years toggle
             VStack(alignment: .leading, spacing: 4) {
-                Toggle(isOn: $limitToCuratedYears) {
+                Toggle(isOn: Binding(
+                    get: { limitToCuratedYearsStorage },
+                    set: { newValue in
+                        limitToCuratedYearsStorage = newValue
+                        limitToCuratedYears = newValue
+                    }
+                )) {
                     Text("Limit to Curated Years Only")
                         .font(.caption)
                 }
                 .toggleStyle(.switch)
                 .controlSize(.small)
+                .onAppear {
+                    // Sync binding with storage on appear
+                    limitToCuratedYears = limitToCuratedYearsStorage
+                }
 
                 Text(limitToCuratedYears
                     ? "Showing only data from curated years (filters exclude uncurated Make/Model pairs)"
@@ -2393,6 +2403,89 @@ struct DraggableDivider: View {
                     isDragging = false
                 }
         )
+    }
+}
+
+// MARK: - Query Preview Bar (Persistent Bottom Bar)
+
+struct QueryPreviewBar: View {
+    let queryPreviewText: String
+    let isLoading: Bool
+    let onExecuteQuery: () -> Void
+    let onClearAll: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+
+            HStack(spacing: 12) {
+                // Query preview text (scrollable if too long)
+                if isLoading {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                            .controlSize(.small)
+                        Text("Generating preview...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else if queryPreviewText.isEmpty {
+                    Text("No query configured")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .italic()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        Text(queryPreviewText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                // Copy button
+                Button(action: {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(queryPreviewText, forType: .string)
+                }) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.body)
+                }
+                .buttonStyle(.borderless)
+                .help("Copy query to clipboard")
+                .disabled(queryPreviewText.isEmpty)
+
+                Divider()
+                    .frame(height: 28)
+
+                // Clear filters button (X icon)
+                Button(action: onClearAll) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                }
+                .buttonStyle(.borderless)
+                .help("Clear all filters")
+
+                // Execute Query button (like Play button) - on the right
+                Button(action: onExecuteQuery) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "play.circle.fill")
+                            .font(.title3)
+                        Text("Execute")
+                            .font(.subheadline.weight(.medium))
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(isLoading || queryPreviewText.isEmpty)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(.ultraThinMaterial)
+        }
     }
 }
 

@@ -75,6 +75,10 @@ struct ContentView: View {
     @State private var optimizationResults: String = ""
     @State private var packageAlertMessage = ""
 
+    // Query preview state
+    @State private var queryPreviewText: String = ""
+    @State private var isLoadingQueryPreview: Bool = false
+
     // SwiftUI file dialog states - consolidated to avoid SwiftUI fileImporter bug
     enum FileImporterMode {
         case vehicle, license, dataPackage, geographic
@@ -284,9 +288,21 @@ struct ContentView: View {
     }
 
     private var centerPanel: some View {
-        // Center panel: Chart display
-        ChartView(dataSeries: $chartData, selectedSeries: $selectedSeries)
-            .navigationSplitViewColumnWidth(min: 500, ideal: 700)
+        // Center panel: Chart display with query preview bar
+        ChartView(
+            dataSeries: $chartData,
+            selectedSeries: $selectedSeries,
+            queryPreviewText: queryPreviewText,
+            isLoadingQueryPreview: isLoadingQueryPreview,
+            onExecuteQuery: {
+                refreshChartData()
+            },
+            onClearAll: {
+                clearAllFilters()
+            },
+            currentConfiguration: selectedFilters
+        )
+        .navigationSplitViewColumnWidth(min: 500, ideal: 700)
     }
 
     private var rightPanel: some View {
@@ -307,6 +323,12 @@ struct ContentView: View {
 
     private var principalToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .principal) {
+            // Empty - app name appears automatically on the left
+        }
+    }
+
+    private var primaryActionToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
             // Data type selector
             Menu {
                 ForEach(DataEntityType.allCases, id: \.self) { dataType in
@@ -323,27 +345,9 @@ struct ContentView: View {
                     .symbolRenderingMode(.hierarchical)
             }
 
-            // Create Series button
-            Button {
-                refreshChartData()
-            } label: {
-                if isAddingSeries {
-                    Label("Adding Series...", systemImage: "arrow.triangle.2.circlepath")
-                        .symbolRenderingMode(.hierarchical)
-                        .symbolEffect(.rotate, isActive: isAddingSeries)
-                } else {
-                    Label("Add Series", systemImage: "plus.circle")
-                        .symbolRenderingMode(.hierarchical)
-                        .symbolEffect(.bounce, value: chartData.count)
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(isAddingSeries)
-        }
-    }
+            Divider()
+                .frame(height: 20)
 
-    private var primaryActionToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
             // Import menu
             Menu {
                 Label("CSV Files", systemImage: "doc.text")
@@ -425,6 +429,14 @@ struct ContentView: View {
             primaryActionToolbar
         }
         .toolbarBackground(.hidden, for: .windowToolbar)
+        .onChange(of: selectedFilters) { _, _ in
+            // Update query preview whenever filter configuration changes
+            updateQueryPreview()
+        }
+        .onAppear {
+            // Generate initial preview on appear
+            updateQueryPreview()
+        }
         .onChange(of: progressManager.isImporting) { _, isImporting in
             withAnimation(.spring()) {
                 showingImportProgress = isImporting
@@ -614,6 +626,30 @@ struct ContentView: View {
                 print("❌ Error creating chart series: \(error)")
             }
         }
+    }
+
+    /// Updates the query preview text based on current filter configuration
+    private func updateQueryPreview() {
+        Task {
+            // Set loading state
+            await MainActor.run {
+                isLoadingQueryPreview = true
+            }
+
+            // Generate preview using database manager's legend generation function
+            let previewText = await databaseManager.generateQueryPreview(from: selectedFilters)
+
+            // Update UI on main thread
+            await MainActor.run {
+                queryPreviewText = previewText
+                isLoadingQueryPreview = false
+            }
+        }
+    }
+
+    /// Clears all filter selections
+    private func clearAllFilters() {
+        selectedFilters = FilterConfiguration()
     }
 
     private func generateQueryPattern(from filters: FilterConfiguration) -> String {

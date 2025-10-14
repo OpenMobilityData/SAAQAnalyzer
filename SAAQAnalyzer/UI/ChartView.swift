@@ -7,6 +7,14 @@ import AppKit  // FIXME: Remove AppKit dependency - only used for NSPasteboard c
 struct ChartView: View {
     @Binding var dataSeries: [FilteredDataSeries]
     @Binding var selectedSeries: FilteredDataSeries?
+    @EnvironmentObject var databaseManager: DatabaseManager
+
+    // Query preview props (passed from parent)
+    var queryPreviewText: String = ""
+    var isLoadingQueryPreview: Bool = false
+    var onExecuteQuery: (() -> Void)?
+    var onClearAll: (() -> Void)?
+    var currentConfiguration: FilterConfiguration = FilterConfiguration()
 
     // Chart display options
     @State private var showLegend = true
@@ -63,6 +71,18 @@ struct ChartView: View {
                 }
                 .scrollIndicators(.visible, axes: .vertical)
             }
+
+            // Persistent Query Preview Bar (like Apple Music transport controls)
+            QueryPreviewBar(
+                queryPreviewText: queryPreviewText,
+                isLoading: isLoadingQueryPreview,
+                onExecuteQuery: {
+                    onExecuteQuery?()
+                },
+                onClearAll: {
+                    onClearAll?()
+                }
+            )
         }
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 0))
     }
