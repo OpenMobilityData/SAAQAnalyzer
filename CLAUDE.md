@@ -318,6 +318,36 @@ The application supports multiple metric types for data analysis:
 - **Minimum macOS version**: Requires NavigationSplitView (macOS 13.0+)
 - **Dependencies**: SQLite3, Charts framework, UniformTypeIdentifiers, OSLog
 
+### Application Preferences
+
+The application includes user-configurable preferences accessed via Settings (Cmd+,):
+
+1. **Appearance Mode** ✨ *New in October 2025*
+   - **Location**: Settings → General tab
+   - **Options**: System (follows macOS), Light, Dark
+   - **Implementation**: `@AppStorage` with `.preferredColorScheme()` modifier
+   - **Persistence**: Automatic via UserDefaults
+   - **Files**:
+     - `DataModels.swift`: AppearanceMode enum
+     - `SAAQAnalyzerApp.swift`: Settings UI and application
+
+2. **Build Version Information** ✨ *New in October 2025*
+   - **Console Logging**: Version info logged at app launch
+     ```
+     🚀 SAAQAnalyzer launched
+     📦 Version 1.0 (196) - Built Oct 15, 2025 at 12:30 AM
+     Build date: 2025-10-15T00:30:45Z
+     ```
+   - **Build Timestamp**: Extracted from app bundle/executable filesystem metadata
+   - **Automatic Build Numbering**: Git pre-commit hook sets build number to commit count
+   - **App Store Ready**: Monotonically increasing build numbers
+   - **Files**:
+     - `Utilities/AppVersion.swift`: Build info utility
+     - `Utilities/AppLogger.swift`: Added `app` logger category
+     - `.git/hooks/pre-commit`: Git hook for build numbering
+   - **About Panel**: Shows version, build number, and copyright
+   - **Implementation Note**: Pre-commit hook approach avoids build interruptions
+
 ## Current Implementation Status
 
 ### Integer-Based Optimization (September 2024)
