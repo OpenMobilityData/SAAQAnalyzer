@@ -8,6 +8,7 @@
 import Foundation
 
 /// Compile-time build information
+/// Automatically updated by git pre-commit hook
 enum AppVersion {
     /// Build timestamp - captures when the app binary was created
     /// This uses the app bundle's creation date as a proxy for build time
