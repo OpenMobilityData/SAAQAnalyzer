@@ -437,8 +437,8 @@ struct SeriesDataView: View {
                         Text(String(point.year))
                             .font(.system(.body, design: .monospaced))
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        
-                        Text(formatNumber(point.value))
+
+                        Text(series.formatValue(point.value))
                             .font(.system(.body, design: .monospaced))
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
@@ -455,14 +455,6 @@ struct SeriesDataView: View {
                     .stroke(Color.gray.opacity(0.2), lineWidth: 1)
             )
         }
-    }
-    
-    private func formatNumber(_ value: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = 0
-        formatter.groupingSeparator = ","
-        return formatter.string(from: NSNumber(value: value)) ?? String(Int(value))
     }
 }
 
@@ -625,9 +617,23 @@ struct SeriesStatisticsView: View {
     }
     
     private func formatNumber(_ value: Double) -> String {
+        // Helper for adaptive decimal precision
+        func adaptiveMaxFractionDigits(_ value: Double) -> Int {
+            let absValue = abs(value)
+            if absValue < 0.1 {
+                return 3  // 0.043
+            } else if absValue < 1.0 {
+                return 2  // 0.43
+            } else if absValue < 10.0 {
+                return 1  // 3.5
+            } else {
+                return 0  // 45
+            }
+        }
+
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
-        formatter.maximumFractionDigits = value < 100 ? 2 : 0
+        formatter.maximumFractionDigits = adaptiveMaxFractionDigits(value)
         formatter.groupingSeparator = ","
         return formatter.string(from: NSNumber(value: value)) ?? String(value)
     }

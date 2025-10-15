@@ -1521,6 +1521,24 @@ class FilteredDataSeries: Identifiable {
             return formatter.string(from: NSNumber(value: intValue)) ?? "\(intValue)"
         }
 
+        // Helper function for adaptive decimal precision
+        func adaptiveDecimalFormat(_ value: Double) -> String {
+            let absValue = abs(value)
+            if absValue < 0.1 {
+                // Very small values: show 3 decimal places (e.g., 0.043)
+                return "%.3f"
+            } else if absValue < 1.0 {
+                // Sub-unit values: show 2 decimal places (e.g., 0.43)
+                return "%.2f"
+            } else if absValue < 10.0 {
+                // Single-digit values: show 1 decimal place (e.g., 3.5)
+                return "%.1f"
+            } else {
+                // 10+: show whole numbers (e.g., 45)
+                return "%.0f"
+            }
+        }
+
         // If normalized, use higher precision for values near 1.0
         if filters.normalizeToFirstYear && value >= 0.1 && value <= 10.0 {
             return String(format: "%.2f", value)
@@ -1551,16 +1569,23 @@ class FilteredDataSeries: Identifiable {
             }
         case .average, .minimum, .maximum:
             if metricField == .vehicleAge || metricField == .displacement {
-                return String(format: "%.1f", value)
+                // Use adaptive precision for continuous metrics
+                let format = adaptiveDecimalFormat(value)
+                return String(format: format, value)
             } else {
                 let formattedValue = formatWithThousandsSeparator(Int(value))
                 return formattedValue
             }
         case .percentage:
-            return String(format: "%.1f%%", value)
+            // Adaptive percentage formatting based on value magnitude
+            let format = adaptiveDecimalFormat(value)
+            return String(format: "\(format)%%", value)
+
         case .coverage:
             if filters.coverageAsPercentage {
-                return String(format: "%.1f%%", value)
+                // Adaptive percentage formatting for coverage
+                let format = adaptiveDecimalFormat(value)
+                return String(format: "\(format)%%", value)
             } else {
                 let formattedValue = formatWithThousandsSeparator(Int(value))
                 return "\(formattedValue) NULL values"

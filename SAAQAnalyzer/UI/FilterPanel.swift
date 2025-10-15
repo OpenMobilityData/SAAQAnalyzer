@@ -1781,6 +1781,7 @@ struct MetricConfigurationSection: View {
     enum FilterCategory: String, CaseIterable {
         case regions = "Admin Region"
         case vehicleClasses = "Vehicle Class"
+        case vehicleTypes = "Vehicle Type"
         case fuelTypes = "Fuel Type"
         case vehicleMakes = "Vehicle Make"
         case vehicleModels = "Vehicle Model"
@@ -1794,6 +1795,7 @@ struct MetricConfigurationSection: View {
         var categories: [FilterCategory] = []
         if !currentFilters.regions.isEmpty { categories.append(.regions) }
         if !currentFilters.vehicleClasses.isEmpty { categories.append(.vehicleClasses) }
+        if !currentFilters.vehicleTypes.isEmpty { categories.append(.vehicleTypes) }
         if !currentFilters.fuelTypes.isEmpty { categories.append(.fuelTypes) }
         if !currentFilters.vehicleMakes.isEmpty { categories.append(.vehicleMakes) }
         if !currentFilters.vehicleModels.isEmpty { categories.append(.vehicleModels) }
@@ -2042,6 +2044,8 @@ struct MetricConfigurationSection: View {
             baseFilters.regions.removeAll()
         case .vehicleClasses:
             baseFilters.vehicleClasses.removeAll()
+        case .vehicleTypes:
+            baseFilters.vehicleTypes.removeAll()
         case .fuelTypes:
             baseFilters.fuelTypes.removeAll()
         case .vehicleMakes:
