@@ -2028,7 +2028,7 @@ struct MetricConfigurationSection: View {
             }
         }
         .padding(.vertical, 4)
-        .onChange(of: currentFilters.dataEntityType) { newDataType in
+        .onChange(of: currentFilters.dataEntityType) { _, newDataType in
             // Reset metric type to count if current selection is not available for the new data type
             if !availableMetricTypes.contains(metricType) {
                 metricType = .count
