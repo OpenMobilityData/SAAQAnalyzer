@@ -652,7 +652,7 @@ struct ChartView: View {
             }
         }
 
-        if let data = csvContent.data(using: .utf8) {
+        if csvContent.data(using: .utf8) != nil {
             // FIXME: Replace NSPasteboard with pure SwiftUI when available
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()

@@ -50,9 +50,9 @@ class CSVImporter {
 
         // Start progress tracking (only if not already started by UI or batch import)
         if !skipDuplicateCheck {
-            let isBatchInProgress = await progressManager?.isBatchImport ?? false
+            let isBatchInProgress = await MainActor.run { progressManager?.isBatchImport ?? false }
             if !isBatchInProgress {
-                await progressManager?.startImport()
+                await MainActor.run { progressManager?.startImport() }
             }
         }
 
@@ -67,7 +67,7 @@ class CSVImporter {
         }
 
         // Update to reading stage
-        await progressManager?.updateToReading()
+        await MainActor.run { progressManager?.updateToReading() }
 
         // Determine schema based on year
         let schema = DataSchema.schema(for: year)
@@ -94,9 +94,9 @@ class CSVImporter {
         performance.log(logger: AppLogger.performance, fileName: url.lastPathComponent, year: year)
 
         // Complete progress tracking (only if not part of batch import)
-        let isBatchInProgress = await progressManager?.isBatchImport ?? false
+        let isBatchInProgress = await MainActor.run { progressManager?.isBatchImport ?? false }
         if !isBatchInProgress {
-            await progressManager?.completeImport(recordsImported: result.successCount)
+            await MainActor.run { progressManager?.completeImport(recordsImported: result.successCount) }
         }
 
         return result
@@ -109,9 +109,9 @@ class CSVImporter {
 
         // Start progress tracking (only if not already started by UI or batch import)
         if !skipDuplicateCheck {
-            let isBatchInProgress = await progressManager?.isBatchImport ?? false
+            let isBatchInProgress = await MainActor.run { progressManager?.isBatchImport ?? false }
             if !isBatchInProgress {
-                await progressManager?.startImport()
+                await MainActor.run { progressManager?.startImport() }
             }
         }
 
@@ -126,7 +126,7 @@ class CSVImporter {
         }
 
         // Update to reading stage
-        await progressManager?.updateToReading()
+        progressManager?.updateToReading()
 
         // Read and parse CSV file for licenses (20 fields)
         let parseStartTime = Date()
@@ -150,9 +150,9 @@ class CSVImporter {
         performance.log(logger: AppLogger.performance, fileName: url.lastPathComponent, year: year)
 
         // Complete progress tracking (only if not part of batch import)
-        let isBatchInProgress = await progressManager?.isBatchImport ?? false
+        let isBatchInProgress = progressManager?.isBatchImport ?? false
         if !isBatchInProgress {
-            await progressManager?.completeImport(recordsImported: result.successCount)
+            progressManager?.completeImport(recordsImported: result.successCount)
         }
 
         return result
@@ -235,7 +235,7 @@ class CSVImporter {
         AppLogger.dataImport.info("Using \(workerCount) parallel workers (\(threadMode) mode), chunk size: \(chunkSize)")
         
         // Update to parsing stage
-        await progressManager?.updateToParsing(totalRecords: dataLines.count, workerCount: workerCount)
+        progressManager?.updateToParsing(totalRecords: dataLines.count, workerCount: workerCount)
         
         // Split data into chunks for parallel processing
         var chunks: [ArraySlice<String>] = []
@@ -257,8 +257,8 @@ class CSVImporter {
         let progressUpdateTask = Task {
             while !Task.isCancelled {
                 let currentProcessed = await progressTracker.getProgress()
-                await progressManager?.updateParsingProgress(processedRecords: currentProcessed, workerCount: workerCount)
-                
+                progressManager?.updateParsingProgress(processedRecords: currentProcessed, workerCount: workerCount)
+
                 // Update every 0.1 seconds for smooth progress
                 try? await Task.sleep(for: .milliseconds(100))
             }
@@ -424,7 +424,7 @@ class CSVImporter {
         
         // Calculate total batches and update progress
         let totalBatches = Int(ceil(Double(records.count) / Double(batchSize)))
-        await progressManager?.updateToImporting(totalBatches: totalBatches)
+        progressManager?.updateToImporting(totalBatches: totalBatches)
         
         for batchStart in stride(from: 0, to: records.count, by: batchSize) {
             let batchEnd = min(batchStart + batchSize, records.count)
@@ -441,20 +441,20 @@ class CSVImporter {
 
             // Update progress
             let currentBatchNumber = batchStart/batchSize + 1
-            await progressManager?.updateImportingProgress(currentBatch: currentBatchNumber, recordsProcessed: batchEnd)
+            progressManager?.updateImportingProgress(currentBatch: currentBatchNumber, recordsProcessed: batchEnd)
 
             #if DEBUG
             let progressPercent = Int(Double(batchEnd)/Double(records.count) * 100)
             AppLogger.dataImport.debug("Completed batch \(currentBatchNumber)/\(totalBatches): \(progressPercent)%")
             #endif
         }
-        
+
         // Complete bulk import and rebuild indexes
         // Skip cache refresh if this is part of a batch import (progressManager.isBatchImport)
-        await progressManager?.updateToIndexing()
-        let skipCache = await progressManager?.isBatchImport ?? false
+        progressManager?.updateToIndexing()
+        let skipCache = progressManager?.isBatchImport ?? false
         await databaseManager.endBulkImport(progressManager: progressManager, skipCacheRefresh: skipCache)
-        
+
         // Log import completion
         let duration = Date().timeIntervalSince(startTime)
         try await logImport(
@@ -522,7 +522,7 @@ class CSVImporter {
     /// Parses a license CSV file with proper character encoding handling
     private func parseLicenseCSVFile(at url: URL) async throws -> [[String: String]] {
         // Update to parsing stage immediately to show progress
-        await progressManager?.updateToParsing(totalRecords: 0, workerCount: 1)
+        progressManager?.updateToParsing(totalRecords: 0, workerCount: 1)
 
         // Try different encodings to handle French characters properly
         let encodings: [String.Encoding] = [
@@ -582,7 +582,7 @@ class CSVImporter {
         AppLogger.dataImport.info("Using \(workerCount) parallel workers (\(threadMode) mode), chunk size: \(chunkSize)")
 
         // Update to parsing stage with correct record count
-        await progressManager?.updateToParsing(totalRecords: dataLines.count, workerCount: workerCount)
+        progressManager?.updateToParsing(totalRecords: dataLines.count, workerCount: workerCount)
 
         // Split data into chunks for parallel processing
         var chunks: [ArraySlice<String>] = []
@@ -604,7 +604,7 @@ class CSVImporter {
         let progressUpdateTask = Task {
             while !Task.isCancelled {
                 let currentProcessed = await progressTracker.getProgress()
-                await progressManager?.updateParsingProgress(processedRecords: currentProcessed, workerCount: workerCount)
+                progressManager?.updateParsingProgress(processedRecords: currentProcessed, workerCount: workerCount)
 
                 try? await Task.sleep(for: .milliseconds(100))
             }
@@ -698,7 +698,7 @@ class CSVImporter {
 
         // Update to importing stage
         let totalBatches = (records.count + batchSize - 1) / batchSize
-        await progressManager?.updateToImporting(totalBatches: totalBatches)
+        progressManager?.updateToImporting(totalBatches: totalBatches)
 
         AppLogger.dataImport.info("Starting database import of \(records.count) license records in batches of \(batchSize)")
 
@@ -715,7 +715,7 @@ class CSVImporter {
                 errorCount += batchResult.errors
 
                 // Update progress
-                await progressManager?.updateImportingProgress(
+                progressManager?.updateImportingProgress(
                     currentBatch: batchNumber,
                     recordsProcessed: min(endIndex, records.count)
                 )
@@ -733,8 +733,8 @@ class CSVImporter {
 
         // Complete bulk import and rebuild indexes
         // Skip cache refresh if this is part of a batch import (progressManager.isBatchImport)
-        await progressManager?.updateToIndexing()
-        let skipCache = await progressManager?.isBatchImport ?? false
+        progressManager?.updateToIndexing()
+        let skipCache = progressManager?.isBatchImport ?? false
         await databaseManager.endBulkImport(progressManager: progressManager, skipCacheRefresh: skipCache)
 
         // Log import to database
@@ -797,55 +797,48 @@ class CSVImporter {
 
                 // Process each record in the batch
                 for record in records {
-                    do {
-                        // Reset the statement for reuse
-                        sqlite3_reset(insertStmt)
+                    // Reset the statement for reuse
+                    sqlite3_reset(insertStmt)
 
-                        // Bind all the license fields
-                        sqlite3_bind_int(insertStmt, 1, Int32(year))
-                        sqlite3_bind_text(insertStmt, 2, record["NOSEQ_TITUL"] ?? "", -1, SQLITE_TRANSIENT)
-                        sqlite3_bind_text(insertStmt, 3, record["AGE_1ER_JUIN"] ?? "", -1, SQLITE_TRANSIENT)
-                        sqlite3_bind_text(insertStmt, 4, record["SEXE"] ?? "", -1, SQLITE_TRANSIENT)
-                        sqlite3_bind_text(insertStmt, 5, record["MRC"] ?? "", -1, SQLITE_TRANSIENT)
+                    // Bind all the license fields
+                    sqlite3_bind_int(insertStmt, 1, Int32(year))
+                    sqlite3_bind_text(insertStmt, 2, record["NOSEQ_TITUL"] ?? "", -1, SQLITE_TRANSIENT)
+                    sqlite3_bind_text(insertStmt, 3, record["AGE_1ER_JUIN"] ?? "", -1, SQLITE_TRANSIENT)
+                    sqlite3_bind_text(insertStmt, 4, record["SEXE"] ?? "", -1, SQLITE_TRANSIENT)
+                    sqlite3_bind_text(insertStmt, 5, record["MRC"] ?? "", -1, SQLITE_TRANSIENT)
 
-                        // Normalize admin_region format (ensure space before parentheses)
-                        let rawAdminRegion = record["REG_ADM"] ?? ""
-                        let normalizedAdminRegion = self.normalizeAdminRegion(rawAdminRegion)
-                        sqlite3_bind_text(insertStmt, 6, normalizedAdminRegion, -1, SQLITE_TRANSIENT)
-                        sqlite3_bind_text(insertStmt, 7, record["TYPE_PERMIS"] ?? "", -1, SQLITE_TRANSIENT)
+                    // Normalize admin_region format (ensure space before parentheses)
+                    let rawAdminRegion = record["REG_ADM"] ?? ""
+                    let normalizedAdminRegion = self.normalizeAdminRegion(rawAdminRegion)
+                    sqlite3_bind_text(insertStmt, 6, normalizedAdminRegion, -1, SQLITE_TRANSIENT)
+                    sqlite3_bind_text(insertStmt, 7, record["TYPE_PERMIS"] ?? "", -1, SQLITE_TRANSIENT)
 
-                        // Bind boolean fields (convert OUI/NON to 1/0)
-                        sqlite3_bind_int(insertStmt, 8, (record["IND_PERMISAPPRENTI_123"] == "OUI") ? 1 : 0)
-                        sqlite3_bind_int(insertStmt, 9, (record["IND_PERMISAPPRENTI_5"] == "OUI") ? 1 : 0)
-                        sqlite3_bind_int(insertStmt, 10, (record["IND_PERMISAPPRENTI_6A6R"] == "OUI") ? 1 : 0)
-                        sqlite3_bind_int(insertStmt, 11, (record["IND_PERMISCONDUIRE_1234"] == "OUI") ? 1 : 0)
-                        sqlite3_bind_int(insertStmt, 12, (record["IND_PERMISCONDUIRE_5"] == "OUI") ? 1 : 0)
-                        sqlite3_bind_int(insertStmt, 13, (record["IND_PERMISCONDUIRE_6ABCE"] == "OUI") ? 1 : 0)
-                        sqlite3_bind_int(insertStmt, 14, (record["IND_PERMISCONDUIRE_6D"] == "OUI") ? 1 : 0)
-                        sqlite3_bind_int(insertStmt, 15, (record["IND_PERMISCONDUIRE_8"] == "OUI") ? 1 : 0)
-                        sqlite3_bind_int(insertStmt, 16, (record["IND_PROBATOIRE"] == "OUI") ? 1 : 0)
+                    // Bind boolean fields (convert OUI/NON to 1/0)
+                    sqlite3_bind_int(insertStmt, 8, (record["IND_PERMISAPPRENTI_123"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(insertStmt, 9, (record["IND_PERMISAPPRENTI_5"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(insertStmt, 10, (record["IND_PERMISAPPRENTI_6A6R"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(insertStmt, 11, (record["IND_PERMISCONDUIRE_1234"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(insertStmt, 12, (record["IND_PERMISCONDUIRE_5"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(insertStmt, 13, (record["IND_PERMISCONDUIRE_6ABCE"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(insertStmt, 14, (record["IND_PERMISCONDUIRE_6D"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(insertStmt, 15, (record["IND_PERMISCONDUIRE_8"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(insertStmt, 16, (record["IND_PROBATOIRE"] == "OUI") ? 1 : 0)
 
-                        // Bind experience fields
-                        sqlite3_bind_text(insertStmt, 17, record["EXPERIENCE_1234"] ?? "", -1, SQLITE_TRANSIENT)
-                        sqlite3_bind_text(insertStmt, 18, record["EXPERIENCE_5"] ?? "", -1, SQLITE_TRANSIENT)
-                        sqlite3_bind_text(insertStmt, 19, record["EXPERIENCE_6ABCE"] ?? "", -1, SQLITE_TRANSIENT)
-                        sqlite3_bind_text(insertStmt, 20, record["EXPERIENCE_GLOBALE"] ?? "", -1, SQLITE_TRANSIENT)
+                    // Bind experience fields
+                    sqlite3_bind_text(insertStmt, 17, record["EXPERIENCE_1234"] ?? "", -1, SQLITE_TRANSIENT)
+                    sqlite3_bind_text(insertStmt, 18, record["EXPERIENCE_5"] ?? "", -1, SQLITE_TRANSIENT)
+                    sqlite3_bind_text(insertStmt, 19, record["EXPERIENCE_6ABCE"] ?? "", -1, SQLITE_TRANSIENT)
+                    sqlite3_bind_text(insertStmt, 20, record["EXPERIENCE_GLOBALE"] ?? "", -1, SQLITE_TRANSIENT)
 
-                        // Execute the insert
-                        if sqlite3_step(insertStmt) == SQLITE_DONE {
-                            successCount += 1
-                        } else {
-                            errorCount += 1
-                            #if DEBUG
-                            if let errorMessage = sqlite3_errmsg(db) {
-                                AppLogger.dataImport.error("Error inserting license record: \(String(cString: errorMessage))")
-                            }
-                            #endif
-                        }
-                    } catch {
+                    // Execute the insert
+                    if sqlite3_step(insertStmt) == SQLITE_DONE {
+                        successCount += 1
+                    } else {
                         errorCount += 1
                         #if DEBUG
-                        AppLogger.dataImport.error("Error processing license record: \(error.localizedDescription)")
+                        if let errorMessage = sqlite3_errmsg(db) {
+                            AppLogger.dataImport.error("Error inserting license record: \(String(cString: errorMessage))")
+                        }
                         #endif
                     }
                 }

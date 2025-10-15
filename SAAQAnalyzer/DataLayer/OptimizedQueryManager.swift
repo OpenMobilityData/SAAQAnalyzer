@@ -325,6 +325,9 @@ class OptimizedQueryManager {
     private func queryVehicleDataWithIntegers(filters: FilterConfiguration, filterIds: OptimizedFilterIds) async throws -> FilteredDataSeries {
         let startTime = Date()
 
+        // Capture MainActor-isolated properties before entering the closure
+        let allowPre2017FuelType = await MainActor.run { AppSettings.shared.regularizePre2017FuelType }
+
         return try await withCheckedThrowingContinuation { continuation in
             databaseManager?.dbQueue.async {
                 guard let db = self.databaseManager?.db else {
@@ -481,7 +484,7 @@ class OptimizedQueryManager {
 
                     if self.regularizationEnabled {
                         // Check if pre-2017 regularization is enabled
-                        let allowPre2017 = AppSettings.shared.regularizePre2017FuelType
+                        let allowPre2017 = allowPre2017FuelType
 
                         // With regularization: Include records that either:
                         // 1. Have matching fuel_type_id (curated records), OR

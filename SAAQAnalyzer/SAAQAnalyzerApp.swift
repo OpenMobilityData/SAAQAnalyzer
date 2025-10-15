@@ -794,7 +794,7 @@ struct ContentView: View {
         } else {
             print("❌ Import cancelled for duplicate year")
             // Reset import state
-            await progressManager.reset()
+            progressManager.reset()
             currentImportIndex = 0
             pendingImportURLs = []
         }
@@ -813,7 +813,7 @@ struct ContentView: View {
         print("📦 Starting batch import of \(urls.count) vehicle files")
 
         // Start progress UI (this will trigger showingImportProgress = true)
-        await progressManager.startBatchImport(totalFiles: urls.count)
+        progressManager.startBatchImport(totalFiles: urls.count)
 
         // Wait for progress UI to appear before hiding preparing overlay
         await MainActor.run {
@@ -854,7 +854,7 @@ struct ContentView: View {
         print("📦 Starting batch import of \(urls.count) license files")
 
         // Start progress UI (this will trigger showingImportProgress = true)
-        await progressManager.startBatchImport(totalFiles: urls.count)
+        progressManager.startBatchImport(totalFiles: urls.count)
 
         // Wait for progress UI to appear before hiding preparing overlay
         await MainActor.run {
@@ -913,13 +913,13 @@ struct ContentView: View {
             }
             print("🔄 Refreshing filter cache for all imported data...")
 
-            await progressManager.updateIndexingOperation("Refreshing filter cache for all years...")
+            progressManager.updateIndexingOperation("Refreshing filter cache for all years...")
 
             // Trigger cache refresh on main database manager
             await databaseManager.refreshAllCachesAfterBatchImport()
 
             // Complete progress
-            await progressManager.completeImport(recordsImported: 0) // Records already logged per file
+            progressManager.completeImport(recordsImported: 0) // Records already logged per file
 
             currentImportIndex = 0
             pendingImportURLs = []
@@ -931,7 +931,7 @@ struct ContentView: View {
         let filename = url.lastPathComponent
 
         // Update batch progress
-        await progressManager.updateCurrentFile(index: currentImportIndex, fileName: filename)
+        progressManager.updateCurrentFile(index: currentImportIndex, fileName: filename)
 
         guard let year = extractYearFromFilename(filename) else {
             print("❌ Could not extract year from filename: \(filename)")
@@ -967,13 +967,13 @@ struct ContentView: View {
             }
             print("🔄 Refreshing filter cache for all imported data...")
 
-            await progressManager.updateIndexingOperation("Refreshing filter cache for all years...")
+            progressManager.updateIndexingOperation("Refreshing filter cache for all years...")
 
             // Trigger cache refresh on main database manager
             await databaseManager.refreshAllCachesAfterBatchImport()
 
             // Complete progress
-            await progressManager.completeImport(recordsImported: 0) // Records already logged per file
+            progressManager.completeImport(recordsImported: 0) // Records already logged per file
 
             currentImportIndex = 0
             pendingImportURLs = []
@@ -985,7 +985,7 @@ struct ContentView: View {
         let filename = url.lastPathComponent
 
         // Update batch progress
-        await progressManager.updateCurrentFile(index: currentImportIndex, fileName: filename)
+        progressManager.updateCurrentFile(index: currentImportIndex, fileName: filename)
 
         guard let year = extractYearFromFilename(filename) else {
             print("❌ Could not extract year from filename: \(filename)")
@@ -1005,7 +1005,7 @@ struct ContentView: View {
             let result = try await importer.importFile(at: url, year: year, dataType: DataEntityType.vehicle, skipDuplicateCheck: true)
             print("✅ Import completed: \(result.successCount) records imported for year \(year)")
         } catch {
-            await progressManager.reset()
+            progressManager.reset()
             print("❌ Error importing vehicle data: \(error)")
         }
 
@@ -1020,7 +1020,7 @@ struct ContentView: View {
             let result = try await importer.importFile(at: url, year: year, dataType: DataEntityType.license, skipDuplicateCheck: true)
             print("✅ License import completed: \(result.successCount) records imported for year \(year)")
         } catch {
-            await progressManager.reset()
+            progressManager.reset()
             print("❌ Error importing license data: \(error)")
         }
 

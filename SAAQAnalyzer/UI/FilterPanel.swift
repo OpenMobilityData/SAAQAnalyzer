@@ -292,7 +292,7 @@ struct FilterPanel: View {
                 Task {
                     print("🔄 Data version changed to \(newVersion), reloading all filter options")
                     // Reload all filter options to pick up new enumeration data
-                    await loadAvailableOptions()
+                    loadAvailableOptions()
                 }
             }
         }
@@ -2028,7 +2028,7 @@ struct MetricConfigurationSection: View {
             }
         }
         .padding(.vertical, 4)
-        .onChange(of: currentFilters.dataEntityType) { newDataType in
+        .onChange(of: currentFilters.dataEntityType) { _, newDataType in
             // Reset metric type to count if current selection is not available for the new data type
             if !availableMetricTypes.contains(metricType) {
                 metricType = .count
