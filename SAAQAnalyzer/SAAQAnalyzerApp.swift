@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import OSLog
 
 /// Main application entry point for SAAQ data analyzer
 @main
@@ -9,6 +10,17 @@ struct SAAQAnalyzerApp: App {
 
     private var appearanceMode: AppearanceMode {
         AppearanceMode(rawValue: appearanceModeRaw) ?? .system
+    }
+
+    init() {
+        // Log app version and build info at launch
+        AppLogger.app.notice("🚀 SAAQAnalyzer launched")
+        AppLogger.app.notice("📦 \(AppVersion.fullVersion, privacy: .public)")
+        AppLogger.app.info("Build date: \(AppVersion.buildDate, privacy: .public)")
+
+        #if DEBUG
+        AppLogger.app.debug("Running in DEBUG mode")
+        #endif
     }
 
     var body: some Scene {

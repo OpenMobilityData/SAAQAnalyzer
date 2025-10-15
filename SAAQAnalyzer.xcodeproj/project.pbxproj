@@ -29,9 +29,22 @@
 		8A19140A2E806B8200E437D3 /* SAAQAnalyzerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SAAQAnalyzerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		8A69374F2E9F47F100F3C197 /* Exceptions for "SAAQAnalyzer" folder in "SAAQAnalyzer" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Info-Additions.plist",
+			);
+			target = 8A1913F22E806B7C00E437D3 /* SAAQAnalyzer */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		8A1913F52E806B7C00E437D3 /* SAAQAnalyzer */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				8A69374F2E9F47F100F3C197 /* Exceptions for "SAAQAnalyzer" folder in "SAAQAnalyzer" target */,
+			);
 			path = SAAQAnalyzer;
 			sourceTree = "<group>";
 		};
