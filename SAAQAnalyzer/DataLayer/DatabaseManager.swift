@@ -49,7 +49,7 @@ class DatabaseManager: ObservableObject {
 
     /// Flag to prevent concurrent cache refreshes
     private var isRefreshingCache = false
-    private let refreshLock = NSLock()
+    private let refreshLock = OSAllocatedUnfairLock<Bool>(initialState: false)
 
     private init() {
         setupDefaultDatabase()
@@ -3658,19 +3658,22 @@ class DatabaseManager: ObservableObject {
     /// Refreshes the filter cache with current database values
     func refreshFilterCache() async {
         // Prevent concurrent refreshes
-        refreshLock.lock()
-        if isRefreshingCache {
-            refreshLock.unlock()
+        let shouldProceed = refreshLock.withLock { isRefreshing in
+            if isRefreshing {
+                return false
+            }
+            return true
+        }
+
+        if !shouldProceed {
             print("⏳ Cache refresh already in progress, skipping...")
             return
         }
-        isRefreshingCache = true
-        refreshLock.unlock()
+
+        refreshLock.withLock { $0 = true }
 
         defer {
-            refreshLock.lock()
-            isRefreshingCache = false
-            refreshLock.unlock()
+            refreshLock.withLock { $0 = false }
         }
 
         print("🔄 Refreshing filter cache from enumeration tables...")
@@ -5068,7 +5071,9 @@ class DatabaseManager: ObservableObject {
         guard let db = db else { return true }
 
         return await withCheckedContinuation { continuation in
-            dbQueue.async { [db] in
+            nonisolated(unsafe) let unsafeDB = db
+            dbQueue.async {
+                let db = unsafeDB
                 var stmt: OpaquePointer?
                 defer { sqlite3_finalize(stmt) }
 
@@ -5142,7 +5147,9 @@ class DatabaseManager: ObservableObject {
         """
 
         return try await withCheckedThrowingContinuation { continuation in
-            dbQueue.async { [db] in
+            nonisolated(unsafe) let unsafeDB = db
+            dbQueue.async {
+                let db = unsafeDB
                 var stmt: OpaquePointer?
                 defer { sqlite3_finalize(stmt) }
 
