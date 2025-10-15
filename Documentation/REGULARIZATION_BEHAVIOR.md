@@ -502,12 +502,19 @@ Toggle ON:           Only curated Makes/Models in dropdowns, only curated years 
 
 ### "Hierarchical Make/Model Filtering" Toggle
 
-**Status:** UI toggle exists but feature not yet implemented (Phase 3)
+**Status:** ✅ Implemented (October 14, 2025)
 
-**Planned Behavior:**
+**Behavior:**
 - When enabled, Model dropdown only shows models for currently selected Make(s)
 - Reduces cognitive load when working with large Make/Model lists
 - Works independently of curated years toggle
+- Dynamically updates when Make selection changes
+- Shows all models when no Makes selected or toggle is OFF
+
+**Use Cases:**
+- Quickly find compatible models after selecting specific Make(s)
+- Reduce visual clutter in Model dropdown (e.g., show only HONDA models when HONDA selected)
+- Combine with "Limit to Curated Years Only" for focused workflows
 
 ## Tips
 

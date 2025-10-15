@@ -36,6 +36,9 @@ class FilterCacheManager {
     // Uncurated Makes: maps "makeId" to record count in uncurated years (only Makes that exist ONLY in uncurated years)
     private var uncuratedMakes: [String: Int] = [:]
 
+    // Model to Make mapping: maps modelId to makeId (for hierarchical filtering)
+    private var modelToMakeMapping: [Int: Int] = [:]
+
     init(databaseManager: DatabaseManager) {
         self.databaseManager = databaseManager
     }
@@ -381,6 +384,9 @@ class FilterCacheManager {
                     }
                     // Otherwise: canonical pair from curated years (no badge)
 
+                    // Store model-to-make mapping for hierarchical filtering
+                    modelToMakeMapping[modelId] = makeId
+
                     results.append(FilterItem(id: modelId, displayName: displayName))
                 }
                 continuation.resume(returning: results)
@@ -463,12 +469,14 @@ class FilterCacheManager {
         return cachedMakes
     }
 
-    func getAvailableModels(limitToCuratedYears: Bool = false) async throws -> [FilterItem] {
+    func getAvailableModels(limitToCuratedYears: Bool = false, forMakeIds: Set<Int>? = nil) async throws -> [FilterItem] {
         if !isInitialized { try await initializeCache() }
+
+        var filteredModels = cachedModels
 
         // If limiting to curated years, filter out uncurated Make/Model pairs
         if limitToCuratedYears {
-            return cachedModels.filter { model in
+            filteredModels = filteredModels.filter { model in
                 // Extract makeId and modelId from the cached model
                 // The model's ID is the modelId, we need to find its makeId from the display name
                 // Format: "Model (Make)" or "Model (Make) [badges...]"
@@ -486,7 +494,12 @@ class FilterCacheManager {
             }
         }
 
-        return cachedModels
+        // If hierarchical filtering requested, filter models by selected makes
+        if let makeIds = forMakeIds, !makeIds.isEmpty {
+            filteredModels = try await filterModelsByMakes(filteredModels, makeIds: makeIds)
+        }
+
+        return filteredModels
     }
 
     func getAvailableColors() async throws -> [FilterItem] {
@@ -512,6 +525,18 @@ class FilterCacheManager {
     func getAvailableGenders() async throws -> [FilterItem] {
         if !isInitialized { try await initializeCache() }
         return cachedGenders
+    }
+
+    // MARK: - Hierarchical Filtering Helper
+
+    /// Filters models by their associated makes
+    private func filterModelsByMakes(_ models: [FilterItem], makeIds: Set<Int>) async throws -> [FilterItem] {
+        return models.filter { model in
+            if let makeId = modelToMakeMapping[model.id] {
+                return makeIds.contains(makeId)
+            }
+            return false
+        }
     }
 
     // MARK: - Helper Methods
@@ -580,5 +605,6 @@ class FilterCacheManager {
         uncuratedPairs.removeAll()
         makeRegularizationInfo.removeAll()
         uncuratedMakes.removeAll()
+        modelToMakeMapping.removeAll()
     }
 }

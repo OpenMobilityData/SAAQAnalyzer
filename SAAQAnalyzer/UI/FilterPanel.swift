@@ -4,7 +4,7 @@ import SwiftUI
 struct FilterPanel: View {
     @Binding var configuration: FilterConfiguration
     @EnvironmentObject var databaseManager: DatabaseManager
-    
+
     // Available options loaded from database (shared)
     @State private var availableYears: [Int] = []
     @State private var availableRegions: [String] = []
@@ -40,9 +40,15 @@ struct FilterPanel: View {
     @State private var vehicleSectionExpanded = true
     @State private var ageSectionExpanded = false
     @State private var licenseSectionExpanded = true
-    @State private var metricSectionExpanded = true
-    @State private var filterOptionsSectionExpanded = false
-    
+    @State private var metricSectionExpanded = false  // Y-Axis Metric collapsed on launch
+    @State private var filterOptionsSectionExpanded = true  // Filter Options expanded on launch
+
+    // Analytics section height for draggable divider
+    @State private var analyticsHeight: CGFloat = 400
+
+    // Hierarchical filtering state
+    @State private var isModelListFiltered: Bool = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Analytics Section Header
@@ -59,32 +65,32 @@ struct FilterPanel: View {
             Divider()
 
             // Analytics configuration (Y-Axis Metric)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Metric configuration section
-                    DisclosureGroup(isExpanded: $metricSectionExpanded) {
-                        MetricConfigurationSection(
-                            metricType: $configuration.metricType,
-                            metricField: $configuration.metricField,
-                            percentageBaseFilters: $configuration.percentageBaseFilters,
-                            coverageField: $configuration.coverageField,
-                            coverageAsPercentage: $configuration.coverageAsPercentage,
-                            roadWearIndexMode: $configuration.roadWearIndexMode,
-                            normalizeToFirstYear: $configuration.normalizeToFirstYear,
-                            showCumulativeSum: $configuration.showCumulativeSum,
-                            currentFilters: configuration
-                        )
-                    } label: {
-                        Label("Y-Axis Metric", systemImage: "chart.line.uptrend.xyaxis")
-                            .font(.subheadline)
-                            .symbolRenderingMode(.hierarchical)
-                    }
+            VStack(alignment: .leading, spacing: 16) {
+                // Metric configuration section
+                DisclosureGroup(isExpanded: $metricSectionExpanded) {
+                    MetricConfigurationSection(
+                        metricType: $configuration.metricType,
+                        metricField: $configuration.metricField,
+                        percentageBaseFilters: $configuration.percentageBaseFilters,
+                        coverageField: $configuration.coverageField,
+                        coverageAsPercentage: $configuration.coverageAsPercentage,
+                        roadWearIndexMode: $configuration.roadWearIndexMode,
+                        normalizeToFirstYear: $configuration.normalizeToFirstYear,
+                        showCumulativeSum: $configuration.showCumulativeSum,
+                        currentFilters: configuration
+                    )
+                } label: {
+                    Label("Y-Axis Metric", systemImage: "chart.line.uptrend.xyaxis")
+                        .font(.subheadline)
+                        .symbolRenderingMode(.hierarchical)
                 }
-                .padding()
             }
-            .scrollIndicators(.visible, axes: .vertical)
-            .frame(maxHeight: metricSectionExpanded ? 250 : nil)  // Limit height only when expanded
-            .fixedSize(horizontal: false, vertical: metricSectionExpanded ? false : true)  // Shrink to fit when collapsed
+            .padding()
+            .frame(maxHeight: metricSectionExpanded ? analyticsHeight : nil)
+            .animation(.easeInOut(duration: 0.2), value: metricSectionExpanded)
+
+            // Draggable divider
+            DraggableDivider(height: $analyticsHeight)
 
             Divider()
 
@@ -128,8 +134,7 @@ struct FilterPanel: View {
                     // Filter Options section
                     DisclosureGroup(isExpanded: $filterOptionsSectionExpanded) {
                         FilterOptionsSection(
-                            limitToCuratedYears: $configuration.limitToCuratedYears,
-                            hierarchicalMakeModel: $configuration.hierarchicalMakeModel
+                            limitToCuratedYears: $configuration.limitToCuratedYears
                         )
                     } label: {
                         Label("Filter Options", systemImage: "slider.horizontal.3")
@@ -195,7 +200,10 @@ struct FilterPanel: View {
                                 availableVehicleMakes: availableVehicleMakes,
                                 availableVehicleModels: availableVehicleModels,
                                 availableVehicleColors: availableVehicleColors,
-                                availableModelYears: availableModelYears
+                                availableModelYears: availableModelYears,
+                                isModelListFiltered: $isModelListFiltered,
+                                selectedMakesCount: configuration.vehicleMakes.count,
+                                onFilterByMakes: { Task { await filterModelsBySelectedMakes() } }
                             )
                         } label: {
                             Label("Vehicle Characteristics", systemImage: "car")
@@ -247,7 +255,6 @@ struct FilterPanel: View {
                                 .symbolRenderingMode(.hierarchical)
                         }
                     }
-
                 }
                 .padding()
             }
@@ -312,6 +319,7 @@ struct FilterPanel: View {
             // Reload filter options when curated years toggle changes
             Task {
                 print("🔄 Curated years filter changed, reloading data type specific options")
+                isModelListFiltered = false  // Reset filter state
                 await loadDataTypeSpecificOptions()
             }
         }
@@ -380,7 +388,8 @@ struct FilterPanel: View {
     }
 
     /// Loads data type specific filter options
-    private func loadDataTypeSpecificOptions() async {
+    /// - Parameter autoSelectYears: Whether to auto-select years (default: true). Set to false when called from hierarchical filtering to avoid AttributeGraph crashes.
+    private func loadDataTypeSpecificOptions(autoSelectYears: Bool = true) async {
         // Load new data for the current mode
         if hasInitiallyLoaded {
             let years = await databaseManager.getAvailableYears(for: configuration.dataEntityType)
@@ -394,17 +403,20 @@ struct FilterPanel: View {
                 availableMRCs = mrcs
                 availableMunicipalities = municipalities
 
-                // Auto-select all years when switching data types if none are selected
-                // OR auto-select newly available years
-                if configuration.years.isEmpty && !years.isEmpty {
-                    configuration.years = Set(years)
-                    print("📊 Auto-selected all \(years.count) years after data type switch")
-                } else {
-                    // Auto-select any newly available years
-                    let newYears = Set(years).subtracting(configuration.years)
-                    if !newYears.isEmpty {
-                        configuration.years.formUnion(newYears)
-                        print("📊 Auto-selected \(newYears.count) newly available year(s): \(newYears.sorted())")
+                // Only auto-select years when explicitly requested (not during hierarchical filter resets)
+                if autoSelectYears {
+                    // Auto-select all years when switching data types if none are selected
+                    // OR auto-select newly available years
+                    if configuration.years.isEmpty && !years.isEmpty {
+                        configuration.years = Set(years)
+                        print("📊 Auto-selected all \(years.count) years after data type switch")
+                    } else {
+                        // Auto-select any newly available years
+                        let newYears = Set(years).subtracting(configuration.years)
+                        if !newYears.isEmpty {
+                            configuration.years.formUnion(newYears)
+                            print("📊 Auto-selected \(newYears.count) newly available year(s): \(newYears.sorted())")
+                        }
                     }
                 }
             }
@@ -417,7 +429,12 @@ struct FilterPanel: View {
             async let vehicleClasses = databaseManager.getAvailableVehicleClasses()
             async let vehicleTypes = databaseManager.getAvailableVehicleTypes()
             let vehicleMakesItems = try? await databaseManager.filterCacheManager?.getAvailableMakes(limitToCuratedYears: configuration.limitToCuratedYears) ?? []
-            let vehicleModelsItems = try? await databaseManager.filterCacheManager?.getAvailableModels(limitToCuratedYears: configuration.limitToCuratedYears) ?? []
+
+            // Always load all models (hierarchical filtering is now manual via button)
+            let vehicleModelsItems = try? await databaseManager.filterCacheManager?.getAvailableModels(
+                limitToCuratedYears: configuration.limitToCuratedYears,
+                forMakeIds: nil
+            ) ?? []
             async let vehicleColors = databaseManager.getAvailableVehicleColors()
             async let modelYears = databaseManager.getAvailableModelYears()
 
@@ -561,6 +578,64 @@ struct FilterPanel: View {
                 municipalityCodeToName = newMapping
                 print("🗺️ Municipality mapping refreshed: \(newMapping.count) entries")
             }
+        }
+    }
+
+    /// Filter models by selected makes (manual button action)
+    /// This is a minimal function that ONLY updates the model list - nothing else.
+    /// Avoids AttributeGraph crashes by not triggering cascading binding updates.
+    private func filterModelsBySelectedMakes() async {
+        if configuration.vehicleMakes.isEmpty {
+            // No makes selected, reload ALL models only
+            let vehicleModelsItems = try? await databaseManager.filterCacheManager?
+                .getAvailableModels(
+                    limitToCuratedYears: configuration.limitToCuratedYears,
+                    forMakeIds: nil  // nil = all models
+                ) ?? []
+
+            await MainActor.run {
+                availableVehicleModels = vehicleModelsItems?.map { $0.displayName } ?? []
+                isModelListFiltered = false
+                print("🔄 Reset to all \(availableVehicleModels.count) models")
+            }
+            return
+        }
+
+        // Get selected make IDs
+        let vehicleMakesItems = try? await databaseManager.filterCacheManager?
+            .getAvailableMakes(limitToCuratedYears: configuration.limitToCuratedYears) ?? []
+
+        let selectedMakeIds = Set(vehicleMakesItems?.filter { make in
+            configuration.vehicleMakes.contains(make.displayName)
+        }.map { $0.id } ?? [])
+
+        guard !selectedMakeIds.isEmpty else {
+            // No valid make IDs, show all models
+            let vehicleModelsItems = try? await databaseManager.filterCacheManager?
+                .getAvailableModels(
+                    limitToCuratedYears: configuration.limitToCuratedYears,
+                    forMakeIds: nil  // nil = all models
+                ) ?? []
+
+            await MainActor.run {
+                availableVehicleModels = vehicleModelsItems?.map { $0.displayName } ?? []
+                isModelListFiltered = false
+                print("🔄 Reset to all \(availableVehicleModels.count) models (invalid make IDs)")
+            }
+            return
+        }
+
+        // Load filtered models
+        let vehicleModelsItems = try? await databaseManager.filterCacheManager?
+            .getAvailableModels(
+                limitToCuratedYears: configuration.limitToCuratedYears,
+                forMakeIds: selectedMakeIds
+            ) ?? []
+
+        await MainActor.run {
+            availableVehicleModels = vehicleModelsItems?.map { $0.displayName } ?? []
+            isModelListFiltered = true
+            print("🔄 Filtered models to \(availableVehicleModels.count) for \(configuration.vehicleMakes.count) selected make(s)")
         }
     }
 }
@@ -742,12 +817,17 @@ struct VehicleFilterSection: View {
     let availableVehicleModels: [String]
     let availableVehicleColors: [String]
     let availableModelYears: [Int]
-    
+
+    // Model filtering parameters
+    @Binding var isModelListFiltered: Bool
+    let selectedMakesCount: Int
+    let onFilterByMakes: () -> Void
+
     // Check if any year from 2017+ is selected (for fuel type filter)
     private var hasFuelTypeYears: Bool {
         availableYears.contains { $0 >= 2017 }
     }
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Vehicle classes (use actual database values)
@@ -795,9 +875,40 @@ struct VehicleFilterSection: View {
             if !availableVehicleModels.isEmpty {
                 Divider()
 
-                Text("Vehicle Model")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("Vehicle Model")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    // Manual filter button (show when makes are selected OR when list is filtered)
+                    if selectedMakesCount > 0 || isModelListFiltered {
+                        Button(action: onFilterByMakes) {
+                            HStack(spacing: 4) {
+                                Image(systemName: isModelListFiltered ? "line.horizontal.3.decrease.circle.fill" : "line.horizontal.3.decrease.circle")
+                                if isModelListFiltered && selectedMakesCount > 0 {
+                                    // List is filtered AND makes are still selected - show status
+                                    Text("Filtering by \(selectedMakesCount) Make\(selectedMakesCount > 1 ? "s" : "")")
+                                } else if isModelListFiltered {
+                                    // List is filtered but no makes selected - can show all
+                                    Text("Show All Models")
+                                } else {
+                                    // Makes selected but not yet filtered - offer to filter
+                                    Text("Filter by Selected Makes (\(selectedMakesCount))")
+                                }
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                        .disabled(isModelListFiltered && selectedMakesCount > 0)
+                        .help(isModelListFiltered && selectedMakesCount > 0
+                            ? "Deselect makes to show all models"
+                            : (isModelListFiltered
+                                ? "Show all available models"
+                                : "Show only models for selected make(s)"))
+                    }
+                }
 
                 SearchableFilterList(
                     items: availableVehicleModels,
@@ -1046,15 +1157,26 @@ struct SearchableFilterList: View {
     @State private var isExpanded = false
     
     private var filteredItems: [String] {
+        // ALWAYS include selected items (even if they don't match search)
+        // Then add unselected items that match search
+        let selectedInItems = items.filter { selectedItems.contains($0) }
+
         if searchText.isEmpty {
-            return items
+            // No search: return all items with selected first
+            let unselectedInItems = items.filter { !selectedItems.contains($0) }
+            return selectedInItems.sorted() + unselectedInItems.sorted()
         }
-        return items.filter { $0.localizedCaseInsensitiveContains(searchText) }
+
+        // With search: selected items first (all of them), then matching unselected items
+        let matchingUnselected = items.filter { item in
+            !selectedItems.contains(item) && item.localizedCaseInsensitiveContains(searchText)
+        }
+        return selectedInItems.sorted() + matchingUnselected.sorted()
     }
-    
+
     private var displayedItems: [String] {
-        let sorted = filteredItems.sorted()
-        return isExpanded ? sorted : Array(sorted.prefix(5))
+        // No additional sorting needed - filteredItems already has correct order
+        return isExpanded ? filteredItems : Array(filteredItems.prefix(5))
     }
     
     var body: some View {
@@ -1170,19 +1292,29 @@ struct VehicleClassFilterList: View {
     @State private var isExpanded = false
     
     private var filteredItems: [String] {
+        // ALWAYS include selected items (even if they don't match search)
+        // Then add unselected items that match search
+        let selectedInItems = availableVehicleClasses.filter { selectedVehicleClasses.contains($0) }
+
         if searchText.isEmpty {
-            return availableVehicleClasses
+            // No search: return all items with selected first
+            let unselectedInItems = availableVehicleClasses.filter { !selectedVehicleClasses.contains($0) }
+            return selectedInItems.sorted() + unselectedInItems.sorted()
         }
-        return availableVehicleClasses.filter { vehicleClass in
+
+        // With search: selected items first (all of them), then matching unselected items
+        let matchingUnselected = availableVehicleClasses.filter { vehicleClass in
+            if selectedVehicleClasses.contains(vehicleClass) { return false }
             let displayName = getDisplayName(for: vehicleClass)
-            return displayName.localizedCaseInsensitiveContains(searchText) || 
-              vehicleClass.localizedCaseInsensitiveContains(searchText)
+            return displayName.localizedCaseInsensitiveContains(searchText) ||
+                   vehicleClass.localizedCaseInsensitiveContains(searchText)
         }
+        return selectedInItems.sorted() + matchingUnselected.sorted()
     }
-    
+
     private var displayedItems: [String] {
-        let sorted = filteredItems.sorted()
-        return isExpanded ? sorted : Array(sorted.prefix(6))
+        // No additional sorting needed - filteredItems already has correct order
+        return isExpanded ? filteredItems : Array(filteredItems.prefix(6))
     }
     
     var body: some View {
@@ -1315,18 +1447,29 @@ struct VehicleTypeFilterList: View {
     @State private var isExpanded = false
 
     private var filteredItems: [String] {
+        // ALWAYS include selected items (even if they don't match search)
+        // Then add unselected items that match search
+        let selectedInItems = availableVehicleTypes.filter { selectedVehicleTypes.contains($0) }
+
         if searchText.isEmpty {
-            return availableVehicleTypes
+            // No search: return all items with selected first
+            let unselectedInItems = availableVehicleTypes.filter { !selectedVehicleTypes.contains($0) }
+            return selectedInItems.sorted() + unselectedInItems.sorted()
         }
-        return availableVehicleTypes.filter { vehicleType in
+
+        // With search: selected items first (all of them), then matching unselected items
+        let matchingUnselected = availableVehicleTypes.filter { vehicleType in
+            if selectedVehicleTypes.contains(vehicleType) { return false }
             let displayName = getDisplayName(for: vehicleType)
             return displayName.localizedCaseInsensitiveContains(searchText) ||
-              vehicleType.localizedCaseInsensitiveContains(searchText)
+                   vehicleType.localizedCaseInsensitiveContains(searchText)
         }
+        return selectedInItems.sorted() + matchingUnselected.sorted()
     }
 
     private var displayedItems: [String] {
         // Sort with special handling: UK (Unknown) goes at the end
+        // Apply this sorting WITHIN each group (selected vs unselected)
         let sorted = filteredItems.sorted { item1, item2 in
             // If either is UK, put it at the end
             if item1.uppercased() == "UK" { return false }
@@ -1506,13 +1649,25 @@ struct MunicipalityFilterList: View {
     }
 
     private var filteredItems: [(name: String, code: String)] {
+        // ALWAYS include selected items (even if they don't match search)
+        // Then add unselected items that match search
+        let selectedInItems = displayItems.filter { selectedCodes.contains($0.code) }
+
         if searchText.isEmpty {
-            return displayItems
+            // No search: return all items with selected first
+            let unselectedInItems = displayItems.filter { !selectedCodes.contains($0.code) }
+            return selectedInItems.sorted { $0.name < $1.name } + unselectedInItems.sorted { $0.name < $1.name }
         }
-        return displayItems.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+
+        // With search: selected items first (all of them), then matching unselected items
+        let matchingUnselected = displayItems.filter { item in
+            !selectedCodes.contains(item.code) && item.name.localizedCaseInsensitiveContains(searchText)
+        }
+        return selectedInItems.sorted { $0.name < $1.name } + matchingUnselected.sorted { $0.name < $1.name }
     }
 
     private var displayedItems: [(name: String, code: String)] {
+        // No additional sorting needed - filteredItems already has correct order
         return isExpanded ? filteredItems : Array(filteredItems.prefix(5))
     }
 
@@ -1626,6 +1781,7 @@ struct MetricConfigurationSection: View {
     enum FilterCategory: String, CaseIterable {
         case regions = "Admin Region"
         case vehicleClasses = "Vehicle Class"
+        case vehicleTypes = "Vehicle Type"
         case fuelTypes = "Fuel Type"
         case vehicleMakes = "Vehicle Make"
         case vehicleModels = "Vehicle Model"
@@ -1639,6 +1795,7 @@ struct MetricConfigurationSection: View {
         var categories: [FilterCategory] = []
         if !currentFilters.regions.isEmpty { categories.append(.regions) }
         if !currentFilters.vehicleClasses.isEmpty { categories.append(.vehicleClasses) }
+        if !currentFilters.vehicleTypes.isEmpty { categories.append(.vehicleTypes) }
         if !currentFilters.fuelTypes.isEmpty { categories.append(.fuelTypes) }
         if !currentFilters.vehicleMakes.isEmpty { categories.append(.vehicleMakes) }
         if !currentFilters.vehicleModels.isEmpty { categories.append(.vehicleModels) }
@@ -1887,6 +2044,8 @@ struct MetricConfigurationSection: View {
             baseFilters.regions.removeAll()
         case .vehicleClasses:
             baseFilters.vehicleClasses.removeAll()
+        case .vehicleTypes:
+            baseFilters.vehicleTypes.removeAll()
         case .fuelTypes:
             baseFilters.fuelTypes.removeAll()
         case .vehicleMakes:
@@ -2108,18 +2267,31 @@ struct LicenseFilterSection: View {
 
 struct FilterOptionsSection: View {
     @Binding var limitToCuratedYears: Bool
-    @Binding var hierarchicalMakeModel: Bool
+    @AppStorage("limitToCuratedYears") private var limitToCuratedYearsStorage = true
+    @AppStorage("regularizationEnabled") private var regularizationEnabled = false
+    @AppStorage("regularizationCoupling") private var regularizationCoupling = true
+    @EnvironmentObject var databaseManager: DatabaseManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Limit to Curated Years toggle
             VStack(alignment: .leading, spacing: 4) {
-                Toggle(isOn: $limitToCuratedYears) {
+                Toggle(isOn: Binding(
+                    get: { limitToCuratedYearsStorage },
+                    set: { newValue in
+                        limitToCuratedYearsStorage = newValue
+                        limitToCuratedYears = newValue
+                    }
+                )) {
                     Text("Limit to Curated Years Only")
                         .font(.caption)
                 }
                 .toggleStyle(.switch)
                 .controlSize(.small)
+                .onAppear {
+                    // Sync binding with storage on appear
+                    limitToCuratedYears = limitToCuratedYearsStorage
+                }
 
                 Text(limitToCuratedYears
                     ? "Showing only data from curated years (filters exclude uncurated Make/Model pairs)"
@@ -2134,27 +2306,190 @@ struct FilterOptionsSection: View {
 
             Divider()
 
-            // Hierarchical Make/Model filtering toggle
+            // Query Regularization toggle
             VStack(alignment: .leading, spacing: 4) {
-                Toggle(isOn: $hierarchicalMakeModel) {
-                    Text("Hierarchical Make/Model Filtering")
+                Toggle(isOn: $regularizationEnabled) {
+                    Text("Enable Query Regularization")
                         .font(.caption)
                 }
                 .toggleStyle(.switch)
                 .controlSize(.small)
 
-                Text(hierarchicalMakeModel
-                    ? "Model dropdown shows only models for selected Make(s)"
-                    : "Model dropdown shows all available models")
+                Text(regularizationEnabled
+                    ? "Queries merge uncurated Make/Model variants into canonical values"
+                    : "Uncurated Make/Model variants remain separate")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(Color.gray.opacity(0.1))
                     .cornerRadius(4)
+
+                // Coupling toggle (only visible when regularization is enabled)
+                if regularizationEnabled {
+                    Toggle(isOn: $regularizationCoupling) {
+                        Text("Couple Make/Model in Queries")
+                            .font(.caption)
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .padding(.top, 4)
+
+                    Text(regularizationCoupling
+                        ? "Filtering by Model includes associated Make"
+                        : "Make and Model filters remain independent")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(4)
+                }
             }
         }
         .padding(.vertical, 4)
+        .onChange(of: regularizationEnabled) { _, newValue in
+            updateRegularizationInQueryManager(enabled: newValue, coupling: regularizationCoupling)
+        }
+        .onChange(of: regularizationCoupling) { _, newValue in
+            updateRegularizationInQueryManager(enabled: regularizationEnabled, coupling: newValue)
+        }
+    }
+
+    private func updateRegularizationInQueryManager(enabled: Bool, coupling: Bool) {
+        if let queryManager = databaseManager.optimizedQueryManager {
+            queryManager.regularizationEnabled = enabled
+            queryManager.regularizationCoupling = coupling
+            if enabled {
+                print("✅ Regularization ENABLED in queries (\(coupling ? "coupled" : "decoupled") mode)")
+            } else {
+                print("⚪️ Regularization DISABLED in queries")
+            }
+        }
+    }
+}
+
+// MARK: - Draggable Divider
+
+struct DraggableDivider: View {
+    @Binding var height: CGFloat
+    @State private var isDragging = false
+
+    private let minHeight: CGFloat = 200
+    private let maxHeight: CGFloat = 600
+
+    var body: some View {
+        HStack {
+            Spacer()
+            Image(systemName: "line.3.horizontal")
+                .foregroundStyle(isDragging ? Color.accentColor : Color.secondary)
+                .font(.caption)
+            Spacer()
+        }
+        .frame(height: 20)
+        .background(isDragging ? Color.accentColor.opacity(0.1) : Color.clear)
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            if hovering {
+                NSCursor.resizeUpDown.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    isDragging = true
+                    let newHeight = height + value.translation.height
+                    height = min(max(newHeight, minHeight), maxHeight)
+                }
+                .onEnded { _ in
+                    isDragging = false
+                }
+        )
+    }
+}
+
+// MARK: - Query Preview Bar (Persistent Bottom Bar)
+
+struct QueryPreviewBar: View {
+    let queryPreviewText: String
+    let isLoading: Bool
+    let onExecuteQuery: () -> Void
+    let onClearAll: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+
+            HStack(spacing: 12) {
+                // Query preview text (scrollable if too long)
+                if isLoading {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                            .controlSize(.small)
+                        Text("Generating preview...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else if queryPreviewText.isEmpty {
+                    Text("No query configured")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .italic()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        Text(queryPreviewText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                // Copy button
+                Button(action: {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(queryPreviewText, forType: .string)
+                }) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.body)
+                }
+                .buttonStyle(.borderless)
+                .help("Copy query to clipboard")
+                .disabled(queryPreviewText.isEmpty)
+
+                Divider()
+                    .frame(height: 28)
+
+                // Clear filters button (X icon)
+                Button(action: onClearAll) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                }
+                .buttonStyle(.borderless)
+                .help("Clear all filters")
+
+                // Execute Query button (like Play button) - on the right
+                Button(action: onExecuteQuery) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "play.circle.fill")
+                            .font(.title3)
+                        Text("Execute")
+                            .font(.subheadline.weight(.medium))
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(isLoading || queryPreviewText.isEmpty)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(.ultraThinMaterial)
+        }
     }
 }
 

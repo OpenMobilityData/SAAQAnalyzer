@@ -7,6 +7,14 @@ import AppKit  // FIXME: Remove AppKit dependency - only used for NSPasteboard c
 struct ChartView: View {
     @Binding var dataSeries: [FilteredDataSeries]
     @Binding var selectedSeries: FilteredDataSeries?
+    @EnvironmentObject var databaseManager: DatabaseManager
+
+    // Query preview props (passed from parent)
+    var queryPreviewText: String = ""
+    var isLoadingQueryPreview: Bool = false
+    var onExecuteQuery: (() -> Void)?
+    var onClearAll: (() -> Void)?
+    var currentConfiguration: FilterConfiguration = FilterConfiguration()
 
     // Chart display options
     @State private var showLegend = true
@@ -63,6 +71,18 @@ struct ChartView: View {
                 }
                 .scrollIndicators(.visible, axes: .vertical)
             }
+
+            // Persistent Query Preview Bar (like Apple Music transport controls)
+            QueryPreviewBar(
+                queryPreviewText: queryPreviewText,
+                isLoading: isLoadingQueryPreview,
+                onExecuteQuery: {
+                    onExecuteQuery?()
+                },
+                onClearAll: {
+                    onClearAll?()
+                }
+            )
         }
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 0))
     }
@@ -310,6 +330,25 @@ struct ChartView: View {
         return symbols[index % symbols.count]
     }
 
+    /// Adaptive decimal precision based on value magnitude
+    /// Returns appropriate format string for floating-point values
+    private func adaptiveDecimalFormat(_ value: Double) -> String {
+        let absValue = abs(value)
+        if absValue < 0.1 {
+            // Very small values: show 3 decimal places (e.g., 0.043)
+            return "%.3f"
+        } else if absValue < 1.0 {
+            // Sub-unit values: show 2 decimal places (e.g., 0.43)
+            return "%.2f"
+        } else if absValue < 10.0 {
+            // Single-digit values: show 1 decimal place (e.g., 3.5)
+            return "%.1f"
+        } else {
+            // 10+: show whole numbers (e.g., 45)
+            return "%.0f"
+        }
+    }
+
     /// Format Y-axis value based on the metric type of visible series
     private func formatYAxisValue(_ value: Double) -> String {
         let visibleSeries = dataSeries.filter { $0.isVisible }
@@ -368,20 +407,25 @@ struct ChartView: View {
             }
 
         case .average, .minimum, .maximum:
-            // Show one decimal place for averages/min/max with conditional units
+            // Adaptive precision for averages/min/max with conditional units
+            let format = adaptiveDecimalFormat(value)
             if showUnits, let unit = firstSeries.metricField.unit {
-                return String(format: "%.1f%@", value, unit)
+                return String(format: "\(format)%@", value, unit)
             } else {
-                return String(format: "%.1f", value)
+                return String(format: format, value)
             }
 
         case .percentage:
-            // Format as percentage
-            return String(format: "%.0f%%", value)
+            // Adaptive percentage formatting based on value magnitude
+            let format = adaptiveDecimalFormat(value)
+            return String(format: "\(format)%%", value)
+
         case .coverage:
             // Check if showing percentage or raw count
             if firstSeries.filters.coverageAsPercentage {
-                return String(format: "%.0f%%", value)
+                // Adaptive percentage formatting for coverage
+                let format = adaptiveDecimalFormat(value)
+                return String(format: "\(format)%%", value)
             } else {
                 // Format as integer count
                 if value >= 1_000_000 {

@@ -2318,6 +2318,12 @@ class DatabaseManager: ObservableObject {
         return whereClause
     }
 
+    /// Public wrapper for generating query preview strings
+    /// Used by UI to show live query preview before execution
+    func generateQueryPreview(from filters: FilterConfiguration) async -> String {
+        return await generateSeriesNameAsync(from: filters)
+    }
+
     /// Generates a descriptive name for a data series based on filters (async version with municipality name lookup)
     private func generateSeriesNameAsync(from filters: FilterConfiguration) async -> String {
         var components: [String] = []

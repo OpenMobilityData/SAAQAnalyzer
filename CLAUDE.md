@@ -65,11 +65,20 @@ xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
    - `FilterPanel.swift`: Left panel with two distinct top-level sections (Oct 2025):
      - **Analytics Section**: Configuration for what to measure
        - Y-Axis Metric (count, sum, average, RWI, percentage, coverage)
+       - Draggable divider allows height adjustment (200-600pt range)
      - **Filters Section**: Configuration for what subset of data to analyze
-       1. Filter Options (includes "Limit to Curated Years Only" toggle)
+       1. Filter Options (includes toggles for:)
+          - "Limit to Curated Years Only" - Filters out uncurated Make/Model pairs
+          - "Enable Query Regularization" - Merges uncurated variants into canonical values
+          - "Couple Make/Model in Queries" - Conditional toggle, includes Make when filtering by Model
        2. Years (when)
        3. Geographic Location (where)
        4. Vehicle/License Characteristics (what/who)
+          - **Hierarchical Make/Model Filtering** - Manual button appears when Makes selected (Oct 2025)
+            - Button states: "Filter by Selected Makes (N)" / "Filtering by N Make(s)" (disabled) / "Show All Models"
+            - Three-state UX: ready to filter / actively filtering (status) / can reset
+            - Fast in-memory filtering using FilterCacheManager
+            - Avoids SwiftUI AttributeGraph crashes from automatic filtering
    - `ChartView.swift`: Center panel with Charts framework integration (line, bar, area charts)
    - `DataInspector.swift`: Right panel for detailed data inspection
 
@@ -94,6 +103,8 @@ xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
 - **Async/await**: Database operations use structured concurrency
 - **Three-panel layout**: NavigationSplitView with filters, charts, and details
 - **Batch processing**: CSV imports processed in 1000-record batches for performance
+- **Draggable UI dividers**: Resizable sections with visual feedback and cursor affordances (Oct 2025)
+- **@AppStorage synchronization**: Global settings synced across multiple UI locations via UserDefaults (Oct 2025)
 
 ## Data Import Process
 

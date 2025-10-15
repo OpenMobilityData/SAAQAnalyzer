@@ -1124,12 +1124,11 @@ struct FilterConfiguration: Equatable, Sendable {
     var coverageField: CoverageField? = nil
     var coverageAsPercentage: Bool = true  // true = percentage, false = raw NULL count
     var roadWearIndexMode: RoadWearIndexMode = .average  // average or sum for Road Wear Index
-    var normalizeToFirstYear: Bool = true  // true = normalize to first year (first year = 1.0), false = show raw values
+    var normalizeToFirstYear: Bool = false  // true = normalize to first year (first year = 1.0), false = show raw values
     var showCumulativeSum: Bool = false  // true = cumulative sum over time, false = raw year-by-year values
 
     // Regularization and filter UI configuration
     var limitToCuratedYears: Bool = false  // true = exclude uncurated years from queries and filter dropdowns
-    var hierarchicalMakeModel: Bool = false  // true = Model dropdown shows only models for selected Make(s)
 
     /// Mode for Road Wear Index calculation
     enum RoadWearIndexMode: String, CaseIterable, Sendable {
@@ -1229,7 +1228,7 @@ struct IntegerFilterConfiguration: Equatable, Sendable {
     var metricField: ChartMetricField = .none
     var percentageBaseFilters: IntegerPercentageBaseFilters? = nil
     var roadWearIndexMode: FilterConfiguration.RoadWearIndexMode = .average
-    var normalizeToFirstYear: Bool = true  // true = normalize to first year (first year = 1.0), false = show raw values
+    var normalizeToFirstYear: Bool = false  // true = normalize to first year (first year = 1.0), false = show raw values
 }
 
 // MARK: - Percentage Base Configuration
@@ -1513,6 +1512,33 @@ class FilteredDataSeries: Identifiable {
 
     /// Format a value for display (tooltips, labels, etc.)
     func formatValue(_ value: Double) -> String {
+        // Helper function to format integers with thousands separators
+        func formatWithThousandsSeparator(_ intValue: Int) -> String {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            formatter.groupingSeparator = ","
+            formatter.usesGroupingSeparator = true
+            return formatter.string(from: NSNumber(value: intValue)) ?? "\(intValue)"
+        }
+
+        // Helper function for adaptive decimal precision
+        func adaptiveDecimalFormat(_ value: Double) -> String {
+            let absValue = abs(value)
+            if absValue < 0.1 {
+                // Very small values: show 3 decimal places (e.g., 0.043)
+                return "%.3f"
+            } else if absValue < 1.0 {
+                // Sub-unit values: show 2 decimal places (e.g., 0.43)
+                return "%.2f"
+            } else if absValue < 10.0 {
+                // Single-digit values: show 1 decimal place (e.g., 3.5)
+                return "%.1f"
+            } else {
+                // 10+: show whole numbers (e.g., 45)
+                return "%.0f"
+            }
+        }
+
         // If normalized, use higher precision for values near 1.0
         if filters.normalizeToFirstYear && value >= 0.1 && value <= 10.0 {
             return String(format: "%.2f", value)
@@ -1521,11 +1547,12 @@ class FilteredDataSeries: Identifiable {
         let entityType = filters.dataEntityType
         switch metricType {
         case .count:
+            let formattedCount = formatWithThousandsSeparator(Int(value))
             switch entityType {
             case .vehicle:
-                return "\(Int(value)) vehicles"
+                return "\(formattedCount) vehicles"
             case .license:
-                return "\(Int(value)) license holders"
+                return "\(formattedCount) license holders"
             }
         case .sum:
             if metricField == .netMass {
@@ -1533,24 +1560,35 @@ class FilteredDataSeries: Identifiable {
                 if value > 10000 {
                     return String(format: "%.1f tonnes", value / 1000)
                 } else {
-                    return String(format: "%.0f kg", value)
+                    let formattedValue = formatWithThousandsSeparator(Int(value))
+                    return "\(formattedValue) kg"
                 }
             } else {
-                return String(format: "%.0f", value)
+                let formattedValue = formatWithThousandsSeparator(Int(value))
+                return formattedValue
             }
         case .average, .minimum, .maximum:
             if metricField == .vehicleAge || metricField == .displacement {
-                return String(format: "%.1f", value)
+                // Use adaptive precision for continuous metrics
+                let format = adaptiveDecimalFormat(value)
+                return String(format: format, value)
             } else {
-                return String(format: "%.0f", value)
+                let formattedValue = formatWithThousandsSeparator(Int(value))
+                return formattedValue
             }
         case .percentage:
-            return String(format: "%.1f%%", value)
+            // Adaptive percentage formatting based on value magnitude
+            let format = adaptiveDecimalFormat(value)
+            return String(format: "\(format)%%", value)
+
         case .coverage:
             if filters.coverageAsPercentage {
-                return String(format: "%.1f%%", value)
+                // Adaptive percentage formatting for coverage
+                let format = adaptiveDecimalFormat(value)
+                return String(format: "\(format)%%", value)
             } else {
-                return "\(Int(value)) NULL values"
+                let formattedValue = formatWithThousandsSeparator(Int(value))
+                return "\(formattedValue) NULL values"
             }
         case .roadWearIndex:
             // Check if value is normalized (close to 1.0) or very large (raw)
@@ -1569,7 +1607,8 @@ class FilteredDataSeries: Identifiable {
                     // Use thousands notation
                     return String(format: "%.2f K RWI", value / 1e3)  // "123.45 K RWI"
                 } else {
-                    return String(format: "%.0f RWI", value)  // Standard format for smaller values
+                    let formattedValue = formatWithThousandsSeparator(Int(value))
+                    return "\(formattedValue) RWI"  // Standard format for smaller values with separators
                 }
             }
         }
