@@ -680,7 +680,7 @@ struct MappingFormView: View {
                     Text("3. Select Vehicle Type (Optional)")
                         .font(.headline)
                     Spacer()
-                    if let vehicleType = viewModel.selectedVehicleType {
+                    if viewModel.selectedVehicleType != nil {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
                     }
@@ -1186,7 +1186,7 @@ class RegularizationViewModel: ObservableObject {
             var unknownCount = 0
 
             if let model = selectedCanonicalModel {
-                for (yearId, fuelTypes) in model.modelYearFuelTypes {
+                for (yearId, _) in model.modelYearFuelTypes {
                     guard let yearId = yearId else { continue }
 
                     // Get user selection for this year (nil = Not Assigned, -1 = Unknown, or specific ID)

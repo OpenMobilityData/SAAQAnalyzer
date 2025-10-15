@@ -428,7 +428,7 @@ class SchemaManager {
     func rollbackOptimization() async throws {
         print("🔄 Rolling back categorical enumeration optimization...")
 
-        guard let db = db else { throw DatabaseError.notConnected }
+        guard db != nil else { throw DatabaseError.notConnected }
 
         // SQLite doesn't support DROP COLUMN directly, so we'd need to recreate tables
         // For now, we'll just document this limitation
