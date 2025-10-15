@@ -1,16 +1,34 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import OSLog
 
 /// Main application entry point for SAAQ data analyzer
 @main
 struct SAAQAnalyzerApp: App {
     @StateObject private var databaseManager = DatabaseManager.shared
-    
+    @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.system.rawValue
+
+    private var appearanceMode: AppearanceMode {
+        AppearanceMode(rawValue: appearanceModeRaw) ?? .system
+    }
+
+    init() {
+        // Log app version and build info at launch
+        AppLogger.app.notice("🚀 SAAQAnalyzer launched")
+        AppLogger.app.notice("📦 \(AppVersion.fullVersion, privacy: .public)")
+        AppLogger.app.info("Build date: \(AppVersion.buildDate, privacy: .public)")
+
+        #if DEBUG
+        AppLogger.app.debug("Running in DEBUG mode")
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(databaseManager)
                 .frame(minWidth: 1200, minHeight: 800)
+                .preferredColorScheme(appearanceMode.colorScheme)
                 .alert("Test Database Found", isPresented: Binding(
                     get: { databaseManager.testDatabaseCleanupNeeded != nil },
                     set: { if !$0 { databaseManager.testDatabaseCleanupNeeded = nil } }
@@ -35,6 +53,7 @@ struct SAAQAnalyzerApp: App {
         Settings {
             SettingsView()
                 .environmentObject(databaseManager)
+                .preferredColorScheme(appearanceMode.colorScheme)
         }
     }
 }
@@ -1372,9 +1391,31 @@ struct SettingsView: View {
 
 struct GeneralSettingsView: View {
     @State private var settings = AppSettings.shared
+    @AppStorage("appearanceMode") private var appearanceModeRaw: String = AppearanceMode.system.rawValue
+
+    private var appearanceMode: AppearanceMode {
+        get { AppearanceMode(rawValue: appearanceModeRaw) ?? .system }
+        set { appearanceModeRaw = newValue.rawValue }
+    }
 
     var body: some View {
         Form {
+            Section("Appearance") {
+                Picker("Appearance", selection: Binding(
+                    get: { appearanceMode },
+                    set: { appearanceModeRaw = $0.rawValue }
+                )) {
+                    ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                        Text(mode.description).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text("Choose how the app appears")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Application") {
                 Button("Reset All Settings to Defaults") {
                     settings.resetToDefaults()

@@ -61,6 +61,9 @@ struct AppLogger {
     /// Geographic data operations
     static let geographic = Logger(subsystem: subsystem, category: "geographic")
 
+    /// Application lifecycle (launch, shutdown, version info)
+    static let app = Logger(subsystem: subsystem, category: "app")
+
     // MARK: - Performance Measurement
 
     /// Measures and logs execution time of a code block

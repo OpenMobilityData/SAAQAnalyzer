@@ -1731,6 +1731,28 @@ extension Color {
     }
 }
 
+// MARK: - Application Preferences
+
+/// Appearance mode preference for the application
+enum AppearanceMode: String, CaseIterable, Sendable {
+    case system = "System"
+    case light = "Light"
+    case dark = "Dark"
+
+    var description: String {
+        rawValue
+    }
+
+    /// Convert to SwiftUI ColorScheme (nil = system default)
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+}
+
 // MARK: - Make/Model Regularization Models
 
 /// Represents a mapping between unverified and canonical Make/Model pairs
