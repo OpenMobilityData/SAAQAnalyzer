@@ -146,6 +146,14 @@ class DataPackageManager: ObservableObject {
     /// - Parameter packageURL: URL of the package to validate
     /// - Returns: Validation result
     func validateDataPackage(at packageURL: URL) async -> DataPackageValidationResult {
+        // Start accessing security-scoped resource (needed for package bundles)
+        let accessing = packageURL.startAccessingSecurityScopedResource()
+        defer {
+            if accessing {
+                packageURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
         do {
             // Check if package bundle exists
             guard FileManager.default.fileExists(atPath: packageURL.path) else {
@@ -195,6 +203,14 @@ class DataPackageManager: ObservableObject {
         let validationResult = await validateDataPackage(at: packageURL)
         guard validationResult == .valid else {
             throw DataPackageError.validationFailed(validationResult)
+        }
+
+        // Start accessing security-scoped resource (needed for package bundles)
+        let accessing = packageURL.startAccessingSecurityScopedResource()
+        defer {
+            if accessing {
+                packageURL.stopAccessingSecurityScopedResource()
+            }
         }
 
         isImporting = true

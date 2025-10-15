@@ -3244,7 +3244,7 @@ class DatabaseManager: ObservableObject {
     
     /// Completes bulk import session and rebuilds indexes
     /// - Parameter skipCacheRefresh: If true, skips cache refresh (for batch imports that refresh once at end)
-    func endBulkImport(progressManager: ImportProgressManager? = nil, skipCacheRefresh: Bool = false) async {
+    func endBulkImport(progressManager: ImportProgressManager? = nil, skipCacheRefresh: Bool = false, dataType: DataEntityType = .vehicle) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             dbQueue.async { [weak self] in
                 guard let db = self?.db else {
@@ -3263,18 +3263,21 @@ class DatabaseManager: ObservableObject {
                     sqlite3_exec(db, "ANALYZE licenses", nil, nil, nil)
                 } else {
                     print("🔧 Optimizing indexes (incremental mode)...")
-                    
+
                     // Update progress for incremental mode
                     Task { @MainActor in
                         progressManager?.updateIncrementalIndexing()
                     }
-                    
+
                     // For large databases, just update statistics - indexes were never dropped
                     // This is much faster than rebuilding entire indexes
                 }
-                
-                // Update statistics for query optimizer
-                sqlite3_exec(db, "ANALYZE", nil, nil, nil)
+
+                // Update statistics for query optimizer (only analyze relevant table for dataType)
+                let tableName = dataType == .license ? "licenses" : "vehicles"
+                let analyzeSQL = "ANALYZE \(tableName)"
+                print("🔧 Running: \(analyzeSQL)")
+                sqlite3_exec(db, analyzeSQL, nil, nil, nil)
                 
                 let indexTime = Date().timeIntervalSince(indexStartTime)
                 print("✅ Database optimization complete (\(String(format: "%.1f", indexTime))s)")
@@ -3305,11 +3308,11 @@ class DatabaseManager: ObservableObject {
             progressManager?.updateIndexingOperation("Refreshing filter cache...")
         }.value
 
-        // Invalidate and reload enumeration-based cache
+        // Invalidate and reload enumeration-based cache (only for relevant data type)
         filterCacheManager?.invalidateCache()
         do {
-            try await filterCacheManager?.initializeCache()
-            print("✅ Enumeration-based filter cache refreshed")
+            try await filterCacheManager?.initializeCache(for: dataType)
+            print("✅ Enumeration-based filter cache refreshed for \(dataType)")
         } catch {
             print("⚠️ Failed to refresh enumeration cache: \(error)")
         }
@@ -3330,14 +3333,14 @@ class DatabaseManager: ObservableObject {
     }
 
     /// Refreshes all caches after a batch import completes
-    func refreshAllCachesAfterBatchImport() async {
+    func refreshAllCachesAfterBatchImport(dataType: DataEntityType = .vehicle) async {
         print("🔄 Refreshing filter caches after batch import...")
 
-        // Invalidate and reload enumeration-based cache
+        // Invalidate and reload enumeration-based cache (only for relevant data type)
         filterCacheManager?.invalidateCache()
         do {
-            try await filterCacheManager?.initializeCache()
-            print("✅ Enumeration-based filter cache refreshed")
+            try await filterCacheManager?.initializeCache(for: dataType)
+            print("✅ Enumeration-based filter cache refreshed for \(dataType)")
         } catch {
             print("⚠️ Failed to refresh enumeration cache: \(error)")
         }
@@ -3481,7 +3484,7 @@ class DatabaseManager: ObservableObject {
 
     // MARK: - License Data Methods
 
-    /// Gets available license types from database
+    /// Gets available license types from database (queries enum table)
     func getAvailableLicenseTypes() async -> [String] {
         print("⚠️ License types cache miss, falling back to database query")
 
@@ -3493,7 +3496,7 @@ class DatabaseManager: ObservableObject {
                 }
 
                 var types: [String] = []
-                let query = "SELECT DISTINCT license_type FROM licenses ORDER BY license_type"
+                let query = "SELECT DISTINCT type_name FROM license_type_enum ORDER BY type_name"
                 var stmt: OpaquePointer?
 
                 if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
@@ -3502,6 +3505,9 @@ class DatabaseManager: ObservableObject {
                             types.append(String(cString: typePtr))
                         }
                     }
+                } else {
+                    let error = String(cString: sqlite3_errmsg(db))
+                    print("❌ Failed to query license_type_enum: \(error)")
                 }
                 sqlite3_finalize(stmt)
                 continuation.resume(returning: types)
@@ -3509,7 +3515,7 @@ class DatabaseManager: ObservableObject {
         }
     }
 
-    /// Gets available age groups from database
+    /// Gets available age groups from database (queries enum table)
     func getAvailableAgeGroups() async -> [String] {
         print("⚠️ Age groups cache miss, falling back to database query")
 
@@ -3521,7 +3527,7 @@ class DatabaseManager: ObservableObject {
                 }
 
                 var groups: [String] = []
-                let query = "SELECT DISTINCT age_group FROM licenses ORDER BY age_group"
+                let query = "SELECT DISTINCT range_text FROM age_group_enum ORDER BY id"
                 var stmt: OpaquePointer?
 
                 if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
@@ -3530,6 +3536,9 @@ class DatabaseManager: ObservableObject {
                             groups.append(String(cString: groupPtr))
                         }
                     }
+                } else {
+                    let error = String(cString: sqlite3_errmsg(db))
+                    print("❌ Failed to query age_group_enum: \(error)")
                 }
                 sqlite3_finalize(stmt)
                 continuation.resume(returning: groups)
@@ -3537,7 +3546,7 @@ class DatabaseManager: ObservableObject {
         }
     }
 
-    /// Gets available genders from database
+    /// Gets available genders from database (queries enum table)
     func getAvailableGenders() async -> [String] {
         print("⚠️ Genders cache miss, falling back to database query")
 
@@ -3549,7 +3558,7 @@ class DatabaseManager: ObservableObject {
                 }
 
                 var genders: [String] = []
-                let query = "SELECT DISTINCT gender FROM licenses ORDER BY gender"
+                let query = "SELECT DISTINCT code FROM gender_enum ORDER BY code"
                 var stmt: OpaquePointer?
 
                 if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
@@ -3558,6 +3567,9 @@ class DatabaseManager: ObservableObject {
                             genders.append(String(cString: genderPtr))
                         }
                     }
+                } else {
+                    let error = String(cString: sqlite3_errmsg(db))
+                    print("❌ Failed to query gender_enum: \(error)")
                 }
                 sqlite3_finalize(stmt)
                 continuation.resume(returning: genders)
@@ -4939,7 +4951,316 @@ class DatabaseManager: ObservableObject {
             }
         }
     }
-    
+
+    /// Imports a batch of license records using integer enum foreign keys
+    func importLicenseBatch(_ records: [[String: String]], year: Int, importer: CSVImporter) async throws -> (success: Int, errors: Int) {
+        return try await withCheckedThrowingContinuation { continuation in
+            dbQueue.async { [weak self] in
+                guard let db = self?.db else {
+                    continuation.resume(throwing: DatabaseError.notConnected)
+                    return
+                }
+
+                // Apply temporary performance optimizations for bulk import
+                sqlite3_exec(db, "PRAGMA synchronous = OFF", nil, nil, nil)
+                sqlite3_exec(db, "PRAGMA journal_mode = MEMORY", nil, nil, nil)
+                sqlite3_exec(db, "PRAGMA cache_size = -2000000", nil, nil, nil)
+                sqlite3_exec(db, "PRAGMA temp_store = MEMORY", nil, nil, nil)
+                sqlite3_exec(db, "PRAGMA locking_mode = EXCLUSIVE", nil, nil, nil)
+
+                // Start transaction
+                if sqlite3_exec(db, "BEGIN IMMEDIATE TRANSACTION", nil, nil, nil) != SQLITE_OK {
+                    if let errorMessage = sqlite3_errmsg(db) {
+                        continuation.resume(throwing: DatabaseError.queryFailed("Failed to begin transaction: \(String(cString: errorMessage))"))
+                    } else {
+                        continuation.resume(throwing: DatabaseError.queryFailed("Failed to begin transaction"))
+                    }
+                    return
+                }
+
+                let insertSQL = """
+                    INSERT OR REPLACE INTO licenses (
+                        year, license_sequence,
+                        has_learner_permit_123, has_learner_permit_5, has_learner_permit_6a6r,
+                        has_driver_license_1234, has_driver_license_5, has_driver_license_6abce,
+                        has_driver_license_6d, has_driver_license_8, is_probationary,
+                        experience_1234, experience_5, experience_6abce, experience_global,
+                        year_id, age_group_id, gender_id, admin_region_id, mrc_id, license_type_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """
+
+                var stmt: OpaquePointer?
+                defer {
+                    if stmt != nil {
+                        sqlite3_finalize(stmt)
+                    }
+                }
+
+                guard sqlite3_prepare_v2(db, insertSQL, -1, &stmt, nil) == SQLITE_OK else {
+                    sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+                    if let errorMessage = sqlite3_errmsg(db) {
+                        continuation.resume(throwing: DatabaseError.queryFailed(String(cString: errorMessage)))
+                    } else {
+                        continuation.resume(throwing: DatabaseError.queryFailed("Failed to prepare statement"))
+                    }
+                    return
+                }
+
+                var successCount = 0
+                var errorCount = 0
+
+                // Build enumeration lookup caches for fast in-memory lookups
+                print("🔄 Building license enumeration caches for batch...")
+                var yearEnumCache: [Int: Int] = [:]
+                var ageGroupEnumCache: [String: Int] = [:]
+                var genderEnumCache: [String: Int] = [:]
+                var adminRegionEnumCache: [String: Int] = [:]
+                var mrcEnumCache: [String: Int] = [:]
+                var licenseTypeEnumCache: [String: Int] = [:]
+
+                // Helper to load string enum cache
+                func loadEnumCache(table: String, keyColumn: String, cache: inout [String: Int]) {
+                    let sql = "SELECT id, \(keyColumn) FROM \(table);"
+                    var cacheStmt: OpaquePointer?
+                    defer { sqlite3_finalize(cacheStmt) }
+                    if sqlite3_prepare_v2(db, sql, -1, &cacheStmt, nil) == SQLITE_OK {
+                        while sqlite3_step(cacheStmt) == SQLITE_ROW {
+                            let id = Int(sqlite3_column_int(cacheStmt, 0))
+                            if let keyPtr = sqlite3_column_text(cacheStmt, 1) {
+                                cache[String(cString: keyPtr)] = id
+                            }
+                        }
+                    }
+                }
+
+                // Helper to load integer enum cache
+                func loadIntEnumCache(table: String, keyColumn: String, cache: inout [Int: Int]) {
+                    let sql = "SELECT id, \(keyColumn) FROM \(table);"
+                    var cacheStmt: OpaquePointer?
+                    defer { sqlite3_finalize(cacheStmt) }
+                    if sqlite3_prepare_v2(db, sql, -1, &cacheStmt, nil) == SQLITE_OK {
+                        while sqlite3_step(cacheStmt) == SQLITE_ROW {
+                            cache[Int(sqlite3_column_int(cacheStmt, 1))] = Int(sqlite3_column_int(cacheStmt, 0))
+                        }
+                    }
+                }
+
+                // Load all enum caches
+                loadIntEnumCache(table: "year_enum", keyColumn: "year", cache: &yearEnumCache)
+                loadEnumCache(table: "age_group_enum", keyColumn: "range_text", cache: &ageGroupEnumCache)
+                loadEnumCache(table: "gender_enum", keyColumn: "code", cache: &genderEnumCache)
+                loadEnumCache(table: "admin_region_enum", keyColumn: "code", cache: &adminRegionEnumCache)
+                loadEnumCache(table: "mrc_enum", keyColumn: "code", cache: &mrcEnumCache)
+                loadEnumCache(table: "license_type_enum", keyColumn: "type_name", cache: &licenseTypeEnumCache)
+
+                // Helper to get or create string enum ID
+                func getOrCreateEnumId(table: String, column: String, value: String, cache: inout [String: Int]) -> Int? {
+                    if let id = cache[value] { return id }
+
+                    // Try INSERT
+                    let insertSql = "INSERT OR IGNORE INTO \(table) (\(column)) VALUES (?);"
+                    var insertStmt: OpaquePointer?
+                    defer { sqlite3_finalize(insertStmt) }
+                    if sqlite3_prepare_v2(db, insertSql, -1, &insertStmt, nil) == SQLITE_OK {
+                        sqlite3_bind_text(insertStmt, 1, value, -1, SQLITE_TRANSIENT)
+                        sqlite3_step(insertStmt)
+                    } else {
+                        return nil
+                    }
+
+                    // Try SELECT
+                    let selectSql = "SELECT id FROM \(table) WHERE \(column) = ?;"
+                    var selectStmt: OpaquePointer?
+                    defer { sqlite3_finalize(selectStmt) }
+                    if sqlite3_prepare_v2(db, selectSql, -1, &selectStmt, nil) == SQLITE_OK {
+                        sqlite3_bind_text(selectStmt, 1, value, -1, SQLITE_TRANSIENT)
+                        if sqlite3_step(selectStmt) == SQLITE_ROW {
+                            let id = Int(sqlite3_column_int(selectStmt, 0))
+                            cache[value] = id
+                            return id
+                        }
+                    }
+                    return nil
+                }
+
+                // Helper to get or create integer enum ID
+                func getOrCreateIntEnumId(table: String, column: String, value: Int, cache: inout [Int: Int]) -> Int? {
+                    if let id = cache[value] { return id }
+
+                    // Try INSERT
+                    let insertSql = "INSERT OR IGNORE INTO \(table) (\(column)) VALUES (?);"
+                    var insertStmt: OpaquePointer?
+                    defer { sqlite3_finalize(insertStmt) }
+                    if sqlite3_prepare_v2(db, insertSql, -1, &insertStmt, nil) == SQLITE_OK {
+                        sqlite3_bind_int(insertStmt, 1, Int32(value))
+                        sqlite3_step(insertStmt)
+                    } else {
+                        return nil
+                    }
+
+                    // Try SELECT
+                    let selectSql = "SELECT id FROM \(table) WHERE \(column) = ?;"
+                    var selectStmt: OpaquePointer?
+                    defer { sqlite3_finalize(selectStmt) }
+                    if sqlite3_prepare_v2(db, selectSql, -1, &selectStmt, nil) == SQLITE_OK {
+                        sqlite3_bind_int(selectStmt, 1, Int32(value))
+                        if sqlite3_step(selectStmt) == SQLITE_ROW {
+                            let id = Int(sqlite3_column_int(selectStmt, 0))
+                            cache[value] = id
+                            return id
+                        }
+                    }
+                    return nil
+                }
+
+                // Helper to get or create geographic enum ID (requires both code and name)
+                func getOrCreateGeoEnumId(table: String, name: String, code: String, cache: inout [String: Int]) -> Int? {
+                    if let id = cache[code] { return id }
+
+                    // Try INSERT with both code and name
+                    let insertSql = "INSERT OR IGNORE INTO \(table) (code, name) VALUES (?, ?);"
+                    var insertStmt: OpaquePointer?
+                    defer { sqlite3_finalize(insertStmt) }
+                    if sqlite3_prepare_v2(db, insertSql, -1, &insertStmt, nil) == SQLITE_OK {
+                        sqlite3_bind_text(insertStmt, 1, code, -1, SQLITE_TRANSIENT)
+                        sqlite3_bind_text(insertStmt, 2, name, -1, SQLITE_TRANSIENT)
+                        sqlite3_step(insertStmt)
+                    } else {
+                        return nil
+                    }
+
+                    // Try SELECT
+                    let selectSql = "SELECT id FROM \(table) WHERE code = ?;"
+                    var selectStmt: OpaquePointer?
+                    defer { sqlite3_finalize(selectStmt) }
+                    if sqlite3_prepare_v2(db, selectSql, -1, &selectStmt, nil) == SQLITE_OK {
+                        sqlite3_bind_text(selectStmt, 1, code, -1, SQLITE_TRANSIENT)
+                        if sqlite3_step(selectStmt) == SQLITE_ROW {
+                            let id = Int(sqlite3_column_int(selectStmt, 0))
+                            cache[code] = id
+                            return id
+                        }
+                    }
+                    return nil
+                }
+
+                // Helper to extract region name and code from "Region Name (08)" format
+                func extractNameAndCode(from text: String?) -> (name: String, code: String)? {
+                    guard let text = text, !text.isEmpty else { return nil }
+
+                    // Look for pattern: "Name (Code)"
+                    if let openParen = text.lastIndex(of: "("),
+                       let closeParen = text.lastIndex(of: ")") {
+                        let name = String(text[..<openParen]).trimmingCharacters(in: .whitespaces)
+                        let code = String(text[text.index(after: openParen)..<closeParen]).trimmingCharacters(in: .whitespaces)
+                        return (name, code)
+                    }
+                    return nil
+                }
+
+                // Process each license record
+                for record in records {
+                    // Extract values from CSV record
+                    let licenseSequence = record["NOSEQ_TITUL"] ?? ""
+                    let ageGroup = record["AGE_1ER_JUIN"] ?? ""
+                    let gender = record["SEXE"] ?? ""
+                    let rawMrc = record["MRC"] ?? ""
+                    let rawAdminRegion = record["REG_ADM"] ?? ""
+                    let licenseType = record["TYPE_PERMIS"] ?? ""
+
+                    // Bind year and sequence
+                    sqlite3_bind_int(stmt, 1, Int32(year))
+                    importer.bindTextToStatement(stmt, 2, licenseSequence)
+
+                    // Bind boolean fields (convert OUI/NON to 1/0)
+                    sqlite3_bind_int(stmt, 3, (record["IND_PERMISAPPRENTI_123"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(stmt, 4, (record["IND_PERMISAPPRENTI_5"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(stmt, 5, (record["IND_PERMISAPPRENTI_6A6R"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(stmt, 6, (record["IND_PERMISCONDUIRE_1234"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(stmt, 7, (record["IND_PERMISCONDUIRE_5"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(stmt, 8, (record["IND_PERMISCONDUIRE_6ABCE"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(stmt, 9, (record["IND_PERMISCONDUIRE_6D"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(stmt, 10, (record["IND_PERMISCONDUIRE_8"] == "OUI") ? 1 : 0)
+                    sqlite3_bind_int(stmt, 11, (record["IND_PROBATOIRE"] == "OUI") ? 1 : 0)
+
+                    // Bind experience fields (text strings)
+                    importer.bindTextToStatement(stmt, 12, record["EXPERIENCE_1234"])
+                    importer.bindTextToStatement(stmt, 13, record["EXPERIENCE_5"])
+                    importer.bindTextToStatement(stmt, 14, record["EXPERIENCE_6ABCE"])
+                    importer.bindTextToStatement(stmt, 15, record["EXPERIENCE_GLOBALE"])
+
+                    // year_id
+                    if let yearId = getOrCreateIntEnumId(table: "year_enum", column: "year", value: year, cache: &yearEnumCache) {
+                        sqlite3_bind_int(stmt, 16, Int32(yearId))
+                    } else { sqlite3_bind_null(stmt, 16) }
+
+                    // age_group_id
+                    if !ageGroup.isEmpty, let ageId = getOrCreateEnumId(table: "age_group_enum", column: "range_text", value: ageGroup, cache: &ageGroupEnumCache) {
+                        sqlite3_bind_int(stmt, 17, Int32(ageId))
+                    } else { sqlite3_bind_null(stmt, 17) }
+
+                    // gender_id
+                    if !gender.isEmpty, let genderId = getOrCreateEnumId(table: "gender_enum", column: "code", value: gender, cache: &genderEnumCache) {
+                        sqlite3_bind_int(stmt, 18, Int32(genderId))
+                    } else { sqlite3_bind_null(stmt, 18) }
+
+                    // admin_region_id - extract name and code from "Region Name (08)" format
+                    if let (regionName, regionCode) = extractNameAndCode(from: rawAdminRegion),
+                       let regionId = getOrCreateGeoEnumId(table: "admin_region_enum", name: regionName, code: regionCode, cache: &adminRegionEnumCache) {
+                        sqlite3_bind_int(stmt, 19, Int32(regionId))
+                    } else { sqlite3_bind_null(stmt, 19) }
+
+                    // mrc_id - extract name and code from "MRC Name (66)" format
+                    if let (mrcName, mrcCode) = extractNameAndCode(from: rawMrc),
+                       let mrcId = getOrCreateGeoEnumId(table: "mrc_enum", name: mrcName, code: mrcCode, cache: &mrcEnumCache) {
+                        sqlite3_bind_int(stmt, 20, Int32(mrcId))
+                    } else { sqlite3_bind_null(stmt, 20) }
+
+                    // license_type_id
+                    if !licenseType.isEmpty, let typeId = getOrCreateEnumId(table: "license_type_enum", column: "type_name", value: licenseType, cache: &licenseTypeEnumCache) {
+                        sqlite3_bind_int(stmt, 21, Int32(typeId))
+                    } else { sqlite3_bind_null(stmt, 21) }
+
+                    // Execute insert
+                    if sqlite3_step(stmt) == SQLITE_DONE {
+                        successCount += 1
+                    } else {
+                        errorCount += 1
+                        if let errorMessage = sqlite3_errmsg(db) {
+                            if errorCount <= 5 {
+                                print("License insert error: \(String(cString: errorMessage))")
+                            }
+                        }
+                    }
+
+                    sqlite3_reset(stmt)
+                }
+
+                // Commit transaction
+                if sqlite3_exec(db, "COMMIT", nil, nil, nil) == SQLITE_OK {
+                    // Restore safe settings after bulk import
+                    sqlite3_exec(db, "PRAGMA synchronous = NORMAL", nil, nil, nil)
+                    sqlite3_exec(db, "PRAGMA journal_mode = WAL", nil, nil, nil)
+                    sqlite3_exec(db, "PRAGMA locking_mode = NORMAL", nil, nil, nil)
+
+                    continuation.resume(returning: (success: successCount, errors: errorCount))
+                } else {
+                    sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+                    // Restore safe settings even on failure
+                    sqlite3_exec(db, "PRAGMA synchronous = NORMAL", nil, nil, nil)
+                    sqlite3_exec(db, "PRAGMA journal_mode = WAL", nil, nil, nil)
+                    sqlite3_exec(db, "PRAGMA locking_mode = NORMAL", nil, nil, nil)
+
+                    if let errorMessage = sqlite3_errmsg(db) {
+                        continuation.resume(throwing: DatabaseError.queryFailed("Failed to commit: \(String(cString: errorMessage))"))
+                    } else {
+                        continuation.resume(throwing: DatabaseError.queryFailed("Failed to commit transaction"))
+                    }
+                }
+            }
+        }
+    }
+
     /// Executes import log statement
     func executeImportLog(_ sql: String, fileName: String, year: Int, recordCount: Int, status: String) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
