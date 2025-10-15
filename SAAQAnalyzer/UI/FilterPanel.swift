@@ -292,7 +292,7 @@ struct FilterPanel: View {
                 Task {
                     print("🔄 Data version changed to \(newVersion), reloading all filter options")
                     // Reload all filter options to pick up new enumeration data
-                    await loadAvailableOptions()
+                    loadAvailableOptions()
                 }
             }
         }
