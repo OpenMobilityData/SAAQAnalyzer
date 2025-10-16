@@ -1820,16 +1820,10 @@ class DatabaseManager: ObservableObject {
     private func calculatePercentagePointsParallel(
         filters: FilterConfiguration
     ) async throws -> FilteredDataSeries {
-        print("🔢 calculatePercentagePointsParallel() called")
-
         guard filters.metricType == .percentage,
               let baselineFilters = filters.percentageBaseFilters else {
-            throw DatabaseError.queryFailed("Invalid percentage configuration")
+            throw DatabaseError.queryFailed("Invalid percentage configuration: Please select a Numerator Category from the dropdown")
         }
-
-        print("🔢 Starting parallel percentage queries...")
-        print("🔢 Numerator filters: \(filters)")
-        print("🔢 Baseline filters: \(baselineFilters)")
 
         let startTime = Date()
 
@@ -1841,8 +1835,7 @@ class DatabaseManager: ObservableObject {
         let (numeratorPoints, baselinePoints) = try await (numeratorTask, baselineTask)
 
         let queryTime = Date().timeIntervalSince(startTime)
-        print("⚡ Parallel percentage queries completed in \(String(format: "%.3f", queryTime))s")
-        print("📊 Numerator points: \(numeratorPoints.count), Baseline points: \(baselinePoints.count)")
+        AppLogger.performance.info("⚡ Parallel percentage queries completed in \(String(format: "%.3f", queryTime))s (\(numeratorPoints.count) numerator, \(baselinePoints.count) baseline points)")
 
         // Create baseline lookup dictionary
         let baselineLookup = Dictionary(
@@ -1857,13 +1850,12 @@ class DatabaseManager: ObservableObject {
 
             if let baseline = baselineLookup[year], baseline > 0 {
                 let percentage = (numerator / baseline) * 100.0
-                print("📊 Year \(year): numerator=\(String(format: "%.0f", numerator)), baseline=\(String(format: "%.0f", baseline)), percentage=\(String(format: "%.2f", percentage))%")
                 percentagePoints.append(
                     TimeSeriesPoint(year: year, value: percentage, label: numeratorPoint.label)
                 )
             } else {
                 // No baseline data for this year, or baseline is zero
-                print("⚠️ Year \(year): No baseline data or baseline is zero")
+                AppLogger.query.warning("Year \(year): No baseline data or baseline is zero")
                 percentagePoints.append(
                     TimeSeriesPoint(year: year, value: 0.0, label: numeratorPoint.label)
                 )
@@ -1877,7 +1869,21 @@ class DatabaseManager: ObservableObject {
     }
 
     /// Raw query method that returns just the data points without creating a FilteredDataSeries
+    /// Used by percentage metric calculations to get numerator and baseline data
     private func queryDataRaw(filters: FilterConfiguration) async throws -> [TimeSeriesPoint] {
+        // Use optimized integer-based queries if available (same routing as main query path)
+        if useOptimizedQueries, let optimizedManager = optimizedQueryManager {
+            let series: FilteredDataSeries
+            switch filters.dataEntityType {
+            case .vehicle:
+                series = try await optimizedManager.queryOptimizedVehicleData(filters: filters)
+            case .license:
+                series = try await optimizedManager.queryOptimizedLicenseData(filters: filters)
+            }
+            return series.points
+        }
+
+        // Fall back to legacy string-based queries
         switch filters.dataEntityType {
         case .vehicle:
             return try await queryVehicleDataRaw(filters: filters)
