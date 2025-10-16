@@ -1108,6 +1108,7 @@ struct FilterConfiguration: Equatable, Sendable {
     var vehicleColors: Set<String> = []
     var modelYears: Set<Int> = []
     var fuelTypes: Set<String> = []
+    var axleCounts: Set<Int> = []
     var ageRanges: [AgeRange] = []
 
     // License-specific filters
@@ -1214,6 +1215,7 @@ struct IntegerFilterConfiguration: Equatable, Sendable {
     var vehicleColors: Set<Int> = []  // Now uses color_enum IDs
     var modelYears: Set<Int> = []  // Model years can remain as integers
     var fuelTypes: Set<Int> = []  // Now uses fuel_type_enum IDs
+    var axleCounts: Set<Int> = []  // Axle counts as integers (2-6+)
     var ageRanges: [FilterConfiguration.AgeRange] = []  // Keep as-is for numeric ranges
 
     // License-specific filters
@@ -1253,6 +1255,7 @@ struct PercentageBaseFilters: Equatable, Sendable {
     var vehicleColors: Set<String> = []
     var modelYears: Set<Int> = []
     var fuelTypes: Set<String> = []
+    var axleCounts: Set<Int> = []
     var ageRanges: [FilterConfiguration.AgeRange] = []
 
     // License-specific filters
@@ -1277,6 +1280,7 @@ struct PercentageBaseFilters: Equatable, Sendable {
         config.vehicleColors = vehicleColors
         config.modelYears = modelYears
         config.fuelTypes = fuelTypes
+        config.axleCounts = axleCounts
         config.ageRanges = ageRanges
         config.licenseTypes = licenseTypes
         config.ageGroups = ageGroups
@@ -1302,6 +1306,7 @@ struct PercentageBaseFilters: Equatable, Sendable {
         base.vehicleColors = config.vehicleColors
         base.modelYears = config.modelYears
         base.fuelTypes = config.fuelTypes
+        base.axleCounts = config.axleCounts
         base.ageRanges = config.ageRanges
         base.licenseTypes = config.licenseTypes
         base.ageGroups = config.ageGroups
@@ -1369,6 +1374,7 @@ enum ChartMetricField: String, CaseIterable, Sendable {
     case netMass = "Vehicle Mass"
     case displacement = "Engine Displacement"
     case cylinderCount = "Cylinders"
+    case axleCount = "Axle Count"
     case vehicleAge = "Vehicle Age"
     case modelYear = "Model Year"
 
@@ -1383,6 +1389,7 @@ enum ChartMetricField: String, CaseIterable, Sendable {
         case .netMass: return "net_mass"
         case .displacement: return "displacement"
         case .cylinderCount: return "cylinder_count"
+        case .axleCount: return "max_axles"
         case .vehicleAge: return nil // Computed: year - model_year
         case .modelYear: return "model_year"
         // License fields
@@ -1398,6 +1405,7 @@ enum ChartMetricField: String, CaseIterable, Sendable {
         case .netMass: return "kg"
         case .displacement: return "cm³"
         case .cylinderCount: return nil
+        case .axleCount: return nil
         case .vehicleAge: return "Y"
         case .modelYear: return nil
         // License fields
@@ -1419,7 +1427,7 @@ enum ChartMetricField: String, CaseIterable, Sendable {
         switch self {
         case .none:
             return true
-        case .netMass, .displacement, .cylinderCount, .vehicleAge, .modelYear:
+        case .netMass, .displacement, .cylinderCount, .axleCount, .vehicleAge, .modelYear:
             return entityType == .vehicle
         case .licenseHolderCount, .licenseClassCount:
             return entityType == .license
@@ -1682,6 +1690,7 @@ struct IntegerPercentageBaseFilters: Equatable, Sendable {
     var vehicleColors: Set<Int> = []
     var modelYears: Set<Int> = []
     var fuelTypes: Set<Int> = []
+    var axleCounts: Set<Int> = []
     var ageRanges: [FilterConfiguration.AgeRange] = []
 
     // License-specific filters
@@ -1705,6 +1714,7 @@ struct IntegerPercentageBaseFilters: Equatable, Sendable {
         config.vehicleColors = vehicleColors
         config.modelYears = modelYears
         config.fuelTypes = fuelTypes
+        config.axleCounts = axleCounts
         config.ageRanges = ageRanges
         config.licenseTypes = licenseTypes
         config.ageGroups = ageGroups

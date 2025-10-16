@@ -18,6 +18,7 @@ class FilterCacheManager {
     private var cachedModels: [FilterItem] = []
     private var cachedColors: [FilterItem] = []
     private var cachedFuelTypes: [FilterItem] = []
+    private var cachedAxleCounts: [Int] = []
     private var cachedLicenseTypes: [FilterItem] = []
     private var cachedAgeGroups: [FilterItem] = []
     private var cachedGenders: [FilterItem] = []
@@ -76,6 +77,7 @@ class FilterCacheManager {
             try await loadModels()
             try await loadColors()
             try await loadFuelTypes()
+            try await loadAxleCounts()
             print("✅ Loaded vehicle-specific enum caches")
         }
 
@@ -437,6 +439,11 @@ class FilterCacheManager {
         cachedFuelTypes = try await executeFilterItemQuery(sql)
     }
 
+    private func loadAxleCounts() async throws {
+        let sql = "SELECT DISTINCT max_axles FROM vehicles WHERE max_axles IS NOT NULL ORDER BY max_axles;"
+        cachedAxleCounts = try await executeIntQuery(sql)
+    }
+
     private func loadLicenseTypes() async throws {
         let sql = "SELECT id, type_name FROM license_type_enum ORDER BY type_name;"
         cachedLicenseTypes = try await executeFilterItemQuery(sql)
@@ -547,6 +554,11 @@ class FilterCacheManager {
         return cachedFuelTypes
     }
 
+    func getAvailableAxleCounts() async throws -> [Int] {
+        if !isInitialized { try await initializeCache() }
+        return cachedAxleCounts
+    }
+
     func getAvailableLicenseTypes() async throws -> [FilterItem] {
         if !isInitialized { try await initializeCache() }
         return cachedLicenseTypes
@@ -644,6 +656,7 @@ class FilterCacheManager {
         cachedModels.removeAll()
         cachedColors.removeAll()
         cachedFuelTypes.removeAll()
+        cachedAxleCounts.removeAll()
         cachedLicenseTypes.removeAll()
         cachedAgeGroups.removeAll()
         cachedGenders.removeAll()
