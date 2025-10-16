@@ -1779,30 +1779,53 @@ struct MetricConfigurationSection: View {
     @State private var selectedCategoryToRemove: FilterCategory?
 
     enum FilterCategory: String, CaseIterable {
+        // Geographic filters (shared)
         case regions = "Admin Region"
+        case mrcs = "MRC"
+        case municipalities = "Municipality"
+
+        // Vehicle-specific filters
         case vehicleClasses = "Vehicle Class"
         case vehicleTypes = "Vehicle Type"
         case fuelTypes = "Fuel Type"
         case vehicleMakes = "Vehicle Make"
         case vehicleModels = "Vehicle Model"
+        case vehicleColors = "Vehicle Color"
         case modelYears = "Model Year"
-        case mrcs = "MRC"
-        case municipalities = "Municipality"
         case ageRanges = "Vehicle Age"
+
+        // License-specific filters
+        case licenseTypes = "License Type"
+        case ageGroups = "Age Group"
+        case genders = "Gender"
+        case experienceLevels = "Experience Level"
+        case licenseClasses = "License Classes"
     }
 
     private var availableCategories: [FilterCategory] {
         var categories: [FilterCategory] = []
+
+        // Geographic filters (shared)
         if !currentFilters.regions.isEmpty { categories.append(.regions) }
+        if !currentFilters.mrcs.isEmpty { categories.append(.mrcs) }
+        if !currentFilters.municipalities.isEmpty { categories.append(.municipalities) }
+
+        // Vehicle-specific filters
         if !currentFilters.vehicleClasses.isEmpty { categories.append(.vehicleClasses) }
         if !currentFilters.vehicleTypes.isEmpty { categories.append(.vehicleTypes) }
         if !currentFilters.fuelTypes.isEmpty { categories.append(.fuelTypes) }
         if !currentFilters.vehicleMakes.isEmpty { categories.append(.vehicleMakes) }
         if !currentFilters.vehicleModels.isEmpty { categories.append(.vehicleModels) }
+        if !currentFilters.vehicleColors.isEmpty { categories.append(.vehicleColors) }
         if !currentFilters.modelYears.isEmpty { categories.append(.modelYears) }
-        if !currentFilters.mrcs.isEmpty { categories.append(.mrcs) }
-        if !currentFilters.municipalities.isEmpty { categories.append(.municipalities) }
         if !currentFilters.ageRanges.isEmpty { categories.append(.ageRanges) }
+
+        // License-specific filters
+        if !currentFilters.licenseTypes.isEmpty { categories.append(.licenseTypes) }
+        if !currentFilters.ageGroups.isEmpty { categories.append(.ageGroups) }
+        if !currentFilters.genders.isEmpty { categories.append(.genders) }
+        if !currentFilters.experienceLevels.isEmpty { categories.append(.experienceLevels) }
+        if !currentFilters.licenseClasses.isEmpty { categories.append(.licenseClasses) }
 
         // Ensure selected category is always included even if filter is temporarily empty
         if let selected = selectedCategoryToRemove, !categories.contains(selected) {
@@ -1844,6 +1867,11 @@ struct MetricConfigurationSection: View {
                 }
                 .pickerStyle(.radioGroup)
                 .labelsHidden()
+            }
+            .onAppear {
+                // Sync selectedCategoryToRemove from percentageBaseFilters on view load
+                // This ensures UI state is restored when view is recreated
+                syncCategorySelectionFromBaseFilters()
             }
 
             // Field selector (shown for sum, average, minimum, and maximum)
@@ -2040,8 +2068,15 @@ struct MetricConfigurationSection: View {
         var baseFilters = PercentageBaseFilters.from(currentFilters)
 
         switch droppingCategory {
+        // Geographic filters (shared)
         case .regions:
             baseFilters.regions.removeAll()
+        case .mrcs:
+            baseFilters.mrcs.removeAll()
+        case .municipalities:
+            baseFilters.municipalities.removeAll()
+
+        // Vehicle-specific filters
         case .vehicleClasses:
             baseFilters.vehicleClasses.removeAll()
         case .vehicleTypes:
@@ -2052,17 +2087,78 @@ struct MetricConfigurationSection: View {
             baseFilters.vehicleMakes.removeAll()
         case .vehicleModels:
             baseFilters.vehicleModels.removeAll()
+        case .vehicleColors:
+            baseFilters.vehicleColors.removeAll()
         case .modelYears:
             baseFilters.modelYears.removeAll()
-        case .mrcs:
-            baseFilters.mrcs.removeAll()
-        case .municipalities:
-            baseFilters.municipalities.removeAll()
         case .ageRanges:
             baseFilters.ageRanges.removeAll()
+
+        // License-specific filters
+        case .licenseTypes:
+            baseFilters.licenseTypes.removeAll()
+        case .ageGroups:
+            baseFilters.ageGroups.removeAll()
+        case .genders:
+            baseFilters.genders.removeAll()
+        case .experienceLevels:
+            baseFilters.experienceLevels.removeAll()
+        case .licenseClasses:
+            baseFilters.licenseClasses.removeAll()
         }
 
         return baseFilters
+    }
+
+    /// Syncs the selected category from existing percentageBaseFilters
+    /// This restores UI state when the view is recreated
+    private func syncCategorySelectionFromBaseFilters() {
+        guard let baseFilters = percentageBaseFilters else {
+            // No base filters set, nothing to sync
+            selectedCategoryToRemove = nil
+            return
+        }
+
+        // Determine which category was removed by comparing base filters with current filters
+        // The removed category will be empty in baseFilters but non-empty in currentFilters
+        let currentFilters = currentFilters
+
+        // Check each category type to find which one is empty in base but not in current
+        if !currentFilters.regions.isEmpty && baseFilters.regions.isEmpty {
+            selectedCategoryToRemove = .regions
+        } else if !currentFilters.mrcs.isEmpty && baseFilters.mrcs.isEmpty {
+            selectedCategoryToRemove = .mrcs
+        } else if !currentFilters.municipalities.isEmpty && baseFilters.municipalities.isEmpty {
+            selectedCategoryToRemove = .municipalities
+        } else if !currentFilters.vehicleClasses.isEmpty && baseFilters.vehicleClasses.isEmpty {
+            selectedCategoryToRemove = .vehicleClasses
+        } else if !currentFilters.vehicleTypes.isEmpty && baseFilters.vehicleTypes.isEmpty {
+            selectedCategoryToRemove = .vehicleTypes
+        } else if !currentFilters.fuelTypes.isEmpty && baseFilters.fuelTypes.isEmpty {
+            selectedCategoryToRemove = .fuelTypes
+        } else if !currentFilters.vehicleMakes.isEmpty && baseFilters.vehicleMakes.isEmpty {
+            selectedCategoryToRemove = .vehicleMakes
+        } else if !currentFilters.vehicleModels.isEmpty && baseFilters.vehicleModels.isEmpty {
+            selectedCategoryToRemove = .vehicleModels
+        } else if !currentFilters.vehicleColors.isEmpty && baseFilters.vehicleColors.isEmpty {
+            selectedCategoryToRemove = .vehicleColors
+        } else if !currentFilters.modelYears.isEmpty && baseFilters.modelYears.isEmpty {
+            selectedCategoryToRemove = .modelYears
+        } else if !currentFilters.ageRanges.isEmpty && baseFilters.ageRanges.isEmpty {
+            selectedCategoryToRemove = .ageRanges
+        } else if !currentFilters.licenseTypes.isEmpty && baseFilters.licenseTypes.isEmpty {
+            selectedCategoryToRemove = .licenseTypes
+        } else if !currentFilters.ageGroups.isEmpty && baseFilters.ageGroups.isEmpty {
+            selectedCategoryToRemove = .ageGroups
+        } else if !currentFilters.genders.isEmpty && baseFilters.genders.isEmpty {
+            selectedCategoryToRemove = .genders
+        } else if !currentFilters.experienceLevels.isEmpty && baseFilters.experienceLevels.isEmpty {
+            selectedCategoryToRemove = .experienceLevels
+        } else if !currentFilters.licenseClasses.isEmpty && baseFilters.licenseClasses.isEmpty {
+            selectedCategoryToRemove = .licenseClasses
+        }
+
+        // Silently restore UI state from saved configuration
     }
 
     private var descriptionText: String {
