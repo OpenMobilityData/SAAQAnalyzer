@@ -606,6 +606,34 @@ class DataPackageManager: ObservableObject {
 
             logger.info("Current database contains: \(currentContent.description, privacy: .public)")
             logger.info("Preserve vehicle data: \(preserveVehicleData), Preserve license data: \(preserveLicenseData)")
+
+            // SAFETY CHECK: Detect dangerous merge scenarios where data types overlap
+            let hasConflict = (currentContent.hasVehicleData && content.hasVehicleData) ||
+                             (currentContent.hasLicenseData && content.hasLicenseData)
+
+            if hasConflict {
+                let conflictMessage = """
+                    Cannot merge: Data type conflict detected!
+
+                    Current database: \(currentContent.description)
+                    Package contents: \(content.description)
+
+                    Merge mode only works when importing non-overlapping data types:
+                    ✓ Import licenses into vehicle-only database
+                    ✓ Import vehicles into license-only database
+                    ✗ Import vehicles when database already has vehicles
+                    ✗ Import licenses when database already has licenses
+
+                    To import this package, please:
+                    1. Use REPLACE mode instead (replaces entire database), OR
+                    2. Export your current data first, then import both packages separately
+
+                    This restriction prevents accidental data loss from overlapping records.
+                    """
+
+                logger.error("Merge conflict prevented: \(conflictMessage, privacy: .public)")
+                throw DataPackageError.importFailed(conflictMessage)
+            }
         }
 
         // Close current database connection
@@ -651,6 +679,7 @@ class DataPackageManager: ObservableObject {
 
         guard FileManager.default.fileExists(atPath: currentDBURL.path) else {
             // No current database, nothing to preserve
+            logger.info("🔍 No current database file found - nothing to preserve")
             return DataPackageContent(hasVehicleData: false, hasLicenseData: false,
                                      vehicleRecordCount: 0, licenseRecordCount: 0)
         }
@@ -658,6 +687,8 @@ class DataPackageManager: ObservableObject {
         var db: OpaquePointer?
 
         guard sqlite3_open(currentDBURL.path, &db) == SQLITE_OK else {
+            let errorMsg = String(cString: sqlite3_errmsg(db))
+            logger.error("Could not open current database for detection: \(errorMsg, privacy: .public)")
             throw DataPackageError.importFailed("Could not open current database")
         }
 
@@ -675,6 +706,9 @@ class DataPackageManager: ObservableObject {
                 vehicleCount = Int(sqlite3_column_int(vehicleStmt, 0))
             }
             sqlite3_finalize(vehicleStmt)
+        } else {
+            let errorMsg = String(cString: sqlite3_errmsg(db))
+            logger.warning("Could not query vehicles table: \(errorMsg, privacy: .public)")
         }
 
         // Check for licenses table and count
@@ -687,7 +721,12 @@ class DataPackageManager: ObservableObject {
                 licenseCount = Int(sqlite3_column_int(licenseStmt, 0))
             }
             sqlite3_finalize(licenseStmt)
+        } else {
+            let errorMsg = String(cString: sqlite3_errmsg(db))
+            logger.warning("Could not query licenses table: \(errorMsg, privacy: .public)")
         }
+
+        logger.info("🔍 Detected current database content: \(vehicleCount) vehicles, \(licenseCount) licenses")
 
         return DataPackageContent(
             hasVehicleData: vehicleCount > 0,
@@ -773,12 +812,12 @@ class DataPackageManager: ObservableObject {
         if copyVehicles {
             logger.info("Copying vehicle data from current database")
 
-            // Clear any existing vehicle data in target
-            _ = sqlite3_exec(targetDb, "DELETE FROM vehicles;", nil, nil, nil)
-            _ = sqlite3_exec(targetDb, "DELETE FROM canonical_hierarchy_cache;", nil, nil, nil)
+            // NOTE: We do NOT delete existing data when preserving!
+            // The target database (from the package) has the data we want to IMPORT
+            // We're copying FROM current database TO preserve it alongside the imported data
 
-            // Copy vehicles table
-            let copyVehiclesSQL = "INSERT INTO vehicles SELECT * FROM current_db.vehicles;"
+            // Copy vehicles table (INSERT OR REPLACE to handle any conflicts)
+            let copyVehiclesSQL = "INSERT OR REPLACE INTO vehicles SELECT * FROM current_db.vehicles;"
             var vehicleError: UnsafeMutablePointer<Int8>?
             if sqlite3_exec(targetDb, copyVehiclesSQL, nil, nil, &vehicleError) != SQLITE_OK {
                 if let error = vehicleError {
@@ -802,11 +841,12 @@ class DataPackageManager: ObservableObject {
         if copyLicenses {
             logger.info("Copying license data from current database")
 
-            // Clear any existing license data in target
-            _ = sqlite3_exec(targetDb, "DELETE FROM licenses;", nil, nil, nil)
+            // NOTE: We do NOT delete existing data when preserving!
+            // The target database (from the package) has the data we want to IMPORT
+            // We're copying FROM current database TO preserve it alongside the imported data
 
-            // Copy licenses table
-            let copyLicensesSQL = "INSERT INTO licenses SELECT * FROM current_db.licenses;"
+            // Copy licenses table (INSERT OR REPLACE to handle any conflicts)
+            let copyLicensesSQL = "INSERT OR REPLACE INTO licenses SELECT * FROM current_db.licenses;"
             var licenseError: UnsafeMutablePointer<Int8>?
             if sqlite3_exec(targetDb, copyLicensesSQL, nil, nil, &licenseError) != SQLITE_OK {
                 if let error = licenseError {

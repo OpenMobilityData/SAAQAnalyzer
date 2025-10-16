@@ -126,14 +126,42 @@ struct DataPackageExportOptions: Sendable {
 /// Import mode for data packages
 enum DataPackageImportMode: String, CaseIterable, Sendable {
     case replace = "Replace Database"
-    case merge = "Merge Data"
+    case merge = "Merge Non-Overlapping Data"
 
     var description: String {
         switch self {
         case .replace:
-            return "Replace entire database (fast - recommended for backups)"
+            return "Replace entire database with package contents (fast - use for full backups)"
         case .merge:
-            return "Merge data selectively (preserves data not in package)"
+            return "Merge only non-overlapping data types (e.g., add licenses to vehicle-only database)"
+        }
+    }
+
+    /// Detailed explanation shown in UI
+    var detailedExplanation: String {
+        switch self {
+        case .replace:
+            return """
+            Replaces your entire database with the package contents.
+            • Fast file copy operation
+            • Use for restoring full backups
+            • All existing data will be replaced
+            """
+        case .merge:
+            return """
+            Merges data only when types don't overlap.
+
+            ✓ Safe merges:
+            • Import licenses into vehicle-only database
+            • Import vehicles into license-only database
+
+            ✗ Blocked merges (use Replace instead):
+            • Import vehicles when database already has vehicles
+            • Import licenses when database already has licenses
+            • Import packages containing both types
+
+            This prevents accidental data loss from overlapping records.
+            """
         }
     }
 }
