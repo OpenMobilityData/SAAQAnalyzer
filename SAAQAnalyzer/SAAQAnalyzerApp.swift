@@ -110,6 +110,8 @@ struct ContentView: View {
     @State private var showingClearDataConfirmation = false
     @State private var showingPackageImportConfirmation = false
     @State private var pendingPackageURL: URL?
+    @State private var pendingPackageContent: DataPackageContent?
+    @State private var packageImportMode: DataPackageImportMode = .replace  // Default to fast path
 
     // MARK: - SwiftUI File Dialog Handlers
 
@@ -195,11 +197,17 @@ struct ContentView: View {
                 // Validate package first
                 let validationResult = await packageManager.validateDataPackage(at: url)
 
-                if validationResult != .valid {
+                if !validationResult.isValid {
                     packageAlertMessage = validationResult.errorMessage
                     showingPackageAlert = true
                     return
                 }
+
+                // Store package content for confirmation dialog
+                pendingPackageContent = validationResult.content
+
+                // Set smart default import mode based on current database state
+                packageImportMode = await determineDefaultImportMode(packageContent: validationResult.content)
 
                 // Show confirmation dialog
                 pendingPackageURL = url
@@ -209,6 +217,43 @@ struct ContentView: View {
                 print("File selection error: \(error)")
             }
         }
+    }
+
+    /// Determines the optimal default import mode based on current database and package contents
+    private func determineDefaultImportMode(packageContent: DataPackageContent?) async -> DataPackageImportMode {
+        guard let content = packageContent else {
+            return .replace  // Fallback to replace if we don't know what's in the package
+        }
+
+        // Get current database stats
+        let stats = await databaseManager.getDatabaseStats()
+
+        // If current database is empty, default to fast replace mode
+        if stats.totalVehicleRecords == 0 && stats.totalLicenseRecords == 0 {
+            print("📊 Smart default: REPLACE (current database is empty)")
+            return .replace
+        }
+
+        // If package contains both types of data, default to replace (full backup scenario)
+        if content.hasVehicleData && content.hasLicenseData {
+            print("📊 Smart default: REPLACE (package contains both data types - full backup)")
+            return .replace
+        }
+
+        // If package is missing data that exists in current DB, default to merge
+        let hasDataToPreserve = (stats.totalVehicleRecords > 0 && !content.hasVehicleData) ||
+                               (stats.totalLicenseRecords > 0 && !content.hasLicenseData)
+
+        if hasDataToPreserve {
+            print("📊 Smart default: MERGE (current database has data not in package)")
+            print("   Current: \(stats.totalVehicleRecords) vehicles, \(stats.totalLicenseRecords) licenses")
+            print("   Package: \(content.vehicleRecordCount) vehicles, \(content.licenseRecordCount) licenses")
+            return .merge
+        }
+
+        // Default to replace for all other cases
+        print("📊 Smart default: REPLACE (standard backup/restore scenario)")
+        return .replace
     }
 
     /// Perform clear all data action
@@ -228,10 +273,10 @@ struct ContentView: View {
     }
 
     /// Perform data package import action
-    private func performPackageImport(_ url: URL) {
+    private func performPackageImport(_ url: URL, mode: DataPackageImportMode) {
         Task { @MainActor in
             do {
-                try await packageManager.importDataPackage(from: url)
+                try await packageManager.importDataPackage(from: url, mode: mode)
 
                 // Reset UI state
                 chartData.removeAll()
@@ -240,7 +285,7 @@ struct ContentView: View {
                 packageAlertMessage = "Data package imported successfully!"
                 showingPackageAlert = true
 
-                print("✅ Data package imported successfully")
+                print("✅ Data package imported successfully (\(mode.rawValue) mode)")
 
             } catch {
                 packageAlertMessage = "Failed to import data package: \(error.localizedDescription)"
@@ -249,6 +294,7 @@ struct ContentView: View {
             }
 
             pendingPackageURL = nil
+            pendingPackageContent = nil
         }
     }
 
@@ -286,17 +332,22 @@ struct ContentView: View {
             } message: {
                 Text("This will delete all imported vehicle and geographic data. This cannot be undone.")
             }
-            .confirmationDialog("Import Data Package?", isPresented: $showingPackageImportConfirmation) {
-                Button("Import", role: .destructive) {
-                    if let url = pendingPackageURL {
-                        performPackageImport(url)
+            .sheet(isPresented: $showingPackageImportConfirmation) {
+                PackageImportConfirmationView(
+                    content: pendingPackageContent,
+                    importMode: $packageImportMode,
+                    onImport: {
+                        if let url = pendingPackageURL {
+                            performPackageImport(url, mode: packageImportMode)
+                        }
+                        showingPackageImportConfirmation = false
+                    },
+                    onCancel: {
+                        pendingPackageURL = nil
+                        pendingPackageContent = nil
+                        showingPackageImportConfirmation = false
                     }
-                }
-                Button("Cancel", role: .cancel) {
-                    pendingPackageURL = nil
-                }
-            } message: {
-                Text("This will replace your current database and caches. This operation cannot be undone.")
+                )
             }
     }
 
@@ -1193,6 +1244,7 @@ struct DataPackageDocument: FileDocument {
         }
 
         // Return the package directory as a FileWrapper with recursive reading
+        // FileWrapper copies the data into memory, so we can delete the temp directory immediately after
         let wrapper = try FileWrapper(url: packageURL, options: [.immediate, .withoutMapping])
 
         // Verify the wrapper contains all subdirectories
@@ -1201,6 +1253,17 @@ struct DataPackageDocument: FileDocument {
             for (name, _) in wrappers {
                 print("  - \(name)")
             }
+        }
+
+        // Clean up temp staging area immediately
+        // CRITICAL: Prevents accumulation of massive package files in container temp directory
+        // The FileWrapper has already copied the data into memory with .immediate flag
+        do {
+            try FileManager.default.removeItem(at: packageURL)
+            print("🗑️  Cleaned up temp staging area: \(packageURL.lastPathComponent)")
+        } catch {
+            print("⚠️  Warning: Could not clean up temp package at \(packageURL.lastPathComponent): \(error.localizedDescription)")
+            // Don't throw - cleanup failure shouldn't break export
         }
 
         return wrapper
@@ -2261,6 +2324,198 @@ struct FieldCoverageRow: View {
                 .tint(coverage.coveragePercentage > 50 ? .green : .orange)
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Package Import Confirmation View
+
+/// Custom confirmation view for data package import with mode selection
+struct PackageImportConfirmationView: View {
+    let content: DataPackageContent?
+    @Binding var importMode: DataPackageImportMode
+    let onImport: () -> Void
+    let onCancel: () -> Void
+
+    @EnvironmentObject var databaseManager: DatabaseManager
+    @State private var currentStats: CachedDatabaseStats?
+
+    var body: some View {
+        VStack(spacing: 24) {
+            // Header
+            HStack {
+                Image(systemName: "shippingbox.fill")
+                    .font(.title)
+                    .foregroundStyle(.blue)
+                Text("Import Data Package")
+                    .font(.title2.bold())
+            }
+
+            Divider()
+
+            // Package contents
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Package Contents")
+                    .font(.headline)
+
+                if let content = content {
+                    HStack(spacing: 8) {
+                        Image(systemName: "info.circle.fill")
+                            .foregroundColor(.blue)
+                        Text(content.detailedDescription)
+                            .fontWeight(.medium)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(8)
+                }
+            }
+
+            // Current database state (if data exists)
+            if let stats = currentStats, (stats.totalVehicleRecords > 0 || stats.totalLicenseRecords > 0) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Current Database")
+                        .font(.headline)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        if stats.totalVehicleRecords > 0 {
+                            HStack {
+                                Image(systemName: "car")
+                                Text("\(stats.totalVehicleRecords.formatted()) vehicle records")
+                                    .font(.system(.body, design: .monospaced))
+                            }
+                        }
+                        if stats.totalLicenseRecords > 0 {
+                            HStack {
+                                Image(systemName: "person.crop.circle")
+                                Text("\(stats.totalLicenseRecords.formatted()) license records")
+                                    .font(.system(.body, design: .monospaced))
+                            }
+                        }
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(8)
+                }
+            }
+
+            Divider()
+
+            // Import mode selection
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Import Mode")
+                    .font(.headline)
+
+                VStack(spacing: 12) {
+                    ForEach(DataPackageImportMode.allCases, id: \.self) { mode in
+                        ImportModeOption(
+                            mode: mode,
+                            isSelected: importMode == mode,
+                            onSelect: { importMode = mode }
+                        )
+                    }
+                }
+            }
+
+            // Warning message
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: importMode == .replace ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                        .foregroundColor(importMode == .replace ? .orange : .blue)
+
+                    Text(importMode == .replace ?
+                         "This will replace your entire database. This operation cannot be undone." :
+                         "Data in the package will be imported. Existing data not in the package will be preserved.")
+                        .font(.callout)
+                        .foregroundStyle(importMode == .replace ? .orange : .secondary)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background((importMode == .replace ? Color.orange : Color.blue).opacity(0.1))
+                .cornerRadius(8)
+            }
+
+            Divider()
+
+            // Action buttons
+            HStack(spacing: 12) {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+
+                Spacer()
+
+                Button(action: onImport) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.down.circle.fill")
+                        Text("Import")
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(importMode == .replace ? .orange : .blue)
+            }
+        }
+        .padding(24)
+        .frame(width: 540)
+        .task {
+            // Load current database stats for context
+            currentStats = await databaseManager.getDatabaseStats()
+        }
+    }
+}
+
+/// Individual import mode option button
+struct ImportModeOption: View {
+    let mode: DataPackageImportMode
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 12) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundColor(isSelected ? .blue : .gray)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(mode.rawValue)
+                        .font(.headline)
+                        .foregroundStyle(isSelected ? .primary : .secondary)
+
+                    Text(mode.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+
+                Spacer()
+
+                if mode == .replace {
+                    Image(systemName: "bolt.fill")
+                        .foregroundColor(.orange)
+                        .font(.caption)
+                } else {
+                    Image(systemName: "shield.fill")
+                        .foregroundColor(.green)
+                        .font(.caption)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isSelected ? Color.blue.opacity(0.1) : Color.clear)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? Color.blue : Color.gray.opacity(0.3), lineWidth: isSelected ? 2 : 1)
+            )
+            .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
     }
 }
 

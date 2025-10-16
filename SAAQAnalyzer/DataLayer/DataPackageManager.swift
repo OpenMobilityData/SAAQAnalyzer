@@ -144,7 +144,7 @@ class DataPackageManager: ObservableObject {
 
     /// Validates a data package before import
     /// - Parameter packageURL: URL of the package to validate
-    /// - Returns: Validation result
+    /// - Returns: Validation result with content description
     func validateDataPackage(at packageURL: URL) async -> DataPackageValidationResult {
         // Start accessing security-scoped resource (needed for package bundles)
         let accessing = packageURL.startAccessingSecurityScopedResource()
@@ -174,7 +174,7 @@ class DataPackageManager: ObservableObject {
 
             // Try to read and validate Info.plist
             let infoData = try Data(contentsOf: infoPlistURL)
-            let _ = try PropertyListDecoder().decode(DataPackageInfo.self, from: infoData)
+            let packageInfo = try PropertyListDecoder().decode(DataPackageInfo.self, from: infoData)
 
             // Check available disk space
             if let diskSpace = try FileManager.default.attributesOfFileSystem(forPath: packageURL.path)[.systemFreeSize] as? Int64 {
@@ -184,7 +184,15 @@ class DataPackageManager: ObservableObject {
                 }
             }
 
-            return .valid
+            // Detect what data is in the package by checking the database
+            let databaseURL = contentsURL.appendingPathComponent("Database/saaq_data.sqlite")
+            guard FileManager.default.fileExists(atPath: databaseURL.path) else {
+                return .missingFiles
+            }
+
+            let content = try detectPackageContent(at: databaseURL, packageInfo: packageInfo)
+
+            return .valid(content)
 
         } catch {
             logger.error("Package validation failed: \(error.localizedDescription, privacy: .public)")
@@ -192,17 +200,73 @@ class DataPackageManager: ObservableObject {
         }
     }
 
-    /// Imports a data package, replacing current data
-    /// - Parameter packageURL: URL of the package to import
-    func importDataPackage(from packageURL: URL) async throws {
+    /// Detects what data tables are present in the package database
+    private func detectPackageContent(at databaseURL: URL, packageInfo: DataPackageInfo) throws -> DataPackageContent {
+        var db: OpaquePointer?
+
+        guard sqlite3_open(databaseURL.path, &db) == SQLITE_OK else {
+            throw DataPackageError.validationFailed(.corruptedData)
+        }
+
+        defer {
+            sqlite3_close(db)
+        }
+
+        // Check for vehicles table and count
+        var vehicleCount = 0
+        let vehicleQuery = "SELECT COUNT(*) FROM vehicles;"
+        var vehicleStmt: OpaquePointer?
+
+        if sqlite3_prepare_v2(db, vehicleQuery, -1, &vehicleStmt, nil) == SQLITE_OK {
+            if sqlite3_step(vehicleStmt) == SQLITE_ROW {
+                vehicleCount = Int(sqlite3_column_int(vehicleStmt, 0))
+            }
+            sqlite3_finalize(vehicleStmt)
+        }
+
+        // Check for licenses table and count
+        var licenseCount = 0
+        let licenseQuery = "SELECT COUNT(*) FROM licenses;"
+        var licenseStmt: OpaquePointer?
+
+        if sqlite3_prepare_v2(db, licenseQuery, -1, &licenseStmt, nil) == SQLITE_OK {
+            if sqlite3_step(licenseStmt) == SQLITE_ROW {
+                licenseCount = Int(sqlite3_column_int(licenseStmt, 0))
+            }
+            sqlite3_finalize(licenseStmt)
+        }
+
+        let content = DataPackageContent(
+            hasVehicleData: vehicleCount > 0,
+            hasLicenseData: licenseCount > 0,
+            vehicleRecordCount: vehicleCount,
+            licenseRecordCount: licenseCount
+        )
+
+        logger.info("Package contains: \(content.description, privacy: .public)")
+        logger.info("Vehicle records: \(vehicleCount), License records: \(licenseCount)")
+
+        return content
+    }
+
+    /// Imports a data package, replacing or merging with current data
+    /// - Parameters:
+    ///   - packageURL: URL of the package to import
+    ///   - mode: Import mode (.replace for fast path, .merge for selective import)
+    func importDataPackage(from packageURL: URL, mode: DataPackageImportMode = .replace) async throws {
         guard !isExporting && !isImporting else {
             throw DataPackageError.importFailed("Another package operation is already in progress")
         }
 
         // Validate package first
         let validationResult = await validateDataPackage(at: packageURL)
-        guard validationResult == .valid else {
+        guard validationResult.isValid, let packageContent = validationResult.content else {
             throw DataPackageError.validationFailed(validationResult)
+        }
+
+        // Check for empty package
+        if packageContent.isEmpty {
+            throw DataPackageError.importFailed("Package contains no data to import")
         }
 
         // Start accessing security-scoped resource (needed for package bundles)
@@ -244,14 +308,32 @@ class DataPackageManager: ObservableObject {
 
             await updateProgress(0.4, "Importing database...")
 
-            // Import database with consistent timestamp
-            try await importDatabase(from: contentsURL.appendingPathComponent("Database"), timestamp: importTimestamp)
+            if mode == .replace {
+                // Fast path: Simple file copy (original behavior)
+                logger.info("Using REPLACE mode (fast path)")
+                try await importDatabaseReplace(
+                    from: contentsURL.appendingPathComponent("Database"),
+                    timestamp: importTimestamp
+                )
+            } else {
+                // Smart path: Selective merge based on content
+                logger.info("Using MERGE mode (selective import)")
+                try await importDatabase(
+                    from: contentsURL.appendingPathComponent("Database"),
+                    timestamp: importTimestamp,
+                    content: packageContent
+                )
+            }
 
             await updateProgress(0.7, "Rebuilding filter cache...")
 
             // Rebuild filter cache from enumeration tables in the imported database
             if let filterCacheManager = databaseManager.filterCacheManager {
                 logger.info("Rebuilding filter cache from imported database")
+
+                // CRITICAL: Invalidate cache first to allow reinitialization
+                filterCacheManager.invalidateCache()
+
                 try await filterCacheManager.initializeCache()
             } else {
                 logger.warning("FilterCacheManager not available, cache will be rebuilt on next app launch")
@@ -265,6 +347,7 @@ class DataPackageManager: ObservableObject {
             await updateProgress(1.0, "Import completed successfully")
 
             logger.notice("Data package imported successfully from: \(packageURL.path, privacy: .public)")
+            logger.info("Imported: \(packageContent.description, privacy: .public)")
 
         } catch {
             logger.error("Import failed: \(error.localizedDescription, privacy: .public)")
@@ -459,7 +542,11 @@ class DataPackageManager: ObservableObject {
         logger.info("Creating data backup (not yet implemented)")
     }
 
-    private func importDatabase(from databasePath: URL, timestamp: Date) async throws {
+    /// Imports database using simple file replacement (fast path for complete backups)
+    /// - Parameters:
+    ///   - databasePath: Path to the Database folder in the package
+    ///   - timestamp: Import timestamp for version consistency
+    private func importDatabaseReplace(from databasePath: URL, timestamp: Date) async throws {
         let sourceURL = databasePath.appendingPathComponent("saaq_data.sqlite")
 
         guard FileManager.default.fileExists(atPath: sourceURL.path) else {
@@ -473,12 +560,77 @@ class DataPackageManager: ObservableObject {
         // Close current database connection
         await databaseManager.closeDatabaseConnection()
 
-        // Replace database file
+        // Replace database file (original fast behavior)
         if FileManager.default.fileExists(atPath: currentDBURL.path) {
             try FileManager.default.removeItem(at: currentDBURL)
         }
 
         try FileManager.default.copyItem(at: sourceURL, to: currentDBURL)
+
+        // Update the modification date of the imported database to the consistent timestamp
+        let attributes = [FileAttributeKey.modificationDate: timestamp]
+        try FileManager.default.setAttributes(attributes, ofItemAtPath: currentDBURL.path)
+
+        // Reconnect to database
+        await databaseManager.reconnectDatabase()
+
+        logger.notice("Database replaced successfully (fast path)")
+    }
+
+    /// Imports database tables selectively, merging with or replacing existing data
+    /// - Parameters:
+    ///   - databasePath: Path to the Database folder in the package
+    ///   - timestamp: Import timestamp for version consistency
+    ///   - content: Description of what data the package contains
+    private func importDatabase(from databasePath: URL, timestamp: Date, content: DataPackageContent) async throws {
+        let sourceURL = databasePath.appendingPathComponent("saaq_data.sqlite")
+
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            throw DataPackageError.importFailed("Database file not found in package")
+        }
+
+        guard let currentDBURL = databaseManager.databaseURL else {
+            throw DataPackageError.importFailed("No current database location configured")
+        }
+
+        // Check if current database exists and has data to preserve
+        let currentDatabaseExists = FileManager.default.fileExists(atPath: currentDBURL.path)
+        var preserveVehicleData = false
+        var preserveLicenseData = false
+
+        if currentDatabaseExists {
+            // Detect what data exists in current database
+            let currentContent = try detectCurrentDatabaseContent()
+            preserveVehicleData = currentContent.hasVehicleData && !content.hasVehicleData
+            preserveLicenseData = currentContent.hasLicenseData && !content.hasLicenseData
+
+            logger.info("Current database contains: \(currentContent.description, privacy: .public)")
+            logger.info("Preserve vehicle data: \(preserveVehicleData), Preserve license data: \(preserveLicenseData)")
+        }
+
+        // Close current database connection
+        await databaseManager.closeDatabaseConnection()
+
+        if preserveVehicleData || preserveLicenseData {
+            // Selective merge: Import only the tables in the package, preserve others
+            logger.info("Performing selective import (preserving existing data)")
+            try await mergeDatabase(
+                source: sourceURL,
+                destination: currentDBURL,
+                importContent: content,
+                preserveVehicle: preserveVehicleData,
+                preserveLicense: preserveLicenseData
+            )
+        } else {
+            // Full replace: Package contains all the data we need
+            logger.info("Performing full database replace")
+
+            if FileManager.default.fileExists(atPath: currentDBURL.path) {
+                try FileManager.default.removeItem(at: currentDBURL)
+            }
+
+            try FileManager.default.copyItem(at: sourceURL, to: currentDBURL)
+        }
 
         // Update the modification date of the imported database to the consistent timestamp
         // This ensures the database version (based on mod date) matches the cache version
@@ -489,6 +641,227 @@ class DataPackageManager: ObservableObject {
         await databaseManager.reconnectDatabase()
 
         logger.notice("Database imported and connection restored")
+    }
+
+    /// Detects what data tables are present in the current database
+    private func detectCurrentDatabaseContent() throws -> DataPackageContent {
+        guard let currentDBURL = databaseManager.databaseURL else {
+            throw DataPackageError.importFailed("No current database location configured")
+        }
+
+        guard FileManager.default.fileExists(atPath: currentDBURL.path) else {
+            // No current database, nothing to preserve
+            return DataPackageContent(hasVehicleData: false, hasLicenseData: false,
+                                     vehicleRecordCount: 0, licenseRecordCount: 0)
+        }
+
+        var db: OpaquePointer?
+
+        guard sqlite3_open(currentDBURL.path, &db) == SQLITE_OK else {
+            throw DataPackageError.importFailed("Could not open current database")
+        }
+
+        defer {
+            sqlite3_close(db)
+        }
+
+        // Check for vehicles table and count
+        var vehicleCount = 0
+        let vehicleQuery = "SELECT COUNT(*) FROM vehicles;"
+        var vehicleStmt: OpaquePointer?
+
+        if sqlite3_prepare_v2(db, vehicleQuery, -1, &vehicleStmt, nil) == SQLITE_OK {
+            if sqlite3_step(vehicleStmt) == SQLITE_ROW {
+                vehicleCount = Int(sqlite3_column_int(vehicleStmt, 0))
+            }
+            sqlite3_finalize(vehicleStmt)
+        }
+
+        // Check for licenses table and count
+        var licenseCount = 0
+        let licenseQuery = "SELECT COUNT(*) FROM licenses;"
+        var licenseStmt: OpaquePointer?
+
+        if sqlite3_prepare_v2(db, licenseQuery, -1, &licenseStmt, nil) == SQLITE_OK {
+            if sqlite3_step(licenseStmt) == SQLITE_ROW {
+                licenseCount = Int(sqlite3_column_int(licenseStmt, 0))
+            }
+            sqlite3_finalize(licenseStmt)
+        }
+
+        return DataPackageContent(
+            hasVehicleData: vehicleCount > 0,
+            hasLicenseData: licenseCount > 0,
+            vehicleRecordCount: vehicleCount,
+            licenseRecordCount: licenseCount
+        )
+    }
+
+    /// Merges database tables from source into destination, preserving specified data
+    private func mergeDatabase(
+        source: URL,
+        destination: URL,
+        importContent: DataPackageContent,
+        preserveVehicle: Bool,
+        preserveLicense: Bool
+    ) async throws {
+        // Create a temporary database to work with
+        let tempURL = destination.deletingLastPathComponent().appendingPathComponent("temp_import.sqlite")
+
+        // Copy source to temp location
+        if FileManager.default.fileExists(atPath: tempURL.path) {
+            try FileManager.default.removeItem(at: tempURL)
+        }
+        try FileManager.default.copyItem(at: source, to: tempURL)
+
+        // If we need to preserve data, we'll copy it from the current database into the temp one
+        if preserveVehicle || preserveLicense {
+            try await copyTablesFromCurrent(
+                currentDB: destination,
+                targetDB: tempURL,
+                copyVehicles: preserveVehicle,
+                copyLicenses: preserveLicense
+            )
+        }
+
+        // Replace current database with the merged temp database
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+
+        try FileManager.default.moveItem(at: tempURL, to: destination)
+
+        logger.info("Database merge completed successfully")
+    }
+
+    /// Copies specified tables from current database into target database
+    private func copyTablesFromCurrent(
+        currentDB: URL,
+        targetDB: URL,
+        copyVehicles: Bool,
+        copyLicenses: Bool
+    ) async throws {
+        // Open both databases
+        var sourceDb: OpaquePointer?
+        var targetDb: OpaquePointer?
+
+        guard sqlite3_open(currentDB.path, &sourceDb) == SQLITE_OK else {
+            throw DataPackageError.importFailed("Could not open current database for copying")
+        }
+
+        defer { sqlite3_close(sourceDb) }
+
+        guard sqlite3_open(targetDB.path, &targetDb) == SQLITE_OK else {
+            throw DataPackageError.importFailed("Could not open target database for copying")
+        }
+
+        defer { sqlite3_close(targetDb) }
+
+        // Attach the source database to the target
+        let attachSQL = "ATTACH DATABASE '\(currentDB.path)' AS current_db;"
+        var attachError: UnsafeMutablePointer<Int8>?
+
+        if sqlite3_exec(targetDb, attachSQL, nil, nil, &attachError) != SQLITE_OK {
+            if let error = attachError {
+                let errorMsg = String(cString: error)
+                sqlite3_free(error)
+                throw DataPackageError.importFailed("Could not attach database: \(errorMsg)")
+            }
+        }
+
+        // Copy vehicle-related data if needed
+        if copyVehicles {
+            logger.info("Copying vehicle data from current database")
+
+            // Clear any existing vehicle data in target
+            _ = sqlite3_exec(targetDb, "DELETE FROM vehicles;", nil, nil, nil)
+            _ = sqlite3_exec(targetDb, "DELETE FROM canonical_hierarchy_cache;", nil, nil, nil)
+
+            // Copy vehicles table
+            let copyVehiclesSQL = "INSERT INTO vehicles SELECT * FROM current_db.vehicles;"
+            var vehicleError: UnsafeMutablePointer<Int8>?
+            if sqlite3_exec(targetDb, copyVehiclesSQL, nil, nil, &vehicleError) != SQLITE_OK {
+                if let error = vehicleError {
+                    let errorMsg = String(cString: error)
+                    sqlite3_free(error)
+                    throw DataPackageError.importFailed("Could not copy vehicles: \(errorMsg)")
+                }
+            }
+
+            // Copy canonical hierarchy cache
+            let copyCacheSQL = "INSERT INTO canonical_hierarchy_cache SELECT * FROM current_db.canonical_hierarchy_cache;"
+            _ = sqlite3_exec(targetDb, copyCacheSQL, nil, nil, nil)  // Don't fail if cache is empty
+
+            // Merge vehicle-related enumeration tables
+            try mergeEnumerationTables(sourceDb: sourceDb, targetDb: targetDb, vehicleOnly: true)
+
+            logger.info("Vehicle data copied successfully")
+        }
+
+        // Copy license-related data if needed
+        if copyLicenses {
+            logger.info("Copying license data from current database")
+
+            // Clear any existing license data in target
+            _ = sqlite3_exec(targetDb, "DELETE FROM licenses;", nil, nil, nil)
+
+            // Copy licenses table
+            let copyLicensesSQL = "INSERT INTO licenses SELECT * FROM current_db.licenses;"
+            var licenseError: UnsafeMutablePointer<Int8>?
+            if sqlite3_exec(targetDb, copyLicensesSQL, nil, nil, &licenseError) != SQLITE_OK {
+                if let error = licenseError {
+                    let errorMsg = String(cString: error)
+                    sqlite3_free(error)
+                    throw DataPackageError.importFailed("Could not copy licenses: \(errorMsg)")
+                }
+            }
+
+            // Merge license-related enumeration tables
+            try mergeEnumerationTables(sourceDb: sourceDb, targetDb: targetDb, vehicleOnly: false)
+
+            logger.info("License data copied successfully")
+        }
+
+        // Detach the source database
+        _ = sqlite3_exec(targetDb, "DETACH DATABASE current_db;", nil, nil, nil)
+    }
+
+    /// Merges enumeration tables from source database, handling conflicts
+    private func mergeEnumerationTables(
+        sourceDb: OpaquePointer?,
+        targetDb: OpaquePointer?,
+        vehicleOnly: Bool
+    ) throws {
+        // Enumeration tables to merge based on data type
+        let sharedTables = ["year_enum", "admin_region_enum", "mrc_enum", "municipality_enum"]
+
+        let vehicleTables = [
+            "vehicle_class_enum", "vehicle_type_enum", "make_enum", "model_enum",
+            "fuel_type_enum", "color_enum", "cylinder_count_enum", "axle_count_enum", "model_year_enum"
+        ]
+
+        let licenseTables = [
+            "license_type_enum", "age_group_enum", "gender_enum", "experience_level_enum"
+        ]
+
+        let tablesToMerge = sharedTables + (vehicleOnly ? vehicleTables : licenseTables)
+
+        for table in tablesToMerge {
+            // Use INSERT OR IGNORE to merge without conflicts (keeps target's existing IDs)
+            let mergeSQL = "INSERT OR IGNORE INTO \(table) SELECT * FROM current_db.\(table);"
+            var mergeError: UnsafeMutablePointer<Int8>?
+
+            if sqlite3_exec(targetDb, mergeSQL, nil, nil, &mergeError) != SQLITE_OK {
+                if let error = mergeError {
+                    let errorMsg = String(cString: error)
+                    sqlite3_free(error)
+                    logger.warning("Could not merge table \(table, privacy: .public): \(errorMsg, privacy: .public)")
+                    // Don't throw - enumeration merge failures are non-fatal
+                }
+            }
+        }
+
+        logger.info("Enumeration tables merged successfully")
     }
 
 

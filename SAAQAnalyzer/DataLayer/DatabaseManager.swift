@@ -901,7 +901,7 @@ class DatabaseManager: ObservableObject {
             // License indexes - non-categorical columns only
             "CREATE INDEX IF NOT EXISTS idx_licenses_year ON licenses(year);",
             "CREATE INDEX IF NOT EXISTS idx_licenses_probationary ON licenses(is_probationary);",
-            "CREATE INDEX IF NOT EXISTS idx_licenses_experience_distinct ON licenses(experience_global);",
+            "CREATE INDEX IF NOT EXISTS idx_licenses_experience_distinct ON licenses(experience_global_id);",
 
             // Geographic indexes
             "CREATE INDEX IF NOT EXISTS idx_geographic_type ON geographic_entities(type);",
@@ -4281,27 +4281,7 @@ class DatabaseManager: ObservableObject {
 
                 var municipalities: [String] = []
 
-                // Try geographic_entities first - return codes for filtering
-                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
-                    while sqlite3_step(stmt) == SQLITE_ROW {
-                        if let codePtr = sqlite3_column_text(stmt, 0) {
-                            municipalities.append(String(cString: codePtr))
-                        }
-                    }
-
-                    // If we found municipalities in geographic_entities, use those codes
-                    if !municipalities.isEmpty {
-                        continuation.resume(returning: municipalities)
-                        return
-                    }
-                }
-
-                // Fall back to raw geo_code values from vehicles table
-                sqlite3_finalize(stmt)
-                stmt = nil
-
-                query = "SELECT DISTINCT geo_code FROM vehicles ORDER BY geo_code"
-
+                // Get municipalities from geographic_entities table
                 if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
                     while sqlite3_step(stmt) == SQLITE_ROW {
                         if let codePtr = sqlite3_column_text(stmt, 0) {
