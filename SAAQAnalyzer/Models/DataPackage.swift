@@ -123,9 +123,59 @@ struct DataPackageExportOptions: Sendable {
     )
 }
 
+/// Import mode for data packages
+enum DataPackageImportMode: String, CaseIterable, Sendable {
+    case replace = "Replace Database"
+    case merge = "Merge Data"
+
+    var description: String {
+        switch self {
+        case .replace:
+            return "Replace entire database (fast - recommended for backups)"
+        case .merge:
+            return "Merge data selectively (preserves data not in package)"
+        }
+    }
+}
+
+/// Package content description - what data is included
+struct DataPackageContent: Sendable {
+    let hasVehicleData: Bool
+    let hasLicenseData: Bool
+    let vehicleRecordCount: Int
+    let licenseRecordCount: Int
+
+    var isEmpty: Bool {
+        return !hasVehicleData && !hasLicenseData
+    }
+
+    var description: String {
+        if hasVehicleData && hasLicenseData {
+            return "Vehicle and License data"
+        } else if hasVehicleData {
+            return "Vehicle data only"
+        } else if hasLicenseData {
+            return "License data only"
+        } else {
+            return "No data"
+        }
+    }
+
+    var detailedDescription: String {
+        var parts: [String] = []
+        if hasVehicleData {
+            parts.append("\(vehicleRecordCount.formatted()) vehicle records")
+        }
+        if hasLicenseData {
+            parts.append("\(licenseRecordCount.formatted()) license records")
+        }
+        return parts.isEmpty ? "No data" : parts.joined(separator: " + ")
+    }
+}
+
 /// Validation result for data package import
 enum DataPackageValidationResult: Sendable {
-    case valid
+    case valid(DataPackageContent)
     case invalidFormat
     case incompatibleVersion
     case corruptedData
@@ -147,6 +197,20 @@ enum DataPackageValidationResult: Sendable {
         case .insufficientDiskSpace:
             return "Insufficient disk space to import this package. Please free up disk space and try again."
         }
+    }
+
+    var isValid: Bool {
+        if case .valid = self {
+            return true
+        }
+        return false
+    }
+
+    var content: DataPackageContent? {
+        if case .valid(let content) = self {
+            return content
+        }
+        return nil
     }
 }
 
