@@ -4279,7 +4279,7 @@ class DatabaseManager: ObservableObject {
                 }
 
                 // First try getting municipalities from geographic_entities table (code and name)
-                var query = """
+                let query = """
                     SELECT code, name
                     FROM geographic_entities
                     WHERE type = 'municipality'
