@@ -826,18 +826,16 @@ class DatabaseManager: ObservableObject {
                 has_driver_license_8 INTEGER NOT NULL DEFAULT 0,
                 is_probationary INTEGER NOT NULL DEFAULT 0,
 
-                -- Experience columns
-                experience_1234 TEXT,
-                experience_5 TEXT,
-                experience_6abce TEXT,
-                experience_global TEXT,
-
                 -- Integer foreign key columns (TINYINT 1-byte)
                 year_id INTEGER,
                 age_group_id INTEGER,
                 gender_id INTEGER,
                 admin_region_id INTEGER,
                 license_type_id INTEGER,
+                experience_1234_id INTEGER,
+                experience_5_id INTEGER,
+                experience_6abce_id INTEGER,
+                experience_global_id INTEGER,
 
                 -- Integer foreign key columns (SMALLINT 2-byte)
                 mrc_id INTEGER,
@@ -1007,6 +1005,8 @@ class DatabaseManager: ObservableObject {
             "CREATE TABLE IF NOT EXISTS gender_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE NOT NULL, description TEXT);",
             // License type enumeration
             "CREATE TABLE IF NOT EXISTS license_type_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, type_name TEXT UNIQUE NOT NULL, description TEXT);",
+            // Experience level enumeration
+            "CREATE TABLE IF NOT EXISTS experience_level_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, level_text TEXT UNIQUE NOT NULL);",
             // Make enumeration
             "CREATE TABLE IF NOT EXISTS make_enum (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL);",
             // Model enumeration (requires make_id foreign key)
@@ -3577,9 +3577,9 @@ class DatabaseManager: ObservableObject {
         }
     }
 
-    /// Gets available experience levels from database
+    /// Gets available experience levels from database enumeration table
     func getAvailableExperienceLevels() async -> [String] {
-        print("⚠️ Experience levels cache miss, falling back to database query")
+        print("⚠️ Experience levels cache miss, falling back to enumeration table query")
 
         return await withCheckedContinuation { continuation in
             dbQueue.async { [weak self] in
@@ -3589,7 +3589,7 @@ class DatabaseManager: ObservableObject {
                 }
 
                 var levels: [String] = []
-                let query = "SELECT DISTINCT experience_global FROM licenses WHERE experience_global IS NOT NULL AND experience_global != '' ORDER BY experience_global"
+                let query = "SELECT level_text FROM experience_level_enum ORDER BY level_text"
                 var stmt: OpaquePointer?
 
                 if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
@@ -3598,6 +3598,9 @@ class DatabaseManager: ObservableObject {
                             levels.append(String(cString: levelPtr))
                         }
                     }
+                } else {
+                    let error = String(cString: sqlite3_errmsg(db))
+                    print("❌ Failed to query experience_level_enum: \(error)")
                 }
                 sqlite3_finalize(stmt)
                 continuation.resume(returning: levels)
@@ -3661,7 +3664,7 @@ class DatabaseManager: ObservableObject {
     }
 
     /// Maps UI display name to database column name
-    private func getDatabaseColumn(for displayName: String) -> String? {
+    func getDatabaseColumn(for displayName: String) -> String? {
         return getLicenseClassMapping().first { $0.displayName == displayName }?.column
     }
 
@@ -4984,8 +4987,8 @@ class DatabaseManager: ObservableObject {
                         has_learner_permit_123, has_learner_permit_5, has_learner_permit_6a6r,
                         has_driver_license_1234, has_driver_license_5, has_driver_license_6abce,
                         has_driver_license_6d, has_driver_license_8, is_probationary,
-                        experience_1234, experience_5, experience_6abce, experience_global,
-                        year_id, age_group_id, gender_id, admin_region_id, mrc_id, license_type_id
+                        year_id, age_group_id, gender_id, admin_region_id, mrc_id, license_type_id,
+                        experience_1234_id, experience_5_id, experience_6abce_id, experience_global_id
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """
 
@@ -5017,6 +5020,7 @@ class DatabaseManager: ObservableObject {
                 var adminRegionEnumCache: [String: Int] = [:]
                 var mrcEnumCache: [String: Int] = [:]
                 var licenseTypeEnumCache: [String: Int] = [:]
+                var experienceLevelEnumCache: [String: Int] = [:]
 
                 // Helper to load string enum cache
                 func loadEnumCache(table: String, keyColumn: String, cache: inout [String: Int]) {
@@ -5052,6 +5056,7 @@ class DatabaseManager: ObservableObject {
                 loadEnumCache(table: "admin_region_enum", keyColumn: "code", cache: &adminRegionEnumCache)
                 loadEnumCache(table: "mrc_enum", keyColumn: "code", cache: &mrcEnumCache)
                 loadEnumCache(table: "license_type_enum", keyColumn: "type_name", cache: &licenseTypeEnumCache)
+                loadEnumCache(table: "experience_level_enum", keyColumn: "level_text", cache: &experienceLevelEnumCache)
 
                 // Helper to get or create string enum ID
                 func getOrCreateEnumId(table: String, column: String, value: String, cache: inout [String: Int]) -> Int? {
@@ -5183,42 +5188,60 @@ class DatabaseManager: ObservableObject {
                     sqlite3_bind_int(stmt, 10, (record["IND_PERMISCONDUIRE_8"] == "OUI") ? 1 : 0)
                     sqlite3_bind_int(stmt, 11, (record["IND_PROBATOIRE"] == "OUI") ? 1 : 0)
 
-                    // Bind experience fields (text strings)
-                    importer.bindTextToStatement(stmt, 12, record["EXPERIENCE_1234"])
-                    importer.bindTextToStatement(stmt, 13, record["EXPERIENCE_5"])
-                    importer.bindTextToStatement(stmt, 14, record["EXPERIENCE_6ABCE"])
-                    importer.bindTextToStatement(stmt, 15, record["EXPERIENCE_GLOBALE"])
-
                     // year_id
                     if let yearId = getOrCreateIntEnumId(table: "year_enum", column: "year", value: year, cache: &yearEnumCache) {
-                        sqlite3_bind_int(stmt, 16, Int32(yearId))
-                    } else { sqlite3_bind_null(stmt, 16) }
+                        sqlite3_bind_int(stmt, 12, Int32(yearId))
+                    } else { sqlite3_bind_null(stmt, 12) }
 
                     // age_group_id
                     if !ageGroup.isEmpty, let ageId = getOrCreateEnumId(table: "age_group_enum", column: "range_text", value: ageGroup, cache: &ageGroupEnumCache) {
-                        sqlite3_bind_int(stmt, 17, Int32(ageId))
-                    } else { sqlite3_bind_null(stmt, 17) }
+                        sqlite3_bind_int(stmt, 13, Int32(ageId))
+                    } else { sqlite3_bind_null(stmt, 13) }
 
                     // gender_id
                     if !gender.isEmpty, let genderId = getOrCreateEnumId(table: "gender_enum", column: "code", value: gender, cache: &genderEnumCache) {
-                        sqlite3_bind_int(stmt, 18, Int32(genderId))
-                    } else { sqlite3_bind_null(stmt, 18) }
+                        sqlite3_bind_int(stmt, 14, Int32(genderId))
+                    } else { sqlite3_bind_null(stmt, 14) }
 
                     // admin_region_id - extract name and code from "Region Name (08)" format
                     if let (regionName, regionCode) = extractNameAndCode(from: rawAdminRegion),
                        let regionId = getOrCreateGeoEnumId(table: "admin_region_enum", name: regionName, code: regionCode, cache: &adminRegionEnumCache) {
-                        sqlite3_bind_int(stmt, 19, Int32(regionId))
-                    } else { sqlite3_bind_null(stmt, 19) }
+                        sqlite3_bind_int(stmt, 15, Int32(regionId))
+                    } else { sqlite3_bind_null(stmt, 15) }
 
                     // mrc_id - extract name and code from "MRC Name (66)" format
                     if let (mrcName, mrcCode) = extractNameAndCode(from: rawMrc),
                        let mrcId = getOrCreateGeoEnumId(table: "mrc_enum", name: mrcName, code: mrcCode, cache: &mrcEnumCache) {
-                        sqlite3_bind_int(stmt, 20, Int32(mrcId))
-                    } else { sqlite3_bind_null(stmt, 20) }
+                        sqlite3_bind_int(stmt, 16, Int32(mrcId))
+                    } else { sqlite3_bind_null(stmt, 16) }
 
                     // license_type_id
                     if !licenseType.isEmpty, let typeId = getOrCreateEnumId(table: "license_type_enum", column: "type_name", value: licenseType, cache: &licenseTypeEnumCache) {
-                        sqlite3_bind_int(stmt, 21, Int32(typeId))
+                        sqlite3_bind_int(stmt, 17, Int32(typeId))
+                    } else { sqlite3_bind_null(stmt, 17) }
+
+                    // experience_1234_id
+                    if let exp = record["EXPERIENCE_1234"], !exp.isEmpty,
+                       let expId = getOrCreateEnumId(table: "experience_level_enum", column: "level_text", value: exp, cache: &experienceLevelEnumCache) {
+                        sqlite3_bind_int(stmt, 18, Int32(expId))
+                    } else { sqlite3_bind_null(stmt, 18) }
+
+                    // experience_5_id
+                    if let exp = record["EXPERIENCE_5"], !exp.isEmpty,
+                       let expId = getOrCreateEnumId(table: "experience_level_enum", column: "level_text", value: exp, cache: &experienceLevelEnumCache) {
+                        sqlite3_bind_int(stmt, 19, Int32(expId))
+                    } else { sqlite3_bind_null(stmt, 19) }
+
+                    // experience_6abce_id
+                    if let exp = record["EXPERIENCE_6ABCE"], !exp.isEmpty,
+                       let expId = getOrCreateEnumId(table: "experience_level_enum", column: "level_text", value: exp, cache: &experienceLevelEnumCache) {
+                        sqlite3_bind_int(stmt, 20, Int32(expId))
+                    } else { sqlite3_bind_null(stmt, 20) }
+
+                    // experience_global_id
+                    if let exp = record["EXPERIENCE_GLOBALE"], !exp.isEmpty,
+                       let expId = getOrCreateEnumId(table: "experience_level_enum", column: "level_text", value: exp, cache: &experienceLevelEnumCache) {
+                        sqlite3_bind_int(stmt, 21, Int32(expId))
                     } else { sqlite3_bind_null(stmt, 21) }
 
                     // Execute insert

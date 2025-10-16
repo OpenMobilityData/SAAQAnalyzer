@@ -21,6 +21,7 @@ class FilterCacheManager {
     private var cachedLicenseTypes: [FilterItem] = []
     private var cachedAgeGroups: [FilterItem] = []
     private var cachedGenders: [FilterItem] = []
+    private var cachedExperienceLevels: [FilterItem] = []
 
     private var isInitialized = false
 
@@ -83,6 +84,7 @@ class FilterCacheManager {
             try await loadLicenseTypes()
             try await loadAgeGroups()
             try await loadGenders()
+            try await loadExperienceLevels()
             print("✅ Loaded license-specific enum caches")
         }
 
@@ -450,6 +452,11 @@ class FilterCacheManager {
         cachedGenders = try await executeFilterItemQuery(sql)
     }
 
+    private func loadExperienceLevels() async throws {
+        let sql = "SELECT id, level_text FROM experience_level_enum ORDER BY level_text;"
+        cachedExperienceLevels = try await executeFilterItemQuery(sql)
+    }
+
     // MARK: - Public Access Methods
 
     func getAvailableYears() async throws -> [Int] {
@@ -555,6 +562,11 @@ class FilterCacheManager {
         return cachedGenders
     }
 
+    func getAvailableExperienceLevels() async throws -> [FilterItem] {
+        if !isInitialized { try await initializeCache() }
+        return cachedExperienceLevels
+    }
+
     // MARK: - Hierarchical Filtering Helper
 
     /// Filters models by their associated makes
@@ -635,6 +647,7 @@ class FilterCacheManager {
         cachedLicenseTypes.removeAll()
         cachedAgeGroups.removeAll()
         cachedGenders.removeAll()
+        cachedExperienceLevels.removeAll()
         regularizationInfo.removeAll()
         uncuratedPairs.removeAll()
         makeRegularizationInfo.removeAll()

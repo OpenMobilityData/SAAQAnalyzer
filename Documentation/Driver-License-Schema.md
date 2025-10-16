@@ -93,6 +93,19 @@ All experience variables are Alphanumeric, 14 characters length, representing ye
 | **EXPERIENCE_6ABCE** | Years of driving experience with class 6A, 6B, 6C, or 6E vehicles | Simultaneous possession of multiple classes counted only once |
 | **EXPERIENCE_GLOBALE** | Total years of driving experience with any license class | If EXPERIENCE_GLOBALE > EXPERIENCE_5, indicates holder had class 6D before class 5 |
 
+#### Database Implementation Notes
+
+In the SAAQAnalyzer database, experience levels are stored using integer enumeration for performance:
+
+- **Enum Table**: `experience_level_enum` (id INTEGER, level_text TEXT)
+- **Foreign Keys**: Four separate columns in `licenses` table:
+  - `experience_1234_id` → Experience for classes 1-2-3-4
+  - `experience_5_id` → Experience for class 5
+  - `experience_6abce_id` → Experience for classes 6A-6B-6C-6E
+  - `experience_global_id` → Global experience level
+
+This design preserves the granularity that a person can have different experience levels for different license classes. Queries use OR logic across all 4 columns to match any experience level.
+
 ## License Classes Reference
 
 ### Heavy Vehicles

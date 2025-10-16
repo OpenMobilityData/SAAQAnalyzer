@@ -18,6 +18,7 @@ struct OptimizedFilterIds: Sendable {
     let licenseTypeIds: [Int]
     let ageGroupIds: [Int]
     let genderIds: [Int]
+    let experienceLevelIds: [Int]
 }
 
 /// Simplified high-performance query manager using categorical enumeration
@@ -95,6 +96,7 @@ class OptimizedQueryManager {
         var licenseTypeIds: [Int] = []
         var ageGroupIds: [Int] = []
         var genderIds: [Int] = []
+        var experienceLevelIds: [Int] = []
 
         // Convert years to IDs
         // If limiting to curated years, intersect with curated years set
@@ -281,6 +283,12 @@ class OptimizedQueryManager {
                     genderIds.append(id)
                 }
             }
+
+            for experienceLevel in filters.experienceLevels {
+                if let id = try await enumManager.getEnumId(table: "experience_level_enum", column: "level_text", value: experienceLevel) {
+                    experienceLevelIds.append(id)
+                }
+            }
         }
 
         // Debug summary
@@ -301,6 +309,7 @@ class OptimizedQueryManager {
             print("   License Types: \(licenseTypeIds.count) -> \(licenseTypeIds)")
             print("   Age Groups: \(ageGroupIds.count) -> \(ageGroupIds)")
             print("   Genders: \(genderIds.count) -> \(genderIds)")
+            print("   Experience Levels: \(experienceLevelIds.count) -> \(experienceLevelIds)")
         }
 
         return OptimizedFilterIds(
@@ -317,7 +326,8 @@ class OptimizedQueryManager {
             fuelTypeIds: fuelTypeIds,
             licenseTypeIds: licenseTypeIds,
             ageGroupIds: ageGroupIds,
-            genderIds: genderIds
+            genderIds: genderIds,
+            experienceLevelIds: experienceLevelIds
         )
     }
 
@@ -829,6 +839,39 @@ class OptimizedQueryManager {
                     for id in filterIds.genderIds {
                         bindValues.append((bindIndex, id))
                         bindIndex += 1
+                    }
+                }
+
+                // Experience level filter - check ALL 4 experience columns (one per license class)
+                // A person can have different experience levels for different license classes
+                if !filterIds.experienceLevelIds.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filterIds.experienceLevelIds.count).joined(separator: ",")
+                    // Match if ANY of the 4 experience columns contains one of the selected experience levels
+                    whereClause += " AND (experience_1234_id IN (\(placeholders)) OR experience_5_id IN (\(placeholders)) OR experience_6abce_id IN (\(placeholders)) OR experience_global_id IN (\(placeholders)))"
+                    // Bind the same IDs 4 times (once for each column)
+                    for _ in 0..<4 {
+                        for id in filterIds.experienceLevelIds {
+                            bindValues.append((bindIndex, id))
+                            bindIndex += 1
+                        }
+                    }
+                }
+
+                // License class filter using boolean columns (has_driver_license_*, has_learner_permit_*, is_probationary)
+                // A person can hold multiple license classes simultaneously, so use OR logic across boolean flags
+                if !filters.licenseClasses.isEmpty {
+                    var classConditions: [String] = []
+
+                    for licenseClass in filters.licenseClasses {
+                        if let column = self.databaseManager?.getDatabaseColumn(for: licenseClass) {
+                            classConditions.append("l.\(column) = 1")
+                        } else {
+                            print("⚠️ Warning: Unmapped license class filter '\(licenseClass)'")
+                        }
+                    }
+
+                    if !classConditions.isEmpty {
+                        whereClause += " AND (\(classConditions.joined(separator: " OR ")))"
                     }
                 }
 
