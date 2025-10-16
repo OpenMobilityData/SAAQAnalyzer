@@ -533,18 +533,25 @@ class CSVImporter {
 
         var fileContent: String?
 
+        // Start accessing security-scoped resource (needed for files outside sandbox)
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
         for encoding in encodings {
             if let content = try? String(contentsOf: url, encoding: encoding) {
-                // Quick check for common French characters
-                if content.contains("é") || content.contains("è") || content.contains("à") {
-                    fileContent = content
-                    break
-                }
+                // Accept first successfully decoded content
+                // (French characters may not always be present in license files)
+                fileContent = content
+                break
             }
         }
 
         guard let content = fileContent else {
-            throw ImportError.encodingError("Unable to read file with proper character encoding")
+            throw ImportError.encodingError("Unable to read file with any encoding")
         }
 
         // Parse CSV content
@@ -732,10 +739,10 @@ class CSVImporter {
         }
 
         // Complete bulk import and rebuild indexes
-        // Skip cache refresh if this is part of a batch import (progressManager.isBatchImport)
+        // Pass dataType so only license caches are refreshed (avoids loading massive vehicle enum tables)
         progressManager?.updateToIndexing()
         let skipCache = progressManager?.isBatchImport ?? false
-        await databaseManager.endBulkImport(progressManager: progressManager, skipCacheRefresh: skipCache)
+        await databaseManager.endBulkImport(progressManager: progressManager, skipCacheRefresh: skipCache, dataType: .license)
 
         // Log import to database
         let status = errorCount > 0 ? "completed_with_errors" : "completed"
@@ -757,102 +764,9 @@ class CSVImporter {
 
     /// Import a batch of license records to database
     private func importLicenseBatch(_ records: [[String: String]], year: Int) async throws -> (success: Int, errors: Int) {
-        return try await withCheckedThrowingContinuation { continuation in
-            databaseManager.dbQueue.async {
-                guard let db = self.databaseManager.db else {
-                    continuation.resume(throwing: ImportError.databaseError("Database not connected"))
-                    return
-                }
-
-                var successCount = 0
-                var errorCount = 0
-
-                // Begin transaction for this batch
-                if sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil) != SQLITE_OK {
-                    continuation.resume(throwing: ImportError.databaseError("Failed to begin transaction"))
-                    return
-                }
-
-                // Prepare insert statement for licenses
-                let insertSQL = """
-                    INSERT INTO licenses (
-                        year, license_sequence, age_group, gender, mrc, admin_region, license_type,
-                        has_learner_permit_123, has_learner_permit_5, has_learner_permit_6a6r,
-                        has_driver_license_1234, has_driver_license_5, has_driver_license_6abce,
-                        has_driver_license_6d, has_driver_license_8, is_probationary,
-                        experience_1234, experience_5, experience_6abce, experience_global
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """
-
-                var insertStmt: OpaquePointer?
-                if sqlite3_prepare_v2(db, insertSQL, -1, &insertStmt, nil) != SQLITE_OK {
-                    sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
-                    continuation.resume(throwing: ImportError.databaseError("Failed to prepare license insert statement"))
-                    return
-                }
-
-                defer {
-                    sqlite3_finalize(insertStmt)
-                }
-
-                // Process each record in the batch
-                for record in records {
-                    // Reset the statement for reuse
-                    sqlite3_reset(insertStmt)
-
-                    // Bind all the license fields
-                    sqlite3_bind_int(insertStmt, 1, Int32(year))
-                    sqlite3_bind_text(insertStmt, 2, record["NOSEQ_TITUL"] ?? "", -1, SQLITE_TRANSIENT)
-                    sqlite3_bind_text(insertStmt, 3, record["AGE_1ER_JUIN"] ?? "", -1, SQLITE_TRANSIENT)
-                    sqlite3_bind_text(insertStmt, 4, record["SEXE"] ?? "", -1, SQLITE_TRANSIENT)
-                    sqlite3_bind_text(insertStmt, 5, record["MRC"] ?? "", -1, SQLITE_TRANSIENT)
-
-                    // Normalize admin_region format (ensure space before parentheses)
-                    let rawAdminRegion = record["REG_ADM"] ?? ""
-                    let normalizedAdminRegion = self.normalizeAdminRegion(rawAdminRegion)
-                    sqlite3_bind_text(insertStmt, 6, normalizedAdminRegion, -1, SQLITE_TRANSIENT)
-                    sqlite3_bind_text(insertStmt, 7, record["TYPE_PERMIS"] ?? "", -1, SQLITE_TRANSIENT)
-
-                    // Bind boolean fields (convert OUI/NON to 1/0)
-                    sqlite3_bind_int(insertStmt, 8, (record["IND_PERMISAPPRENTI_123"] == "OUI") ? 1 : 0)
-                    sqlite3_bind_int(insertStmt, 9, (record["IND_PERMISAPPRENTI_5"] == "OUI") ? 1 : 0)
-                    sqlite3_bind_int(insertStmt, 10, (record["IND_PERMISAPPRENTI_6A6R"] == "OUI") ? 1 : 0)
-                    sqlite3_bind_int(insertStmt, 11, (record["IND_PERMISCONDUIRE_1234"] == "OUI") ? 1 : 0)
-                    sqlite3_bind_int(insertStmt, 12, (record["IND_PERMISCONDUIRE_5"] == "OUI") ? 1 : 0)
-                    sqlite3_bind_int(insertStmt, 13, (record["IND_PERMISCONDUIRE_6ABCE"] == "OUI") ? 1 : 0)
-                    sqlite3_bind_int(insertStmt, 14, (record["IND_PERMISCONDUIRE_6D"] == "OUI") ? 1 : 0)
-                    sqlite3_bind_int(insertStmt, 15, (record["IND_PERMISCONDUIRE_8"] == "OUI") ? 1 : 0)
-                    sqlite3_bind_int(insertStmt, 16, (record["IND_PROBATOIRE"] == "OUI") ? 1 : 0)
-
-                    // Bind experience fields
-                    sqlite3_bind_text(insertStmt, 17, record["EXPERIENCE_1234"] ?? "", -1, SQLITE_TRANSIENT)
-                    sqlite3_bind_text(insertStmt, 18, record["EXPERIENCE_5"] ?? "", -1, SQLITE_TRANSIENT)
-                    sqlite3_bind_text(insertStmt, 19, record["EXPERIENCE_6ABCE"] ?? "", -1, SQLITE_TRANSIENT)
-                    sqlite3_bind_text(insertStmt, 20, record["EXPERIENCE_GLOBALE"] ?? "", -1, SQLITE_TRANSIENT)
-
-                    // Execute the insert
-                    if sqlite3_step(insertStmt) == SQLITE_DONE {
-                        successCount += 1
-                    } else {
-                        errorCount += 1
-                        #if DEBUG
-                        if let errorMessage = sqlite3_errmsg(db) {
-                            AppLogger.dataImport.error("Error inserting license record: \(String(cString: errorMessage))")
-                        }
-                        #endif
-                    }
-                }
-
-                // Commit transaction
-                if sqlite3_exec(db, "COMMIT", nil, nil, nil) != SQLITE_OK {
-                    sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
-                    continuation.resume(throwing: ImportError.databaseError("Failed to commit transaction"))
-                    return
-                }
-
-                continuation.resume(returning: (success: successCount, errors: errorCount))
-            }
-        }
+        // Delegate to DatabaseManager which handles integer enum foreign keys
+        let result = try await databaseManager.importLicenseBatch(records, year: year, importer: self)
+        return result
     }
 
     /// Normalizes admin_region format to ensure consistency across years

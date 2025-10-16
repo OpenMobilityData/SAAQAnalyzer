@@ -21,6 +21,7 @@ class FilterCacheManager {
     private var cachedLicenseTypes: [FilterItem] = []
     private var cachedAgeGroups: [FilterItem] = []
     private var cachedGenders: [FilterItem] = []
+    private var cachedExperienceLevels: [FilterItem] = []
 
     private var isInitialized = false
 
@@ -47,29 +48,45 @@ class FilterCacheManager {
 
     /// Initialize all filter caches from enumeration tables
     func initializeCache() async throws {
+        try await initializeCache(for: nil)  // Load all caches
+    }
+
+    /// Initialize filter caches for a specific data type only
+    func initializeCache(for dataType: DataEntityType?) async throws {
         guard !isInitialized else { return }
 
         print("🔄 Loading filter cache from enumeration tables...")
 
-        // Load regularization and curation info first (needed for display with badges)
-        try await loadRegularizationInfo()
-        try await loadUncuratedPairs()
-        try await loadMakeRegularizationInfo()
-        try await loadUncuratedMakes()
-
+        // Shared enum tables loaded for all types
         try await loadYears()
         try await loadRegions()
         try await loadMRCs()
         try await loadMunicipalities()
-        try await loadVehicleClasses()
-        try await loadVehicleTypes()
-        try await loadMakes()
-        try await loadModels()
-        try await loadColors()
-        try await loadFuelTypes()
-        try await loadLicenseTypes()
-        try await loadAgeGroups()
-        try await loadGenders()
+
+        // Load type-specific enum tables
+        if dataType == nil || dataType == .vehicle {
+            // Vehicle-specific: expensive regularization queries and large Make/Model tables
+            try await loadRegularizationInfo()
+            try await loadUncuratedPairs()
+            try await loadMakeRegularizationInfo()
+            try await loadUncuratedMakes()
+            try await loadVehicleClasses()
+            try await loadVehicleTypes()
+            try await loadMakes()
+            try await loadModels()
+            try await loadColors()
+            try await loadFuelTypes()
+            print("✅ Loaded vehicle-specific enum caches")
+        }
+
+        if dataType == nil || dataType == .license {
+            // License-specific: lightweight enum tables
+            try await loadLicenseTypes()
+            try await loadAgeGroups()
+            try await loadGenders()
+            try await loadExperienceLevels()
+            print("✅ Loaded license-specific enum caches")
+        }
 
         isInitialized = true
         print("✅ Filter cache initialized with enumeration data")
@@ -302,7 +319,13 @@ class FilterCacheManager {
             if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
                 while sqlite3_step(stmt) == SQLITE_ROW {
                     let makeId = Int(sqlite3_column_int(stmt, 0))
-                    let makeName = String(cString: sqlite3_column_text(stmt, 1))
+
+                    // Safely handle NULL text columns
+                    guard let makeNamePtr = sqlite3_column_text(stmt, 1) else {
+                        print("⚠️ Skipping Make with NULL name (id: \(makeId))")
+                        continue
+                    }
+                    let makeName = String(cString: makeNamePtr)
 
                     // Base display name: just the Make name
                     var displayName = makeName
@@ -356,9 +379,16 @@ class FilterCacheManager {
             if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
                 while sqlite3_step(stmt) == SQLITE_ROW {
                     let modelId = Int(sqlite3_column_int(stmt, 0))
-                    let modelName = String(cString: sqlite3_column_text(stmt, 1))
+
+                    // Safely handle NULL text columns
+                    guard let modelNamePtr = sqlite3_column_text(stmt, 1),
+                          let makeNamePtr = sqlite3_column_text(stmt, 3) else {
+                        print("⚠️ Skipping Model with NULL name (id: \(modelId))")
+                        continue
+                    }
+                    let modelName = String(cString: modelNamePtr)
                     let makeId = Int(sqlite3_column_int(stmt, 2))
-                    let makeName = String(cString: sqlite3_column_text(stmt, 3))
+                    let makeName = String(cString: makeNamePtr)
 
                     // Base display name: "Model (Make)"
                     var displayName = "\(modelName) (\(makeName))"
@@ -418,8 +448,13 @@ class FilterCacheManager {
     }
 
     private func loadGenders() async throws {
-        let sql = "SELECT id, description FROM gender_enum ORDER BY description;"
+        let sql = "SELECT id, code FROM gender_enum ORDER BY code;"
         cachedGenders = try await executeFilterItemQuery(sql)
+    }
+
+    private func loadExperienceLevels() async throws {
+        let sql = "SELECT id, level_text FROM experience_level_enum ORDER BY level_text;"
+        cachedExperienceLevels = try await executeFilterItemQuery(sql)
     }
 
     // MARK: - Public Access Methods
@@ -527,6 +562,11 @@ class FilterCacheManager {
         return cachedGenders
     }
 
+    func getAvailableExperienceLevels() async throws -> [FilterItem] {
+        if !isInitialized { try await initializeCache() }
+        return cachedExperienceLevels
+    }
+
     // MARK: - Hierarchical Filtering Helper
 
     /// Filters models by their associated makes
@@ -573,7 +613,13 @@ class FilterCacheManager {
             if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
                 while sqlite3_step(stmt) == SQLITE_ROW {
                     let id = Int(sqlite3_column_int(stmt, 0))
-                    let displayName = String(cString: sqlite3_column_text(stmt, 1))
+
+                    // Safely handle NULL text columns (can happen with empty enum tables)
+                    guard let textPtr = sqlite3_column_text(stmt, 1) else {
+                        print("⚠️ Skipping row with NULL display name (id: \(id))")
+                        continue
+                    }
+                    let displayName = String(cString: textPtr)
                     results.append(FilterItem(id: id, displayName: displayName))
                 }
                 continuation.resume(returning: results)
@@ -601,6 +647,7 @@ class FilterCacheManager {
         cachedLicenseTypes.removeAll()
         cachedAgeGroups.removeAll()
         cachedGenders.removeAll()
+        cachedExperienceLevels.removeAll()
         regularizationInfo.removeAll()
         uncuratedPairs.removeAll()
         makeRegularizationInfo.removeAll()

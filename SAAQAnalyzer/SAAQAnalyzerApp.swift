@@ -915,8 +915,8 @@ struct ContentView: View {
 
             progressManager.updateIndexingOperation("Refreshing filter cache for all years...")
 
-            // Trigger cache refresh on main database manager
-            await databaseManager.refreshAllCachesAfterBatchImport()
+            // Trigger cache refresh on main database manager (vehicle data type)
+            await databaseManager.refreshAllCachesAfterBatchImport(dataType: .vehicle)
 
             // Complete progress
             progressManager.completeImport(recordsImported: 0) // Records already logged per file
@@ -969,8 +969,8 @@ struct ContentView: View {
 
             progressManager.updateIndexingOperation("Refreshing filter cache for all years...")
 
-            // Trigger cache refresh on main database manager
-            await databaseManager.refreshAllCachesAfterBatchImport()
+            // Trigger cache refresh on main database manager (license data type)
+            await databaseManager.refreshAllCachesAfterBatchImport(dataType: .license)
 
             // Complete progress
             progressManager.completeImport(recordsImported: 0) // Records already logged per file
