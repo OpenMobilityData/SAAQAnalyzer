@@ -66,27 +66,29 @@ struct FilterPanel: View {
             Divider()
 
             // Analytics configuration (Y-Axis Metric)
-            VStack(alignment: .leading, spacing: 16) {
-                // Metric configuration section
-                DisclosureGroup(isExpanded: $metricSectionExpanded) {
-                    MetricConfigurationSection(
-                        metricType: $configuration.metricType,
-                        metricField: $configuration.metricField,
-                        percentageBaseFilters: $configuration.percentageBaseFilters,
-                        coverageField: $configuration.coverageField,
-                        coverageAsPercentage: $configuration.coverageAsPercentage,
-                        roadWearIndexMode: $configuration.roadWearIndexMode,
-                        normalizeToFirstYear: $configuration.normalizeToFirstYear,
-                        showCumulativeSum: $configuration.showCumulativeSum,
-                        currentFilters: configuration
-                    )
-                } label: {
-                    Label("Y-Axis Metric", systemImage: "chart.line.uptrend.xyaxis")
-                        .font(.subheadline)
-                        .symbolRenderingMode(.hierarchical)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Metric configuration section
+                    DisclosureGroup(isExpanded: $metricSectionExpanded) {
+                        MetricConfigurationSection(
+                            metricType: $configuration.metricType,
+                            metricField: $configuration.metricField,
+                            percentageBaseFilters: $configuration.percentageBaseFilters,
+                            coverageField: $configuration.coverageField,
+                            coverageAsPercentage: $configuration.coverageAsPercentage,
+                            roadWearIndexMode: $configuration.roadWearIndexMode,
+                            normalizeToFirstYear: $configuration.normalizeToFirstYear,
+                            showCumulativeSum: $configuration.showCumulativeSum,
+                            currentFilters: configuration
+                        )
+                    } label: {
+                        Label("Y-Axis Metric", systemImage: "chart.line.uptrend.xyaxis")
+                            .font(.subheadline)
+                            .symbolRenderingMode(.hierarchical)
+                    }
                 }
+                .padding()
             }
-            .padding()
             .frame(maxHeight: metricSectionExpanded ? analyticsHeight : nil)
             .clipped()  // Prevent content overflow when dragging divider
             .animation(.easeInOut(duration: 0.2), value: metricSectionExpanded)
