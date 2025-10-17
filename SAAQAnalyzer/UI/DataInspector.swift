@@ -485,13 +485,13 @@ struct SeriesStatisticsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             StatisticRow(label: "Data Points", value: String(statistics.count))
-            StatisticRow(label: "Total", value: formatNumber(statistics.sum))
-            StatisticRow(label: "Mean", value: formatNumber(statistics.mean))
-            StatisticRow(label: "Median", value: formatNumber(statistics.median))
-            StatisticRow(label: "Minimum", value: formatNumber(statistics.min))
-            StatisticRow(label: "Maximum", value: formatNumber(statistics.max))
-            StatisticRow(label: "Range", value: formatNumber(statistics.range))
-            StatisticRow(label: "Std. Deviation", value: formatNumber(statistics.standardDeviation))
+            StatisticRow(label: "Total", value: series.formatValue(statistics.sum))
+            StatisticRow(label: "Mean", value: series.formatValue(statistics.mean))
+            StatisticRow(label: "Median", value: series.formatValue(statistics.median))
+            StatisticRow(label: "Minimum", value: series.formatValue(statistics.min))
+            StatisticRow(label: "Maximum", value: series.formatValue(statistics.max))
+            StatisticRow(label: "Range", value: series.formatValue(statistics.range))
+            StatisticRow(label: "Std. Deviation", value: series.formatValue(statistics.standardDeviation))
 
             if let growthRate = statistics.growthRate {
                 StatisticRow(
@@ -508,7 +508,7 @@ struct SeriesStatisticsView: View {
 
                 StatisticRow(
                     label: "Increase from \(firstYear)",
-                    value: formatNumber(increaseFromFirst),
+                    value: series.formatValue(increaseFromFirst),
                     help: "Absolute change from first year"
                 )
 

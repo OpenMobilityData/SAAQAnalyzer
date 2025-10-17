@@ -135,6 +135,19 @@ xcodebuild clean -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer
 ### Character Encoding
 The CSV importer handles French characters by trying multiple encodings (UTF-8, ISO-Latin-1, Windows-1252) and includes fixes for common encoding corruption patterns like "Montréal" → "MontrÃ©al".
 
+### Data Quality Issues
+
+**Known SAAQ Data Limitations**:
+- **MRC field missing for 2023-2024**: The MRC column exists in CSV files but contains only empty strings
+  - **Impact**: MRC-based filtering excludes 2023-2024 data (records imported with NULL mrc_id)
+  - **Workaround**: Use Admin Region or Municipality filters for 2023-2024 geographic filtering
+  - **Status**: Confirmed data source issue, not an application bug
+  - **Detection date**: October 2025
+  - **Potential fixes** (not implemented):
+    1. Derive MRC from municipality code using geographic hierarchy
+    2. Fall back to Admin Region when MRC is NULL
+    3. Contact SAAQ to request corrected data
+
 ### Data Validation
 - Schema validation based on year (fuel type field available 2017+)
 - Duplicate detection using UNIQUE constraint on (year, vehicle_sequence)
