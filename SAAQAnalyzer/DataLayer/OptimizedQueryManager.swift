@@ -14,6 +14,7 @@ struct OptimizedFilterIds: Sendable {
     let colorIds: [Int]
     let modelYearIds: [Int]
     let fuelTypeIds: [Int]
+    let axleCounts: [Int]
     // License-specific
     let licenseTypeIds: [Int]
     let ageGroupIds: [Int]
@@ -264,6 +265,9 @@ class OptimizedQueryManager {
                     print("⚠️ Fuel type '\(fuelType)' not found in enum table")
                 }
             }
+
+            // Axle counts are already integers, no conversion needed
+            // We'll use them directly in the WHERE clause
         } else {
             // License-specific filters
             for licenseType in filters.licenseTypes {
@@ -305,6 +309,7 @@ class OptimizedQueryManager {
             print("   Colors: \(colorIds.count) -> \(colorIds)")
             print("   Model Years: \(modelYearIds.count) -> \(modelYearIds)")
             print("   Fuel Types: \(fuelTypeIds.count) -> \(fuelTypeIds)")
+            print("   Axle Counts: \(filters.axleCounts.count) -> \(filters.axleCounts.sorted())")
         } else {
             print("   License Types: \(licenseTypeIds.count) -> \(licenseTypeIds)")
             print("   Age Groups: \(ageGroupIds.count) -> \(ageGroupIds)")
@@ -324,6 +329,7 @@ class OptimizedQueryManager {
             colorIds: colorIds,
             modelYearIds: modelYearIds,
             fuelTypeIds: fuelTypeIds,
+            axleCounts: Array(filters.axleCounts).sorted(),
             licenseTypeIds: licenseTypeIds,
             ageGroupIds: ageGroupIds,
             genderIds: genderIds,
@@ -540,6 +546,16 @@ class OptimizedQueryManager {
                     }
                 }
 
+                // Axle count filter using max_axles
+                if !filterIds.axleCounts.isEmpty {
+                    let placeholders = Array(repeating: "?", count: filterIds.axleCounts.count).joined(separator: ",")
+                    whereClause += " AND v.max_axles IN (\(placeholders))"
+                    for count in filterIds.axleCounts {
+                        bindValues.append((bindIndex, count))
+                        bindIndex += 1
+                    }
+                }
+
                 // Build the query based on metric type
                 var selectClause: String
                 var additionalJoins = ""
@@ -630,20 +646,23 @@ class OptimizedQueryManager {
 
                 case .roadWearIndex:
                     // Road Wear Index: 4th power law based on vehicle mass
-                    // Weight distribution varies by vehicle type:
-                    // - Trucks (CA) & Tool vehicles (VO): 3 axles (30% front, 35% rear1, 35% rear2)
-                    //   RWI = (0.30^4 + 0.35^4 + 0.35^4) × mass^4 = 0.0234 × mass^4
-                    // - Buses (AB): 2 axles (35% front, 65% rear)
-                    //   RWI = (0.35^4 + 0.65^4) × mass^4 = 0.1935 × mass^4
-                    // - Cars (AU) & others: 2 axles (50% front, 50% rear)
-                    //   RWI = (0.50^4 + 0.50^4) × mass^4 = 0.125 × mass^4
+                    // Uses actual axle count when available (max_axles), falls back to vehicle type
+                    // Axle-based coefficients (Oct 2025):
+                    // - 2 axles: 0.1325, 3 axles: 0.0381, 4 axles: 0.0156, 5 axles: 0.0080, 6+ axles: 0.0046
                     let rwiCalculation = """
                         CASE
+                            -- Use actual axle data when available (BCA trucks)
+                            WHEN v.max_axles = 2 THEN 0.1325 * POWER(v.net_mass_int, 4)
+                            WHEN v.max_axles = 3 THEN 0.0381 * POWER(v.net_mass_int, 4)
+                            WHEN v.max_axles = 4 THEN 0.0156 * POWER(v.net_mass_int, 4)
+                            WHEN v.max_axles = 5 THEN 0.0080 * POWER(v.net_mass_int, 4)
+                            WHEN v.max_axles >= 6 THEN 0.0046 * POWER(v.net_mass_int, 4)
+                            -- Fallback: vehicle type assumptions when max_axles is NULL
                             WHEN v.vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code IN ('CA', 'VO'))
-                            THEN 0.0234 * POWER(v.net_mass_int, 4)
+                            THEN 0.0381 * POWER(v.net_mass_int, 4)
                             WHEN v.vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code = 'AB')
-                            THEN 0.1935 * POWER(v.net_mass_int, 4)
-                            ELSE 0.125 * POWER(v.net_mass_int, 4)
+                            THEN 0.1325 * POWER(v.net_mass_int, 4)
+                            ELSE 0.1325 * POWER(v.net_mass_int, 4)
                         END
                         """
                     if filters.roadWearIndexMode == .average {

@@ -84,6 +84,9 @@ struct ContentView: View {
     @State private var currentImportType: DataEntityType = .vehicle
     @State private var batchImportStartTime: Date?
 
+    // Task cancellation support
+    @State private var currentImportTask: Task<Void, Never>?
+
     // Data package import handling state
     @State private var showingPackageAlert = false
 
@@ -587,9 +590,22 @@ struct ContentView: View {
                     Color.black.opacity(0.3)
                         .ignoresSafeArea()
 
-                    ImportProgressView(progressManager: progressManager)
-                        .frame(maxWidth: 600)
-                        .transition(.scale.combined(with: .opacity))
+                    ImportProgressView(
+                        progressManager: progressManager,
+                        onCancel: {
+                            print("🛑 Cancelling import task...")
+                            currentImportTask?.cancel()
+                            progressManager.reset()
+                            currentImportTask = nil
+
+                            // Reset import state
+                            currentImportIndex = 0
+                            pendingImportURLs = []
+                            batchImportStartTime = nil
+                        }
+                    )
+                    .frame(maxWidth: 600)
+                    .transition(.scale.combined(with: .opacity))
                 }
             }
 
@@ -717,9 +733,11 @@ struct ContentView: View {
         }
     }
 
-    /// Clears all filter selections
+    /// Clears all filter selections while preserving the current data entity type
     private func clearAllFilters() {
+        let currentDataType = selectedFilters.dataEntityType
         selectedFilters = FilterConfiguration()
+        selectedFilters.dataEntityType = currentDataType
     }
 
     private func generateQueryPattern(from filters: FilterConfiguration) -> String {
@@ -856,85 +874,103 @@ struct ContentView: View {
     }
 
     private func importMultipleFiles(_ urls: [URL]) async {
-        // Start timing
-        await MainActor.run {
-            batchImportStartTime = Date()
+        // Cancel any existing import first
+        currentImportTask?.cancel()
+
+        // Store task reference for cancellation
+        currentImportTask = Task {
+            // Start timing
+            await MainActor.run {
+                batchImportStartTime = Date()
+            }
+
+            print("📦 Starting batch import of \(urls.count) vehicle files")
+
+            // Start progress UI (this will trigger showingImportProgress = true)
+            progressManager.startBatchImport(totalFiles: urls.count)
+
+            // Wait for progress UI to appear before hiding preparing overlay
+            await MainActor.run {
+                pendingImportURLs = urls
+                currentImportIndex = 0
+                // Hide preparing overlay now that real progress is showing
+                isPreparingImport = false
+            }
+
+            // Sort files by year extracted from filename (background work)
+            let sortedURLs = urls.sorted { url1, url2 in
+                let year1 = extractYearFromFilename(url1.lastPathComponent) ?? 0
+                let year2 = extractYearFromFilename(url2.lastPathComponent) ?? 0
+                return year1 < year2
+            }
+
+            print("📋 Sorted \(sortedURLs.count) files by year:")
+            for (index, url) in sortedURLs.enumerated() {
+                let year = extractYearFromFilename(url.lastPathComponent) ?? 0
+                print("   \(index + 1). Year \(year): \(url.lastPathComponent)")
+            }
+
+            // Update with sorted URLs
+            await MainActor.run {
+                pendingImportURLs = sortedURLs
+            }
+
+            // Begin processing
+            await processNextVehicleImport()
         }
 
-        print("📦 Starting batch import of \(urls.count) vehicle files")
-
-        // Start progress UI (this will trigger showingImportProgress = true)
-        progressManager.startBatchImport(totalFiles: urls.count)
-
-        // Wait for progress UI to appear before hiding preparing overlay
-        await MainActor.run {
-            pendingImportURLs = urls
-            currentImportIndex = 0
-            // Hide preparing overlay now that real progress is showing
-            isPreparingImport = false
-        }
-
-        // Sort files by year extracted from filename (background work)
-        let sortedURLs = urls.sorted { url1, url2 in
-            let year1 = extractYearFromFilename(url1.lastPathComponent) ?? 0
-            let year2 = extractYearFromFilename(url2.lastPathComponent) ?? 0
-            return year1 < year2
-        }
-
-        print("📋 Sorted \(sortedURLs.count) files by year:")
-        for (index, url) in sortedURLs.enumerated() {
-            let year = extractYearFromFilename(url.lastPathComponent) ?? 0
-            print("   \(index + 1). Year \(year): \(url.lastPathComponent)")
-        }
-
-        // Update with sorted URLs
-        await MainActor.run {
-            pendingImportURLs = sortedURLs
-        }
-
-        // Begin processing
-        await processNextVehicleImport()
+        // Wait for task to complete
+        await currentImportTask?.value
     }
 
     private func importMultipleLicenseFiles(_ urls: [URL]) async {
-        // Start timing
-        await MainActor.run {
-            batchImportStartTime = Date()
+        // Cancel any existing import first
+        currentImportTask?.cancel()
+
+        // Store task reference for cancellation
+        currentImportTask = Task {
+            // Start timing
+            await MainActor.run {
+                batchImportStartTime = Date()
+            }
+
+            print("📦 Starting batch import of \(urls.count) license files")
+
+            // Start progress UI (this will trigger showingImportProgress = true)
+            progressManager.startBatchImport(totalFiles: urls.count)
+
+            // Wait for progress UI to appear before hiding preparing overlay
+            await MainActor.run {
+                pendingImportURLs = urls
+                currentImportIndex = 0
+                // Hide preparing overlay now that real progress is showing
+                isPreparingImport = false
+            }
+
+            // Sort files by year extracted from filename (background work)
+            let sortedURLs = urls.sorted { url1, url2 in
+                let year1 = extractYearFromFilename(url1.lastPathComponent) ?? 0
+                let year2 = extractYearFromFilename(url2.lastPathComponent) ?? 0
+                return year1 < year2
+            }
+
+            print("📋 Sorted \(sortedURLs.count) license files by year:")
+            for (index, url) in sortedURLs.enumerated() {
+                let year = extractYearFromFilename(url.lastPathComponent) ?? 0
+                print("   \(index + 1). Year \(year): \(url.lastPathComponent)")
+            }
+
+            // Update with sorted URLs
+            await MainActor.run {
+                pendingImportURLs = sortedURLs
+            }
+
+            // Begin processing
+            await processNextLicenseImport()
         }
 
-        print("📦 Starting batch import of \(urls.count) license files")
-
-        // Start progress UI (this will trigger showingImportProgress = true)
-        progressManager.startBatchImport(totalFiles: urls.count)
-
-        // Wait for progress UI to appear before hiding preparing overlay
-        await MainActor.run {
-            pendingImportURLs = urls
-            currentImportIndex = 0
-            // Hide preparing overlay now that real progress is showing
-            isPreparingImport = false
-        }
-
-        // Sort files by year extracted from filename (background work)
-        let sortedURLs = urls.sorted { url1, url2 in
-            let year1 = extractYearFromFilename(url1.lastPathComponent) ?? 0
-            let year2 = extractYearFromFilename(url2.lastPathComponent) ?? 0
-            return year1 < year2
-        }
-
-        print("📋 Sorted \(sortedURLs.count) license files by year:")
-        for (index, url) in sortedURLs.enumerated() {
-            let year = extractYearFromFilename(url.lastPathComponent) ?? 0
-            print("   \(index + 1). Year \(year): \(url.lastPathComponent)")
-        }
-
-        // Update with sorted URLs
-        await MainActor.run {
-            pendingImportURLs = sortedURLs
-        }
-
-        // Begin processing
-        await processNextLicenseImport()
+        // Wait for task to complete
+        await currentImportTask?.value
     }
 
     /// Extract year from filename (supports "2011_..." or "..._2011.csv" formats)
@@ -1055,6 +1091,15 @@ struct ContentView: View {
             // Skip duplicate check during batch imports - we already checked at batch level
             let result = try await importer.importFile(at: url, year: year, dataType: DataEntityType.vehicle, skipDuplicateCheck: true)
             print("✅ Import completed: \(result.successCount) records imported for year \(year)")
+        } catch is CancellationError {
+            // User cancelled - stop processing remaining files
+            print("⚠️ Import cancelled by user after processing \(currentImportIndex) of \(pendingImportURLs.count) files")
+            progressManager.reset()
+            currentImportIndex = 0
+            pendingImportURLs = []
+            batchImportStartTime = nil
+            currentImportTask = nil
+            return  // Stop processing remaining files
         } catch {
             progressManager.reset()
             print("❌ Error importing vehicle data: \(error)")
@@ -1070,6 +1115,15 @@ struct ContentView: View {
             // Skip duplicate check during batch imports - we already checked at batch level
             let result = try await importer.importFile(at: url, year: year, dataType: DataEntityType.license, skipDuplicateCheck: true)
             print("✅ License import completed: \(result.successCount) records imported for year \(year)")
+        } catch is CancellationError {
+            // User cancelled - stop processing remaining files
+            print("⚠️ License import cancelled by user after processing \(currentImportIndex) of \(pendingImportURLs.count) files")
+            progressManager.reset()
+            currentImportIndex = 0
+            pendingImportURLs = []
+            batchImportStartTime = nil
+            currentImportTask = nil
+            return  // Stop processing remaining files
         } catch {
             progressManager.reset()
             print("❌ Error importing license data: \(error)")

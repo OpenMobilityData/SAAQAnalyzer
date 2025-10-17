@@ -4,7 +4,8 @@ import SwiftUI
 struct ImportProgressView: View {
     @Bindable var progressManager: ImportProgressManager
     @State private var animationOffset: CGFloat = 0
-    
+    var onCancel: (() -> Void)?
+
     var body: some View {
         VStack(spacing: 0) {
             // Main progress content
@@ -296,8 +297,7 @@ struct ImportProgressView: View {
 
             if progressManager.isImporting {
                 Button("Cancel") {
-                    // TODO: Implement cancel functionality
-                    progressManager.reset()
+                    onCancel?()
                 }
                 .buttonStyle(.bordered)
                 .buttonBorderShape(.roundedRectangle)

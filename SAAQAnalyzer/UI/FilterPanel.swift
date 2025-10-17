@@ -18,6 +18,7 @@ struct FilterPanel: View {
     @State private var availableVehicleModels: [String] = []
     @State private var availableVehicleColors: [String] = []
     @State private var availableModelYears: [Int] = []
+    @State private var availableAxleCounts: [Int] = []
 
     // License-specific options
     @State private var availableLicenseTypes: [String] = []
@@ -65,32 +66,48 @@ struct FilterPanel: View {
             Divider()
 
             // Analytics configuration (Y-Axis Metric)
-            VStack(alignment: .leading, spacing: 16) {
-                // Metric configuration section
-                DisclosureGroup(isExpanded: $metricSectionExpanded) {
-                    MetricConfigurationSection(
-                        metricType: $configuration.metricType,
-                        metricField: $configuration.metricField,
-                        percentageBaseFilters: $configuration.percentageBaseFilters,
-                        coverageField: $configuration.coverageField,
-                        coverageAsPercentage: $configuration.coverageAsPercentage,
-                        roadWearIndexMode: $configuration.roadWearIndexMode,
-                        normalizeToFirstYear: $configuration.normalizeToFirstYear,
-                        showCumulativeSum: $configuration.showCumulativeSum,
-                        currentFilters: configuration
-                    )
-                } label: {
-                    Label("Y-Axis Metric", systemImage: "chart.line.uptrend.xyaxis")
-                        .font(.subheadline)
-                        .symbolRenderingMode(.hierarchical)
+            if metricSectionExpanded {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Metric configuration section
+                        DisclosureGroup(isExpanded: $metricSectionExpanded) {
+                            MetricConfigurationSection(
+                                metricType: $configuration.metricType,
+                                metricField: $configuration.metricField,
+                                percentageBaseFilters: $configuration.percentageBaseFilters,
+                                coverageField: $configuration.coverageField,
+                                coverageAsPercentage: $configuration.coverageAsPercentage,
+                                roadWearIndexMode: $configuration.roadWearIndexMode,
+                                normalizeToFirstYear: $configuration.normalizeToFirstYear,
+                                showCumulativeSum: $configuration.showCumulativeSum,
+                                currentFilters: configuration
+                            )
+                        } label: {
+                            Label("Y-Axis Metric", systemImage: "chart.line.uptrend.xyaxis")
+                                .font(.subheadline)
+                                .symbolRenderingMode(.hierarchical)
+                        }
+                    }
+                    .padding()
                 }
-            }
-            .padding()
-            .frame(maxHeight: metricSectionExpanded ? analyticsHeight : nil)
-            .animation(.easeInOut(duration: 0.2), value: metricSectionExpanded)
+                .frame(height: analyticsHeight)
+                .clipped()  // Prevent content overflow when dragging divider
 
-            // Draggable divider
-            DraggableDivider(height: $analyticsHeight)
+                // Draggable divider
+                DraggableDivider(height: $analyticsHeight)
+            } else {
+                // Collapsed state - just show the disclosure group header
+                VStack(alignment: .leading, spacing: 16) {
+                    DisclosureGroup(isExpanded: $metricSectionExpanded) {
+                        EmptyView()
+                    } label: {
+                        Label("Y-Axis Metric", systemImage: "chart.line.uptrend.xyaxis")
+                            .font(.subheadline)
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                }
+                .padding()
+            }
 
             Divider()
 
@@ -194,6 +211,7 @@ struct FilterPanel: View {
                                 selectedVehicleColors: $configuration.vehicleColors,
                                 selectedModelYears: $configuration.modelYears,
                                 selectedFuelTypes: $configuration.fuelTypes,
+                                selectedAxleCounts: $configuration.axleCounts,
                                 availableYears: availableYears,
                                 availableVehicleClasses: availableClassifications,
                                 availableVehicleTypes: availableVehicleTypes,
@@ -201,6 +219,7 @@ struct FilterPanel: View {
                                 availableVehicleModels: availableVehicleModels,
                                 availableVehicleColors: availableVehicleColors,
                                 availableModelYears: availableModelYears,
+                                availableAxleCounts: availableAxleCounts,
                                 isModelListFiltered: $isModelListFiltered,
                                 selectedMakesCount: configuration.vehicleMakes.count,
                                 onFilterByMakes: { Task { await filterModelsBySelectedMakes() } }
@@ -437,6 +456,7 @@ struct FilterPanel: View {
             ) ?? []
             async let vehicleColors = databaseManager.getAvailableVehicleColors()
             async let modelYears = databaseManager.getAvailableModelYears()
+            let axleCounts = try? await databaseManager.filterCacheManager?.getAvailableAxleCounts() ?? []
 
             // Wait for all to complete
             let vehicleData = await (vehicleClasses, vehicleTypes, vehicleColors, modelYears)
@@ -449,6 +469,7 @@ struct FilterPanel: View {
             await MainActor.run {
                 (availableClassifications, availableVehicleTypes, availableVehicleColors, availableModelYears) = vehicleData
                 availableVehicleMakes = vehicleMakes
+                availableAxleCounts = axleCounts ?? []
                 availableVehicleModels = vehicleModels
 
                 // Clear license options
@@ -490,6 +511,7 @@ struct FilterPanel: View {
                 availableVehicleModels = []
                 availableVehicleColors = []
                 availableModelYears = []
+                availableAxleCounts = []
             }
         }
     }
@@ -810,6 +832,7 @@ struct VehicleFilterSection: View {
     @Binding var selectedVehicleColors: Set<String>
     @Binding var selectedModelYears: Set<Int>
     @Binding var selectedFuelTypes: Set<String>
+    @Binding var selectedAxleCounts: Set<Int>
     let availableYears: [Int]
     let availableVehicleClasses: [String]
     let availableVehicleTypes: [String]
@@ -817,6 +840,7 @@ struct VehicleFilterSection: View {
     let availableVehicleModels: [String]
     let availableVehicleColors: [String]
     let availableModelYears: [Int]
+    let availableAxleCounts: [Int]
 
     // Model filtering parameters
     @Binding var isModelListFiltered: Bool
@@ -977,6 +1001,33 @@ struct VehicleFilterSection: View {
                         }
                     ),
                     searchPrompt: "Search fuel types..."
+                )
+            }
+
+            // Axle Count (trucks only - vehicles with axle data)
+            if !availableAxleCounts.isEmpty {
+                Divider()
+
+                Text("Axle Count")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                SearchableFilterList(
+                    items: availableAxleCounts.map { "\($0) axle\($0 > 1 ? "s" : "")" },
+                    selectedItems: Binding(
+                        get: {
+                            Set(selectedAxleCounts.map { count in
+                                "\(count) axle\(count > 1 ? "s" : "")"
+                            })
+                        },
+                        set: { stringSet in
+                            selectedAxleCounts = Set(stringSet.compactMap { str in
+                                // Extract the number from "N axle(s)" format
+                                Int(str.split(separator: " ").first.map(String.init) ?? "")
+                            })
+                        }
+                    ),
+                    searchPrompt: "Search axle counts..."
                 )
             }
         }
@@ -1792,6 +1843,7 @@ struct MetricConfigurationSection: View {
         case vehicleModels = "Vehicle Model"
         case vehicleColors = "Vehicle Color"
         case modelYears = "Model Year"
+        case axleCounts = "Axle Count"
         case ageRanges = "Vehicle Age"
 
         // License-specific filters
@@ -2091,6 +2143,8 @@ struct MetricConfigurationSection: View {
             baseFilters.vehicleColors.removeAll()
         case .modelYears:
             baseFilters.modelYears.removeAll()
+        case .axleCounts:
+            baseFilters.axleCounts.removeAll()
         case .ageRanges:
             baseFilters.ageRanges.removeAll()
 
