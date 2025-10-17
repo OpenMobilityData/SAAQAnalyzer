@@ -717,9 +717,11 @@ struct ContentView: View {
         }
     }
 
-    /// Clears all filter selections
+    /// Clears all filter selections while preserving the current data entity type
     private func clearAllFilters() {
+        let currentDataType = selectedFilters.dataEntityType
         selectedFilters = FilterConfiguration()
+        selectedFilters.dataEntityType = currentDataType
     }
 
     private func generateQueryPattern(from filters: FilterConfiguration) -> String {
