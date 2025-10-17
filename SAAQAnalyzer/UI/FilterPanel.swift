@@ -88,6 +88,7 @@ struct FilterPanel: View {
             }
             .padding()
             .frame(maxHeight: metricSectionExpanded ? analyticsHeight : nil)
+            .clipped()  // Prevent content overflow when dragging divider
             .animation(.easeInOut(duration: 0.2), value: metricSectionExpanded)
 
             // Draggable divider
