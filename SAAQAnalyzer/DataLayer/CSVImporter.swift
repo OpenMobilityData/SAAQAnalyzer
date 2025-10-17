@@ -265,21 +265,27 @@ class CSVImporter {
         }
         
         // Process chunks in parallel using TaskGroup with real-time progress
-        let results = await withTaskGroup(of: (Int, [[String: String]]).self) { group in
+        let results = try await withThrowingTaskGroup(of: (Int, [[String: String]]).self) { group in
             // Add tasks for each chunk
             for (index, chunk) in chunks.enumerated() {
+                // Check for cancellation before processing each chunk
+                try Task.checkCancellation()
+
                 group.addTask {
                     let chunkResults = await self.parseChunk(Array(chunk), headers: headers, chunkIndex: index, progressTracker: progressTracker)
                     return (index, chunkResults)
                 }
             }
-            
+
             // Collect results maintaining order
             var chunkResults: [Int: [[String: String]]] = [:]
             var completedChunks = 0
             let totalChunks = chunks.count
-            
-            for await (index, records) in group {
+
+            for try await (index, records) in group {
+                // Check for cancellation before accumulating results
+                try Task.checkCancellation()
+
                 chunkResults[index] = records
                 completedChunks += 1
 
@@ -288,7 +294,7 @@ class CSVImporter {
                 AppLogger.dataImport.debug("Chunk \(completedChunks)/\(totalChunks) completed (\(progressPercent)%) - \(records.count) records")
                 #endif
             }
-            
+
             return chunkResults
         }
         
@@ -618,9 +624,12 @@ class CSVImporter {
         }
 
         // Process chunks in parallel using TaskGroup
-        let results = await withTaskGroup(of: (Int, [[String: String]]).self) { group in
+        let results = try await withThrowingTaskGroup(of: (Int, [[String: String]]).self) { group in
             // Add tasks for each chunk
             for (index, chunk) in chunks.enumerated() {
+                // Check for cancellation before processing each chunk
+                try Task.checkCancellation()
+
                 group.addTask {
                     let chunkResults = await self.parseLicenseChunk(Array(chunk), headers: headers, chunkIndex: index, progressTracker: progressTracker)
                     return (index, chunkResults)
@@ -632,7 +641,10 @@ class CSVImporter {
             var completedChunks = 0
             let totalChunks = chunks.count
 
-            for await (index, records) in group {
+            for try await (index, records) in group {
+                // Check for cancellation before accumulating results
+                try Task.checkCancellation()
+
                 chunkResults[index] = records
                 completedChunks += 1
 
