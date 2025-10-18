@@ -648,21 +648,21 @@ class OptimizedQueryManager {
                     // Road Wear Index: 4th power law based on vehicle mass
                     // Uses actual axle count when available (max_axles), falls back to vehicle type
                     // Axle-based coefficients (Oct 2025):
-                    // - 2 axles: 0.1325, 3 axles: 0.0381, 4 axles: 0.0156, 5 axles: 0.0080, 6+ axles: 0.0046
+                    // - 2 axles: 0.1325, 3 axles: 0.0234, 4 axles: 0.0156, 5 axles: 0.0080, 6+ axles: 0.0046
                     let rwiCalculation = """
                         CASE
                             -- Use actual axle data when available (BCA trucks)
                             WHEN v.max_axles = 2 THEN 0.1325 * POWER(v.net_mass_int, 4)
-                            WHEN v.max_axles = 3 THEN 0.0381 * POWER(v.net_mass_int, 4)
+                            WHEN v.max_axles = 3 THEN 0.0234 * POWER(v.net_mass_int, 4)
                             WHEN v.max_axles = 4 THEN 0.0156 * POWER(v.net_mass_int, 4)
                             WHEN v.max_axles = 5 THEN 0.0080 * POWER(v.net_mass_int, 4)
                             WHEN v.max_axles >= 6 THEN 0.0046 * POWER(v.net_mass_int, 4)
                             -- Fallback: vehicle type assumptions when max_axles is NULL
                             WHEN v.vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code IN ('CA', 'VO'))
-                            THEN 0.0381 * POWER(v.net_mass_int, 4)
+                            THEN 0.0234 * POWER(v.net_mass_int, 4)
                             WHEN v.vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code = 'AB')
-                            THEN 0.1325 * POWER(v.net_mass_int, 4)
-                            ELSE 0.1325 * POWER(v.net_mass_int, 4)
+                            THEN 0.1935 * POWER(v.net_mass_int, 4)
+                            ELSE 0.125 * POWER(v.net_mass_int, 4)
                         END
                         """
                     if filters.roadWearIndexMode == .average {
