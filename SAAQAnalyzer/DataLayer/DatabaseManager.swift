@@ -2360,7 +2360,7 @@ class DatabaseManager: ObservableObject {
                         .compactMap { VehicleClass(rawValue: $0)?.description }
                         .joined(separator: " OR ")
                     if !vehicle_classes.isEmpty {
-                        filterComponents.append("[\(vehicle_classes)]")
+                        filterComponents.append("[Class: \(vehicle_classes)]")
                     }
                 }
 
@@ -2397,7 +2397,7 @@ class DatabaseManager: ObservableObject {
                         .compactMap { FuelType(rawValue: $0)?.description }
                         .joined(separator: " OR ")
                     if !fuels.isEmpty {
-                        filterComponents.append("[\(fuels)]")
+                        filterComponents.append("[Fuel: \(fuels)]")
                     }
                 }
 
@@ -2549,7 +2549,7 @@ class DatabaseManager: ObservableObject {
                         .compactMap { VehicleClass(rawValue: $0)?.description }
                         .joined(separator: " OR ")
                     if !vehicle_classes.isEmpty {
-                        filterComponents.append("[\(vehicle_classes)]")
+                        filterComponents.append("[Class: \(vehicle_classes)]")
                     }
                 }
 
@@ -2585,7 +2585,7 @@ class DatabaseManager: ObservableObject {
                         .compactMap { FuelType(rawValue: $0)?.description }
                         .joined(separator: " OR ")
                     if !fuels.isEmpty {
-                        filterComponents.append("[\(fuels)]")
+                        filterComponents.append("[Fuel: \(fuels)]")
                     }
                 }
 
@@ -2615,7 +2615,7 @@ class DatabaseManager: ObservableObject {
                 .compactMap { VehicleClass(rawValue: $0)?.description }
                 .joined(separator: " OR ")
             if !vehicle_classes.isEmpty {
-                components.append("[\(vehicle_classes)]")
+                components.append("[Class: \(vehicle_classes)]")
             }
         }
 
@@ -2651,7 +2651,7 @@ class DatabaseManager: ObservableObject {
                 .compactMap { FuelType(rawValue: $0)?.description }
                 .joined(separator: " OR ")
             if !fuels.isEmpty {
-                components.append("[\(fuels)]")
+                components.append("[Fuel: \(fuels)]")
             }
         }
 
@@ -2762,7 +2762,7 @@ class DatabaseManager: ObservableObject {
                 .compactMap { VehicleClass(rawValue: $0)?.description }
                 .joined(separator: " OR ")
             if !classifications.isEmpty {
-                baseComponents.append("[\(classifications)]")
+                baseComponents.append("[Class: \(classifications)]")
             }
         }
 
@@ -3117,7 +3117,7 @@ class DatabaseManager: ObservableObject {
                 .compactMap { FuelType(rawValue: $0)?.description }
                 .joined(separator: " OR ")
             if !fuels.isEmpty {
-                components.append("[\(fuels)]")
+                components.append("[Fuel: \(fuels)]")
             }
         }
 
