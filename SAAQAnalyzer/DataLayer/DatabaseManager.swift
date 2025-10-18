@@ -2482,6 +2482,35 @@ class DatabaseManager: ObservableObject {
                         filterComponents.append("[Type: \(types)]")
                     }
 
+                    if !filters.vehicleMakes.isEmpty {
+                        let makes = Array(filters.vehicleMakes).sorted().joined(separator: " OR ")
+                        filterComponents.append("[Make: \(makes)]")
+                    }
+
+                    if !filters.vehicleModels.isEmpty {
+                        let models = Array(filters.vehicleModels).sorted().joined(separator: " OR ")
+                        filterComponents.append("[Model: \(models)]")
+                    }
+
+                    if !filters.vehicleColors.isEmpty {
+                        let colors = Array(filters.vehicleColors).sorted().joined(separator: " OR ")
+                        filterComponents.append("[Color: \(colors)]")
+                    }
+
+                    if !filters.modelYears.isEmpty {
+                        let years = Array(filters.modelYears).sorted(by: >).map { String($0) }.joined(separator: " OR ")
+                        filterComponents.append("[Model Year: \(years)]")
+                    }
+
+                    if !filters.fuelTypes.isEmpty {
+                        let fuels = filters.fuelTypes
+                            .compactMap { FuelType(rawValue: $0)?.description }
+                            .joined(separator: " OR ")
+                        if !fuels.isEmpty {
+                            filterComponents.append("[\(fuels)]")
+                        }
+                    }
+
                     if !filters.regions.isEmpty {
                         filterComponents.append("[Region: \(filters.regions.joined(separator: " OR "))]")
                     } else if !filters.mrcs.isEmpty {
@@ -2539,6 +2568,25 @@ class DatabaseManager: ObservableObject {
                 if !filters.vehicleModels.isEmpty {
                     let models = Array(filters.vehicleModels).sorted().joined(separator: " OR ")
                     filterComponents.append("[Model: \(models)]")
+                }
+
+                if !filters.vehicleColors.isEmpty {
+                    let colors = Array(filters.vehicleColors).sorted().joined(separator: " OR ")
+                    filterComponents.append("[Color: \(colors)]")
+                }
+
+                if !filters.modelYears.isEmpty {
+                    let years = Array(filters.modelYears).sorted(by: >).map { String($0) }.joined(separator: " OR ")
+                    filterComponents.append("[Model Year: \(years)]")
+                }
+
+                if !filters.fuelTypes.isEmpty {
+                    let fuels = filters.fuelTypes
+                        .compactMap { FuelType(rawValue: $0)?.description }
+                        .joined(separator: " OR ")
+                    if !fuels.isEmpty {
+                        filterComponents.append("[\(fuels)]")
+                    }
                 }
 
                 if !filters.regions.isEmpty {
