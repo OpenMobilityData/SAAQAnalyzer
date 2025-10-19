@@ -282,10 +282,11 @@ jobs:
 The following features were added in October 2025 and **require test coverage**:
 
 #### Road Wear Index (RWI) Metric
-- ✅ **Implemented**: October 2025
+- ✅ **Implemented**: October 2025 (enhanced with axle-based calculation)
 - ⚠️ **Tests Needed**:
   - Calculation correctness (4th power law: damage ∝ axle_load^4)
-  - Vehicle-type-aware weight distribution (AU, CA, AB vehicles)
+  - Axle-based weight distribution (2-6+ axles, coefficients 0.1325 to 0.0046)
+  - Vehicle-type fallback when max_axles is NULL (AU, CA, AB vehicles)
   - Normalization toggle (normalize to first year = 1.0)
   - Average vs Sum modes
   - Raw vs Normalized display formats
@@ -293,7 +294,8 @@ The following features were added in October 2025 and **require test coverage**:
 **Test Cases to Add**:
 ```swift
 testRoadWearIndexCalculation()           // Verify 4th power law math
-testRoadWearIndexWeightDistribution()    // Test AU/CA/AB weight splits
+testRoadWearIndexAxleBasedDistribution() // Test actual axle count calculations (2-6+ axles)
+testRoadWearIndexVehicleTypeFallback()   // Test AU/CA/AB fallback when max_axles is NULL
 testRoadWearIndexNormalization()         // Verify normalization to year 1
 testRoadWearIndexModes()                 // Test Average vs Sum modes
 ```

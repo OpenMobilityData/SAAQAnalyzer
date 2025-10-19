@@ -62,13 +62,17 @@ A macOS SwiftUI application for importing, analyzing, and visualizing vehicle an
 #### Road Wear Index (RWI)
 Engineering metric based on the 4th power law for infrastructure impact analysis:
 
-- **Vehicle-Type-Aware Weight Distribution**:
-  - Cars (AU): 2 axles, 50/50 split
-  - Trucks (CA) & Tool vehicles (VO): 3 axles, 30/35/35 split
-  - Buses (AB): 2 axles, 35/65 split
+- **Axle-Based Weight Distribution** (uses actual axle count data when available):
+  - **Primary**: Actual axle counts from BCA trucks (2-6+ axles, coefficients: 0.1325 to 0.0046)
+  - **Fallback**: Vehicle-type assumptions when axle data unavailable
+    - Cars (AU): 2 axles, 50/50 split → coefficient 0.125
+    - Trucks (CA) & Tool vehicles (VO): Assume 3 axles → coefficient 0.0234
+    - Buses (AB): Assume 2 axles, 35/65 split → coefficient 0.1935
 - **Calculation Modes**: Average (per-vehicle) or Total (cumulative fleet impact)
 - **Normalization Toggle**: Normalized mode (first year = 1.0) or raw values for cross-type comparison
-- **Key Insight**: A vehicle 2× heavier causes 2⁴ = 16× more road wear
+- **Key Insights**:
+  - A vehicle 2× heavier causes 2⁴ = 16× more road wear
+  - A 6-axle truck causes 97% less damage per kg than a 2-axle truck
 
 #### Cumulative Sum Transform
 Global toggle for all metrics that transforms time series to show accumulated totals:

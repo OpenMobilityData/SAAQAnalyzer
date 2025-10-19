@@ -183,16 +183,17 @@ The application supports multiple metric types for data analysis:
 5. **Road Wear Index (RWI)** ✨ *New in October 2025*
    - Engineering metric based on 4th power law of road wear (damage ∝ axle_load^4)
    - Displayed as "Road Wear Index" with tooltip explaining the 4th power law
-   - **Weight Distribution** (vehicle-type aware):
-     - **Trucks (CA) & Tool vehicles (VO)**: 3 axles
-       - Front: 30%, Rear1: 35%, Rear2: 35%
-       - RWI = (0.30^4 + 0.35^4 + 0.35^4) × mass^4 = 0.0234 × mass^4
-     - **Buses (AB)**: 2 axles
-       - Front: 35%, Rear: 65%
-       - RWI = (0.35^4 + 0.65^4) × mass^4 = 0.1935 × mass^4
-     - **Cars (AU) & other vehicles**: 2 axles
-       - Front: 50%, Rear: 50%
-       - RWI = (0.50^4 + 0.50^4) × mass^4 = 0.125 × mass^4
+   - **Weight Distribution** (axle-based with vehicle-type fallback):
+     - **Primary: Actual Axle Count** (when `max_axles` data available from BCA trucks):
+       - **2 axles**: 45% front, 55% rear → RWI = 0.1325 × mass^4
+       - **3 axles**: 30% front, 35% rear1, 35% rear2 → RWI = 0.0234 × mass^4
+       - **4 axles**: 25% each → RWI = 0.0156 × mass^4
+       - **5 axles**: 20% each → RWI = 0.0080 × mass^4
+       - **6+ axles**: ~16.67% each (6 axles) → RWI = 0.0046 × mass^4
+     - **Fallback: Vehicle-Type Assumptions** (when `max_axles` is NULL):
+       - **Trucks (CA) & Tool vehicles (VO)**: Assume 3 axles → RWI = 0.0234 × mass^4
+       - **Buses (AB)**: Assume 2 axles (35/65 split) → RWI = 0.1935 × mass^4
+       - **Cars (AU) & other vehicles**: Assume 2 axles (50/50 split) → RWI = 0.125 × mass^4
    - **Modes**:
      - **Average**: Mean road wear index across vehicles
      - **Sum**: Total cumulative road wear
@@ -205,14 +206,15 @@ The application supports multiple metric types for data analysis:
      - Normalized values: "1.05 RWI" (2 decimal places)
      - Raw values: Scientific notation or K/M notation for large values
    - **Use Cases**: Infrastructure impact analysis, fleet management, policy evaluation
+   - **Key Insight**: 6-axle truck causes 97% less road damage per kg than 2-axle truck
    - **Legend format**: `"Avg RWI in [[filters]]"` or `"Total RWI (All Vehicles)"`
    - **Y-axis label**: Indicates normalization state: "(Normalized)" or "(Raw)"
    - **Implementation**:
+     - `OptimizedQueryManager.swift:647-673`: RWI calculation (axle-based with vehicle-type fallback) ⚠️ PRIMARY PATH
      - `DatabaseManager.swift:399-421`: Normalization helper function
-     - `DatabaseManager.swift:1227-1245`: RWI calculation with vehicle-type-aware weight distribution
-     - `DatabaseManager.swift:1923-1941`: RWI calculation (percentage query path)
+     - `DatabaseManager.swift:1227-1245`: RWI calculation (legacy path, not used)
+     - `DatabaseManager.swift:1923-1941`: RWI calculation (percentage query path, legacy)
      - `DatabaseManager.swift:1436-1440`: Conditional normalization application (see Normalize to First Year below)
-     - `OptimizedQueryManager.swift:606-626`: RWI calculation (optimized integer-based path)
      - `OptimizedQueryManager.swift:693-697`: Conditional normalization (optimized path, see Normalize to First Year)
      - `FilterPanel.swift:1731-1768`: UI mode selector (RWI-specific)
      - `DataModels.swift:1127`: normalizeToFirstYear property (global, see below)
