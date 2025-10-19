@@ -121,6 +121,7 @@ class FilterCacheManager {
         }
 
         let yearConfig = regularizationManager.getYearConfiguration()
+        let curatedYearsList = Array(yearConfig.curatedYears).sorted()
         let uncuratedYearsList = Array(yearConfig.uncuratedYears).sorted()
 
         guard !uncuratedYearsList.isEmpty else {
@@ -129,14 +130,28 @@ class FilterCacheManager {
             return
         }
 
+        let curatedPlaceholders = curatedYearsList.map { _ in "?" }.joined(separator: ",")
         let uncuratedPlaceholders = uncuratedYearsList.map { _ in "?" }.joined(separator: ",")
 
+        // Find Make/Model pairs that exist ONLY in uncurated years (not in curated years)
+        // This uses a simpler approach: get all pairs from uncurated years, then subtract those that also exist in curated years
         let sql = """
-        SELECT v.make_id, v.model_id, COUNT(*) as record_count
-        FROM vehicles v
-        JOIN year_enum y ON v.year_id = y.id
-        WHERE y.year IN (\(uncuratedPlaceholders))
-        GROUP BY v.make_id, v.model_id;
+        SELECT u.make_id, u.model_id, u.record_count
+        FROM (
+            SELECT v.make_id, v.model_id, COUNT(*) as record_count
+            FROM vehicles v
+            JOIN year_enum y ON v.year_id = y.id
+            WHERE y.year IN (\(uncuratedPlaceholders))
+            GROUP BY v.make_id, v.model_id
+        ) u
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM vehicles v2
+            JOIN year_enum y2 ON v2.year_id = y2.id
+            WHERE v2.make_id = u.make_id
+            AND v2.model_id = u.model_id
+            AND y2.year IN (\(curatedPlaceholders))
+        );
         """
 
         uncuratedPairs = try await withCheckedThrowingContinuation { continuation in
@@ -145,9 +160,18 @@ class FilterCacheManager {
             defer { sqlite3_finalize(stmt) }
 
             if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                // Bind uncurated years
-                for (index, year) in uncuratedYearsList.enumerated() {
-                    sqlite3_bind_int(stmt, Int32(index + 1), Int32(year))
+                var bindIndex: Int32 = 1
+
+                // Bind uncurated years (for the subquery)
+                for year in uncuratedYearsList {
+                    sqlite3_bind_int(stmt, bindIndex, Int32(year))
+                    bindIndex += 1
+                }
+
+                // Bind curated years (for the NOT EXISTS clause)
+                for year in curatedYearsList {
+                    sqlite3_bind_int(stmt, bindIndex, Int32(year))
+                    bindIndex += 1
                 }
 
                 while sqlite3_step(stmt) == SQLITE_ROW {
@@ -166,7 +190,9 @@ class FilterCacheManager {
             }
         }
 
-        print("✅ Loaded \(uncuratedPairs.count) uncurated Make/Model pairs")
+        if !uncuratedPairs.isEmpty {
+            print("✅ Loaded \(uncuratedPairs.count) uncurated Make/Model pairs (only in uncurated years)")
+        }
 
         // Debug: Show first 5 keys
         if uncuratedPairs.count > 0 {
@@ -516,7 +542,19 @@ class FilterCacheManager {
 
         var filteredModels = cachedModels
 
-        // If limiting to curated years, filter out uncurated Make/Model pairs
+        // If hierarchical filtering requested, filter models by selected makes FIRST
+        // This ensures we get all models for explicitly selected makes
+        if let makeIds = forMakeIds, !makeIds.isEmpty {
+            filteredModels = try await filterModelsByMakes(filteredModels, makeIds: makeIds)
+
+            // When hierarchical filtering is active, the user explicitly selected specific makes,
+            // so we should show ALL models for those makes, even if they're uncurated.
+            // Return early without applying curated years filter.
+            return filteredModels
+        }
+
+        // Only apply curated years filter when NOT using hierarchical filtering
+        // (i.e., when showing the full model list without make selection)
         if limitToCuratedYears {
             filteredModels = filteredModels.filter { model in
                 // Extract makeId and modelId from the cached model
@@ -534,11 +572,6 @@ class FilterCacheManager {
 
                 return true
             }
-        }
-
-        // If hierarchical filtering requested, filter models by selected makes
-        if let makeIds = forMakeIds, !makeIds.isEmpty {
-            filteredModels = try await filterModelsByMakes(filteredModels, makeIds: makeIds)
         }
 
         return filteredModels

@@ -1250,7 +1250,7 @@ class DatabaseManager: ObservableObject {
                     // Uses actual axle count when available (max_axles), falls back to vehicle type
                     // Axle-based coefficients (Oct 2025):
                     // - 2 axles: 0.1325 (45/55 split)
-                    // - 3 axles: 0.0381 (30/35/35 split)
+                    // - 3 axles: 0.0234 (30/35/35 split)
                     // - 4 axles: 0.0156 (25/25/25/25 split)
                     // - 5 axles: 0.0080 (20% each)
                     // - 6+ axles: 0.0046 (16.67% each)
@@ -1258,16 +1258,16 @@ class DatabaseManager: ObservableObject {
                         CASE
                             -- Use actual axle data when available (BCA trucks)
                             WHEN max_axles = 2 THEN 0.1325 * POWER(net_mass, 4)
-                            WHEN max_axles = 3 THEN 0.0381 * POWER(net_mass, 4)
+                            WHEN max_axles = 3 THEN 0.0234 * POWER(net_mass, 4)
                             WHEN max_axles = 4 THEN 0.0156 * POWER(net_mass, 4)
                             WHEN max_axles = 5 THEN 0.0080 * POWER(net_mass, 4)
                             WHEN max_axles >= 6 THEN 0.0046 * POWER(net_mass, 4)
                             -- Fallback: vehicle type assumptions when max_axles is NULL
                             WHEN vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code IN ('CA', 'VO'))
-                            THEN 0.0381 * POWER(net_mass, 4)
+                            THEN 0.0234 * POWER(net_mass, 4)
                             WHEN vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code = 'AB')
-                            THEN 0.1325 * POWER(net_mass, 4)
-                            ELSE 0.1325 * POWER(net_mass, 4)
+                            THEN 0.1935 * POWER(net_mass, 4)
+                            ELSE 0.125 * POWER(net_mass, 4)
                         END
                         """
                     if filters.roadWearIndexMode == .average {
@@ -1980,7 +1980,7 @@ class DatabaseManager: ObservableObject {
                     // Uses actual axle count when available (max_axles), falls back to vehicle type
                     // Axle-based coefficients (Oct 2025):
                     // - 2 axles: 0.1325 (45/55 split)
-                    // - 3 axles: 0.0381 (30/35/35 split)
+                    // - 3 axles: 0.0234 (30/35/35 split)
                     // - 4 axles: 0.0156 (25/25/25/25 split)
                     // - 5 axles: 0.0080 (20% each)
                     // - 6+ axles: 0.0046 (16.67% each)
@@ -1988,16 +1988,16 @@ class DatabaseManager: ObservableObject {
                         CASE
                             -- Use actual axle data when available (BCA trucks)
                             WHEN max_axles = 2 THEN 0.1325 * POWER(net_mass, 4)
-                            WHEN max_axles = 3 THEN 0.0381 * POWER(net_mass, 4)
+                            WHEN max_axles = 3 THEN 0.0234 * POWER(net_mass, 4)
                             WHEN max_axles = 4 THEN 0.0156 * POWER(net_mass, 4)
                             WHEN max_axles = 5 THEN 0.0080 * POWER(net_mass, 4)
                             WHEN max_axles >= 6 THEN 0.0046 * POWER(net_mass, 4)
                             -- Fallback: vehicle type assumptions when max_axles is NULL
                             WHEN vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code IN ('CA', 'VO'))
-                            THEN 0.0381 * POWER(net_mass, 4)
+                            THEN 0.0234 * POWER(net_mass, 4)
                             WHEN vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code = 'AB')
-                            THEN 0.1325 * POWER(net_mass, 4)
-                            ELSE 0.1325 * POWER(net_mass, 4)
+                            THEN 0.1935 * POWER(net_mass, 4)
+                            ELSE 0.125 * POWER(net_mass, 4)
                         END
                         """
                     if filters.roadWearIndexMode == .average {
@@ -2360,7 +2360,7 @@ class DatabaseManager: ObservableObject {
                         .compactMap { VehicleClass(rawValue: $0)?.description }
                         .joined(separator: " OR ")
                     if !vehicle_classes.isEmpty {
-                        filterComponents.append("[\(vehicle_classes)]")
+                        filterComponents.append("[Class: \(vehicle_classes)]")
                     }
                 }
 
@@ -2397,7 +2397,7 @@ class DatabaseManager: ObservableObject {
                         .compactMap { FuelType(rawValue: $0)?.description }
                         .joined(separator: " OR ")
                     if !fuels.isEmpty {
-                        filterComponents.append("[\(fuels)]")
+                        filterComponents.append("[Fuel: \(fuels)]")
                     }
                 }
 
@@ -2482,6 +2482,35 @@ class DatabaseManager: ObservableObject {
                         filterComponents.append("[Type: \(types)]")
                     }
 
+                    if !filters.vehicleMakes.isEmpty {
+                        let makes = Array(filters.vehicleMakes).sorted().joined(separator: " OR ")
+                        filterComponents.append("[Make: \(makes)]")
+                    }
+
+                    if !filters.vehicleModels.isEmpty {
+                        let models = Array(filters.vehicleModels).sorted().joined(separator: " OR ")
+                        filterComponents.append("[Model: \(models)]")
+                    }
+
+                    if !filters.vehicleColors.isEmpty {
+                        let colors = Array(filters.vehicleColors).sorted().joined(separator: " OR ")
+                        filterComponents.append("[Color: \(colors)]")
+                    }
+
+                    if !filters.modelYears.isEmpty {
+                        let years = Array(filters.modelYears).sorted(by: >).map { String($0) }.joined(separator: " OR ")
+                        filterComponents.append("[Model Year: \(years)]")
+                    }
+
+                    if !filters.fuelTypes.isEmpty {
+                        let fuels = filters.fuelTypes
+                            .compactMap { FuelType(rawValue: $0)?.description }
+                            .joined(separator: " OR ")
+                        if !fuels.isEmpty {
+                            filterComponents.append("[\(fuels)]")
+                        }
+                    }
+
                     if !filters.regions.isEmpty {
                         filterComponents.append("[Region: \(filters.regions.joined(separator: " OR "))]")
                     } else if !filters.mrcs.isEmpty {
@@ -2520,7 +2549,7 @@ class DatabaseManager: ObservableObject {
                         .compactMap { VehicleClass(rawValue: $0)?.description }
                         .joined(separator: " OR ")
                     if !vehicle_classes.isEmpty {
-                        filterComponents.append("[\(vehicle_classes)]")
+                        filterComponents.append("[Class: \(vehicle_classes)]")
                     }
                 }
 
@@ -2539,6 +2568,25 @@ class DatabaseManager: ObservableObject {
                 if !filters.vehicleModels.isEmpty {
                     let models = Array(filters.vehicleModels).sorted().joined(separator: " OR ")
                     filterComponents.append("[Model: \(models)]")
+                }
+
+                if !filters.vehicleColors.isEmpty {
+                    let colors = Array(filters.vehicleColors).sorted().joined(separator: " OR ")
+                    filterComponents.append("[Color: \(colors)]")
+                }
+
+                if !filters.modelYears.isEmpty {
+                    let years = Array(filters.modelYears).sorted(by: >).map { String($0) }.joined(separator: " OR ")
+                    filterComponents.append("[Model Year: \(years)]")
+                }
+
+                if !filters.fuelTypes.isEmpty {
+                    let fuels = filters.fuelTypes
+                        .compactMap { FuelType(rawValue: $0)?.description }
+                        .joined(separator: " OR ")
+                    if !fuels.isEmpty {
+                        filterComponents.append("[Fuel: \(fuels)]")
+                    }
                 }
 
                 if !filters.regions.isEmpty {
@@ -2567,7 +2615,7 @@ class DatabaseManager: ObservableObject {
                 .compactMap { VehicleClass(rawValue: $0)?.description }
                 .joined(separator: " OR ")
             if !vehicle_classes.isEmpty {
-                components.append("[\(vehicle_classes)]")
+                components.append("[Class: \(vehicle_classes)]")
             }
         }
 
@@ -2603,7 +2651,7 @@ class DatabaseManager: ObservableObject {
                 .compactMap { FuelType(rawValue: $0)?.description }
                 .joined(separator: " OR ")
             if !fuels.isEmpty {
-                components.append("[\(fuels)]")
+                components.append("[Fuel: \(fuels)]")
             }
         }
 
@@ -2714,7 +2762,7 @@ class DatabaseManager: ObservableObject {
                 .compactMap { VehicleClass(rawValue: $0)?.description }
                 .joined(separator: " OR ")
             if !classifications.isEmpty {
-                baseComponents.append("[\(classifications)]")
+                baseComponents.append("[Class: \(classifications)]")
             }
         }
 
@@ -3069,7 +3117,7 @@ class DatabaseManager: ObservableObject {
                 .compactMap { FuelType(rawValue: $0)?.description }
                 .joined(separator: " OR ")
             if !fuels.isEmpty {
-                components.append("[\(fuels)]")
+                components.append("[Fuel: \(fuels)]")
             }
         }
 

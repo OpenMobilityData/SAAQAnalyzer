@@ -1024,6 +1024,7 @@ enum CoverageField: String, CaseIterable, Sendable {
     case netMass = "Vehicle Mass"
     case displacement = "Engine Displacement"
     case cylinderCount = "Cylinders"
+    case axleCount = "Axle Count"
 
     // Geographic fields (applicable to both)
     case adminRegion = "Admin Region"
@@ -1046,6 +1047,7 @@ enum CoverageField: String, CaseIterable, Sendable {
         case .netMass: return "net_mass_int"
         case .displacement: return "displacement_int"
         case .cylinderCount: return "cylinder_count_id"
+        case .axleCount: return "max_axles"
         case .adminRegion: return "admin_region_id"
         case .mrc: return "mrc_id"
         case .municipality: return "municipality_id"
@@ -1059,7 +1061,7 @@ enum CoverageField: String, CaseIterable, Sendable {
     func isApplicable(to entityType: DataEntityType) -> Bool {
         switch self {
         case .fuelType, .vehicleClass, .vehicleMake, .vehicleModel, .vehicleColor,
-             .modelYear, .netMass, .displacement, .cylinderCount:
+             .modelYear, .netMass, .displacement, .cylinderCount, .axleCount:
             return entityType == .vehicle
         case .licenseType, .ageGroup, .gender:
             return entityType == .license
