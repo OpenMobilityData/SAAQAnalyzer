@@ -406,8 +406,8 @@ struct ChartView: View {
                 }
             }
 
-        case .average, .minimum, .maximum:
-            // Adaptive precision for averages/min/max with conditional units
+        case .average, .median, .minimum, .maximum:
+            // Adaptive precision for averages/median/min/max with conditional units
             let format = adaptiveDecimalFormat(value)
             if showUnits, let unit = firstSeries.metricField.unit {
                 return String(format: "\(format)%@", value, unit)

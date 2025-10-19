@@ -1209,6 +1209,46 @@ class DatabaseManager: ObservableObject {
                         query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
                     }
 
+                case .median:
+                    if filters.metricField == .vehicleAge {
+                        // Special case: median of computed age using window functions
+                        query = """
+                            WITH ranked_values AS (
+                                SELECT year,
+                                       (year - model_year) as value,
+                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY (year - model_year)) as row_num,
+                                       COUNT(*) OVER (PARTITION BY year) as total_count
+                                FROM vehicles
+                                WHERE model_year IS NOT NULL AND 1=1
+                            )
+                            SELECT year,
+                                   AVG(value) as value
+                            FROM ranked_values
+                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                            GROUP BY year
+                            """
+                    } else if let column = filters.metricField.databaseColumn {
+                        // General median calculation using window functions
+                        query = """
+                            WITH ranked_values AS (
+                                SELECT year,
+                                       \(column) as value,
+                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY \(column)) as row_num,
+                                       COUNT(*) OVER (PARTITION BY year) as total_count
+                                FROM vehicles
+                                WHERE \(column) IS NOT NULL AND 1=1
+                            )
+                            SELECT year,
+                                   AVG(value) as value
+                            FROM ranked_values
+                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                            GROUP BY year
+                            """
+                    } else {
+                        // Fallback to count if no valid field
+                        query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                    }
+
                 case .minimum:
                     if filters.metricField == .vehicleAge {
                         query = "SELECT year, MIN(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
@@ -1561,6 +1601,35 @@ class DatabaseManager: ObservableObject {
                                 has_driver_license_1234 + has_driver_license_5 + has_driver_license_6abce +
                                 has_driver_license_6d + has_driver_license_8
                             ) as value FROM licenses WHERE 1=1
+                            """
+                    } else {
+                        // Fallback to count
+                        query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
+                    }
+
+                case .median:
+                    // For licenses, median operations for license classes per person
+                    if filters.metricField == .licenseClassCount {
+                        query = """
+                            WITH ranked_values AS (
+                                SELECT year,
+                                       (has_learner_permit_123 + has_learner_permit_5 + has_learner_permit_6a6r +
+                                        has_driver_license_1234 + has_driver_license_5 + has_driver_license_6abce +
+                                        has_driver_license_6d + has_driver_license_8) as value,
+                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY (
+                                           has_learner_permit_123 + has_learner_permit_5 + has_learner_permit_6a6r +
+                                           has_driver_license_1234 + has_driver_license_5 + has_driver_license_6abce +
+                                           has_driver_license_6d + has_driver_license_8
+                                       )) as row_num,
+                                       COUNT(*) OVER (PARTITION BY year) as total_count
+                                FROM licenses
+                                WHERE 1=1
+                            )
+                            SELECT year,
+                                   AVG(value) as value
+                            FROM ranked_values
+                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                            GROUP BY year
                             """
                     } else {
                         // Fallback to count
@@ -1939,6 +2008,45 @@ class DatabaseManager: ObservableObject {
                         query = "SELECT year, AVG(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
                     } else if let column = filters.metricField.databaseColumn {
                         query = "SELECT year, AVG(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
+                    } else {
+                        query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                    }
+
+                case .median:
+                    if filters.metricField == .vehicleAge {
+                        // Special case: median of computed age using window functions
+                        query = """
+                            WITH ranked_values AS (
+                                SELECT year,
+                                       (year - model_year) as value,
+                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY (year - model_year)) as row_num,
+                                       COUNT(*) OVER (PARTITION BY year) as total_count
+                                FROM vehicles
+                                WHERE model_year IS NOT NULL AND 1=1
+                            )
+                            SELECT year,
+                                   AVG(value) as value
+                            FROM ranked_values
+                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                            GROUP BY year
+                            """
+                    } else if let column = filters.metricField.databaseColumn {
+                        // General median calculation using window functions
+                        query = """
+                            WITH ranked_values AS (
+                                SELECT year,
+                                       \(column) as value,
+                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY \(column)) as row_num,
+                                       COUNT(*) OVER (PARTITION BY year) as total_count
+                                FROM vehicles
+                                WHERE \(column) IS NOT NULL AND 1=1
+                            )
+                            SELECT year,
+                                   AVG(value) as value
+                            FROM ranked_values
+                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                            GROUP BY year
+                            """
                     } else {
                         query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
                     }
@@ -2350,7 +2458,7 @@ class DatabaseManager: ObservableObject {
 
         // Add metric information if not count
         if filters.metricType != .count {
-            if filters.metricType == .sum || filters.metricType == .average || filters.metricType == .minimum || filters.metricType == .maximum {
+            if filters.metricType == .sum || filters.metricType == .average || filters.metricType == .median || filters.metricType == .minimum || filters.metricType == .maximum {
                 // For aggregate functions, build filter description and use "metric field in [filters]" format
                 var filterComponents: [String] = []
 

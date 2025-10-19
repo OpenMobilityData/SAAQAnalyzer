@@ -1926,8 +1926,8 @@ struct MetricConfigurationSection: View {
                 syncCategorySelectionFromBaseFilters()
             }
 
-            // Field selector (shown for sum, average, minimum, and maximum)
-            if metricType == .sum || metricType == .average || metricType == .minimum || metricType == .maximum {
+            // Field selector (shown for sum, average, median, minimum, and maximum)
+            if metricType == .sum || metricType == .average || metricType == .median || metricType == .minimum || metricType == .maximum {
                 VStack(alignment: .leading, spacing: 4) {
                     let preposition = (metricType == .minimum || metricType == .maximum) ? "for" : "to"
                     Text("Field \(preposition) \(metricType.rawValue)")
@@ -2246,6 +2246,21 @@ struct MetricConfigurationSection: View {
                 return "Average model year"
             default:
                 return "Average \(metricField.rawValue)"
+            }
+        case .median:
+            switch metricField {
+            case .netMass:
+                return "Median vehicle weight"
+            case .displacement:
+                return "Median engine displacement"
+            case .cylinderCount:
+                return "Median cylinders per vehicle"
+            case .vehicleAge:
+                return "Median age of vehicles"
+            case .modelYear:
+                return "Median model year"
+            default:
+                return "Median \(metricField.rawValue)"
             }
         case .minimum:
             switch metricField {
