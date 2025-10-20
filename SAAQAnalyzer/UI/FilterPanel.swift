@@ -334,12 +334,29 @@ struct FilterPanel: View {
             print("🔄 Database version changed, refreshing municipality mapping")
             refreshMunicipalityMapping()
         }
-        .onChange(of: configuration.limitToCuratedYears) { _, _ in
+        .onChange(of: configuration.limitToCuratedYears) { _, newValue in
             // Reload filter options when curated years toggle changes
             Task {
-                print("🔄 Curated years filter changed, reloading data type specific options")
+                print("🔄 Curated years filter changed to: \(newValue)")
                 isModelListFiltered = false  // Reset filter state
-                await loadDataTypeSpecificOptions()
+
+                // When limiting to curated years, automatically deselect uncurated years
+                if newValue {
+                    if let regManager = databaseManager.regularizationManager {
+                        let yearConfig = regManager.getYearConfiguration()
+                        let curatedYearsSet = yearConfig.curatedYears
+
+                        // Remove uncurated years from selection
+                        let uncuratedYearsToRemove = configuration.years.subtracting(curatedYearsSet)
+                        if !uncuratedYearsToRemove.isEmpty {
+                            configuration.years = configuration.years.intersection(curatedYearsSet)
+                            print("📊 Auto-deselected \(uncuratedYearsToRemove.count) uncurated year(s): \(uncuratedYearsToRemove.sorted())")
+                        }
+                    }
+                }
+
+                // Don't auto-select years when reloading (would re-add the years we just removed)
+                await loadDataTypeSpecificOptions(autoSelectYears: false)
             }
         }
     }
@@ -392,6 +409,21 @@ struct FilterPanel: View {
                     if !newYears.isEmpty {
                         configuration.years.formUnion(newYears)
                         print("📊 Auto-selected \(newYears.count) newly imported year(s): \(newYears.sorted())")
+                    }
+                }
+
+                // If "Limit to Curated Years" is ON, deselect uncurated years
+                // This ensures correct state on app launch when toggle is already ON
+                if configuration.limitToCuratedYears {
+                    if let regManager = databaseManager.regularizationManager {
+                        let yearConfig = regManager.getYearConfiguration()
+                        let curatedYearsSet = yearConfig.curatedYears
+
+                        let uncuratedYearsToRemove = configuration.years.subtracting(curatedYearsSet)
+                        if !uncuratedYearsToRemove.isEmpty {
+                            configuration.years = configuration.years.intersection(curatedYearsSet)
+                            print("📊 Removed \(uncuratedYearsToRemove.count) uncurated year(s) on initial load: \(uncuratedYearsToRemove.sorted())")
+                        }
                     }
                 }
             }
