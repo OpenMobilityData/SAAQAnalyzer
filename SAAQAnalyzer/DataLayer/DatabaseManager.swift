@@ -2579,6 +2579,11 @@ class DatabaseManager: ObservableObject {
                     metricLabel = "Cumulative " + metricLabel
                 }
 
+                // Add normalization indicator if enabled
+                if filters.normalizeToFirstYear {
+                    metricLabel += " [Normalized]"
+                }
+
                 // Return in "metric field in [filters]" format
                 if !filterComponents.isEmpty {
                     return "\(metricLabel) in [\(filterComponents.joined(separator: " AND "))]"
@@ -2588,20 +2593,27 @@ class DatabaseManager: ObservableObject {
 
             } else if filters.metricType == .percentage {
                 // For percentage, put the specific category first, then "in" baseline
+                var percentageLabel: String
                 if let baseFilters = filters.percentageBaseFilters {
                     let droppedCategory = determineDifference(original: filters, baseline: baseFilters)
                     let specificValue = getSpecificCategoryValue(filters: filters, droppedCategory: droppedCategory)
                     let baselineDesc = await generateBaselineDescription(baseFilters: baseFilters, originalFilters: filters)
 
                     if let specific = specificValue {
-                        // Return complete percentage description - no need to add other components
-                        return "% [\(specific)] in [\(baselineDesc)]"
+                        percentageLabel = "% [\(specific)] in [\(baselineDesc)]"
                     } else {
-                        return "% of [\(baselineDesc)]"
+                        percentageLabel = "% of [\(baselineDesc)]"
                     }
                 } else {
-                    return "% of All Vehicles"
+                    percentageLabel = "% of All Vehicles"
                 }
+
+                // Add normalization indicator if enabled
+                if filters.normalizeToFirstYear {
+                    percentageLabel += " [Normalized]"
+                }
+
+                return percentageLabel
             } else if filters.metricType == .coverage {
                 // For coverage, describe the field being analyzed and the mode (percentage or count)
                 if let coverageField = filters.coverageField {
@@ -2667,12 +2679,20 @@ class DatabaseManager: ObservableObject {
                         filterComponents.append("[Municipality: \(municipalityNames.joined(separator: " OR "))]")
                     }
 
-                    // Return coverage description
+                    // Build coverage description
+                    var coverageLabel: String
                     if !filterComponents.isEmpty {
-                        return "\(modePrefix) [\(coverageField.rawValue)] in [\(filterComponents.joined(separator: " AND "))]"
+                        coverageLabel = "\(modePrefix) [\(coverageField.rawValue)] in [\(filterComponents.joined(separator: " AND "))]"
                     } else {
-                        return "\(modePrefix) [\(coverageField.rawValue)] in [All \(filters.dataEntityType == .vehicle ? "Vehicles" : "License Holders")]"
+                        coverageLabel = "\(modePrefix) [\(coverageField.rawValue)] in [All \(filters.dataEntityType == .vehicle ? "Vehicles" : "License Holders")]"
                     }
+
+                    // Add normalization indicator if enabled
+                    if filters.normalizeToFirstYear {
+                        coverageLabel += " [Normalized]"
+                    }
+
+                    return coverageLabel
                 } else {
                     return "Coverage (No Field Selected)"
                 }
@@ -2691,6 +2711,11 @@ class DatabaseManager: ObservableObject {
                 // Add "Cumulative" prefix if cumulative sum is enabled
                 if filters.showCumulativeSum {
                     modePrefix = "Cumulative " + modePrefix
+                }
+
+                // Add normalization indicator if enabled
+                if filters.normalizeToFirstYear {
+                    modePrefix += " [Normalized]"
                 }
 
                 // Build filter context
@@ -2897,6 +2922,11 @@ class DatabaseManager: ObservableObject {
         // Add "Cumulative" prefix if cumulative sum is enabled (for count metric)
         if filters.showCumulativeSum && filters.metricType == .count {
             result = "Cumulative " + result
+        }
+
+        // Add normalization indicator if enabled (for count metric)
+        if filters.normalizeToFirstYear && filters.metricType == .count {
+            result += " [Normalized]"
         }
 
         return result
