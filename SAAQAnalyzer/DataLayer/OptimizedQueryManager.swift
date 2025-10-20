@@ -175,25 +175,42 @@ class OptimizedQueryManager {
                 }
             }
 
+            // For makes, use FilterCacheManager to ensure correct ID lookup
+            // (similar to models - though Make names are typically unique)
             for make in filters.vehicleMakes {
-                // Strip any badge decoration from make name
-                let cleanMake = FilterConfiguration.stripMakeBadge(make)
-                if let id = try await enumManager.getEnumId(table: "make_enum", column: "name", value: cleanMake) {
-                    print("🔍 Make '\(make)' (cleaned: '\(cleanMake)') -> ID \(id)")
-                    makeIds.append(id)
+                if let filterCache = databaseManager?.filterCacheManager {
+                    // Get all makes from cache
+                    let allMakes = try await filterCache.getAvailableMakes(limitToCuratedYears: false)
+
+                    // Find the FilterItem whose displayName matches our filter string
+                    if let matchingMake = allMakes.first(where: { $0.displayName == make }) {
+                        print("🔍 Make '\(make)' -> ID \(matchingMake.id) (via FilterCacheManager)")
+                        makeIds.append(matchingMake.id)
+                    } else {
+                        print("⚠️ Make '\(make)' not found in FilterCacheManager")
+                    }
                 } else {
-                    print("⚠️ Make '\(cleanMake)' not found in enum table")
+                    print("⚠️ FilterCacheManager not available")
                 }
             }
 
+            // For models, we MUST use FilterCacheManager to get the correct model_id
+            // because model names are NOT unique (e.g., "ART" exists for multiple makes)
+            // The FilterItem already has the correct model_id for the Make+Model combination
             for model in filters.vehicleModels {
-                // Strip any badge decoration from model name (e.g., "CRV (HONDA) [uncurated: 14 records]" -> "CRV")
-                let cleanModel = FilterConfiguration.stripModelBadge(model)
-                if let id = try await enumManager.getEnumId(table: "model_enum", column: "name", value: cleanModel) {
-                    print("🔍 Model '\(model)' (cleaned: '\(cleanModel)') -> ID \(id)")
-                    modelIds.append(id)
+                if let filterCache = databaseManager?.filterCacheManager {
+                    // Get all models from cache
+                    let allModels = try await filterCache.getAvailableModels(limitToCuratedYears: false, forMakeIds: nil)
+
+                    // Find the FilterItem whose displayName matches our filter string
+                    if let matchingModel = allModels.first(where: { $0.displayName == model }) {
+                        print("🔍 Model '\(model)' -> ID \(matchingModel.id) (via FilterCacheManager)")
+                        modelIds.append(matchingModel.id)
+                    } else {
+                        print("⚠️ Model '\(model)' not found in FilterCacheManager")
+                    }
                 } else {
-                    print("⚠️ Model '\(cleanModel)' not found in enum table")
+                    print("⚠️ FilterCacheManager not available")
                 }
             }
 

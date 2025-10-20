@@ -243,18 +243,23 @@ class FilterCacheManager {
         let uncuratedPlaceholders = uncuratedYearsList.map { _ in "?" }.joined(separator: ",")
 
         // Find Makes that exist ONLY in uncurated years (not in curated years)
+        // Use NOT EXISTS instead of NOT IN to handle NULL make_ids correctly
         let sql = """
-        SELECT v.make_id, COUNT(*) as record_count
-        FROM vehicles v
-        JOIN year_enum y ON v.year_id = y.id
-        WHERE y.year IN (\(uncuratedPlaceholders))
-        AND v.make_id NOT IN (
-            SELECT DISTINCT v2.make_id
+        SELECT u.make_id, u.record_count
+        FROM (
+            SELECT v.make_id, COUNT(*) as record_count
+            FROM vehicles v
+            JOIN year_enum y ON v.year_id = y.id
+            WHERE y.year IN (\(uncuratedPlaceholders))
+            GROUP BY v.make_id
+        ) u
+        WHERE NOT EXISTS (
+            SELECT 1
             FROM vehicles v2
             JOIN year_enum y2 ON v2.year_id = y2.id
-            WHERE y2.year IN (\(curatedPlaceholders))
-        )
-        GROUP BY v.make_id;
+            WHERE v2.make_id = u.make_id
+            AND y2.year IN (\(curatedPlaceholders))
+        );
         """
 
         uncuratedMakes = try await withCheckedThrowingContinuation { continuation in
@@ -528,9 +533,21 @@ class FilterCacheManager {
         // If limiting to curated years, filter out uncurated-only Makes
         if limitToCuratedYears {
             return cachedMakes.filter { make in
+                let displayName = make.displayName
+
+                // Filter out makes with uncurated badges
+                // Check display name first (more robust - handles edge cases)
+                if displayName.contains("[uncurated:") {
+                    return false
+                }
+
+                // Also check the dictionary for consistency (defensive double-check)
                 let makeId = String(make.id)
-                // Exclude if this Make exists ONLY in uncurated years
-                return uncuratedMakes[makeId] == nil
+                if uncuratedMakes[makeId] != nil {
+                    return false
+                }
+
+                return true
             }
         }
 
@@ -542,30 +559,21 @@ class FilterCacheManager {
 
         var filteredModels = cachedModels
 
-        // If hierarchical filtering requested, filter models by selected makes FIRST
-        // This ensures we get all models for explicitly selected makes
+        // FIRST: Apply hierarchical filtering if requested
+        // This filters from the full model set before curated years filtering
+        // (October 18 fix: order matters - hierarchical filtering must come first)
         if let makeIds = forMakeIds, !makeIds.isEmpty {
             filteredModels = try await filterModelsByMakes(filteredModels, makeIds: makeIds)
-
-            // When hierarchical filtering is active, the user explicitly selected specific makes,
-            // so we should show ALL models for those makes, even if they're uncurated.
-            // Return early without applying curated years filter.
-            return filteredModels
         }
 
-        // Only apply curated years filter when NOT using hierarchical filtering
-        // (i.e., when showing the full model list without make selection)
+        // SECOND: Apply curated years filter if requested
+        // This applies to ALL models, including hierarchically-filtered results
+        // When "Limit to Curated Years" is ON, no uncurated data should appear anywhere
         if limitToCuratedYears {
             filteredModels = filteredModels.filter { model in
-                // Extract makeId and modelId from the cached model
-                // The model's ID is the modelId, we need to find its makeId from the display name
-                // Format: "Model (Make)" or "Model (Make) [badges...]"
-
-                // Parse makeId from model_enum JOIN - we need to query this differently
-                // For now, check if the model has an uncurated badge in its display name
                 let displayName = model.displayName
 
-                // If display contains "[uncurated:" badge, it's an uncurated pair
+                // Filter out models with uncurated badges
                 if displayName.contains("[uncurated:") {
                     return false
                 }
