@@ -1312,6 +1312,24 @@ class DatabaseManager: ObservableObject {
                         """
                     if filters.roadWearIndexMode == .average {
                         query = "SELECT year, AVG(\(rwiCalculation)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
+                    } else if filters.roadWearIndexMode == .median {
+                        // Median requires window functions with CTE
+                        query = """
+                            WITH rwi_values AS (
+                                SELECT year,
+                                       \(rwiCalculation) as value,
+                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY \(rwiCalculation)) as row_num,
+                                       COUNT(*) OVER (PARTITION BY year) as total_count
+                                FROM vehicles
+                                WHERE net_mass IS NOT NULL AND 1=1
+                            )
+                            SELECT year,
+                                   AVG(value) as value
+                            FROM rwi_values
+                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                            GROUP BY year
+                            ORDER BY year
+                            """
                     } else {
                         query = "SELECT year, SUM(\(rwiCalculation)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
                     }
@@ -2110,6 +2128,24 @@ class DatabaseManager: ObservableObject {
                         """
                     if filters.roadWearIndexMode == .average {
                         query = "SELECT year, AVG(\(rwiCalculation)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
+                    } else if filters.roadWearIndexMode == .median {
+                        // Median requires window functions with CTE
+                        query = """
+                            WITH rwi_values AS (
+                                SELECT year,
+                                       \(rwiCalculation) as value,
+                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY \(rwiCalculation)) as row_num,
+                                       COUNT(*) OVER (PARTITION BY year) as total_count
+                                FROM vehicles
+                                WHERE net_mass IS NOT NULL AND 1=1
+                            )
+                            SELECT year,
+                                   AVG(value) as value
+                            FROM rwi_values
+                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                            GROUP BY year
+                            ORDER BY year
+                            """
                     } else {
                         query = "SELECT year, SUM(\(rwiCalculation)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
                     }
@@ -2641,8 +2677,16 @@ class DatabaseManager: ObservableObject {
                     return "Coverage (No Field Selected)"
                 }
             } else if filters.metricType == .roadWearIndex {
-                // For Road Wear Index, describe the mode (average or sum) and filters
-                var modePrefix = filters.roadWearIndexMode == .average ? "Avg RWI" : "Total RWI"
+                // For Road Wear Index, describe the mode (average, median, or sum) and filters
+                var modePrefix: String
+                switch filters.roadWearIndexMode {
+                case .average:
+                    modePrefix = "Avg RWI"
+                case .median:
+                    modePrefix = "Median RWI"
+                case .sum:
+                    modePrefix = "Total RWI"
+                }
 
                 // Add "Cumulative" prefix if cumulative sum is enabled
                 if filters.showCumulativeSum {

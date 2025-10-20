@@ -1136,11 +1136,13 @@ struct FilterConfiguration: Equatable, Sendable {
     /// Mode for Road Wear Index calculation
     enum RoadWearIndexMode: String, CaseIterable, Sendable {
         case average = "Average"
+        case median = "Median"
         case sum = "Sum"
 
         var description: String {
             switch self {
             case .average: return "Average Road Wear Index"
+            case .median: return "Median Road Wear Index"
             case .sum: return "Total Road Wear Index"
             }
         }
@@ -1524,7 +1526,15 @@ class FilteredDataSeries: Identifiable {
                 return "NULL Count"
             }
         case .roadWearIndex:
-            let baseLabel = filters.roadWearIndexMode == .average ? "Average Road Wear Index" : "Total Road Wear Index"
+            let baseLabel: String
+            switch filters.roadWearIndexMode {
+            case .average:
+                baseLabel = "Average Road Wear Index"
+            case .median:
+                baseLabel = "Median Road Wear Index"
+            case .sum:
+                baseLabel = "Total Road Wear Index"
+            }
             return filters.normalizeToFirstYear ? "\(baseLabel) (Normalized)" : "\(baseLabel) (Raw)"
         }
     }

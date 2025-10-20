@@ -2303,9 +2303,14 @@ struct MetricConfigurationSection: View {
                 return "Select a field to analyze coverage"
             }
         case .roadWearIndex:
-            return currentFilters.roadWearIndexMode == .average
-                ? "Average road wear index (4th power law)"
-                : "Total road wear index (4th power law)"
+            switch currentFilters.roadWearIndexMode {
+            case .average:
+                return "Average road wear index (4th power law)"
+            case .median:
+                return "Median road wear index (4th power law)"
+            case .sum:
+                return "Total road wear index (4th power law)"
+            }
         }
     }
 }

@@ -562,6 +562,8 @@ class OptimizedQueryManager {
                 var additionalWhereConditions = ""
                 var useMedianCTE = false
                 var medianValueExpr = ""
+                var useRWIMedianCTE = false
+                var rwiCalculationExpr = ""
 
                 // Build SELECT clause based on metric type
                 switch filters.metricType {
@@ -691,10 +693,17 @@ class OptimizedQueryManager {
                         """
                     if filters.roadWearIndexMode == .average {
                         selectClause = "AVG(\(rwiCalculation)) as value"
+                        additionalWhereConditions = " AND v.net_mass_int IS NOT NULL"
+                    } else if filters.roadWearIndexMode == .median {
+                        // Median RWI requires CTE with window functions
+                        useRWIMedianCTE = true
+                        rwiCalculationExpr = rwiCalculation
+                        selectClause = ""  // Will be replaced with CTE query
+                        additionalWhereConditions = " AND v.net_mass_int IS NOT NULL"
                     } else {
                         selectClause = "SUM(\(rwiCalculation)) as value"
+                        additionalWhereConditions = " AND v.net_mass_int IS NOT NULL"
                     }
-                    additionalWhereConditions = " AND v.net_mass_int IS NOT NULL"
                 }
 
                 // Age range filter (requires model_year join for age calculation)
@@ -731,7 +740,7 @@ class OptimizedQueryManager {
                     }
                 }
 
-                // Build query - use CTE for median, simple GROUP BY for others
+                // Build query - use CTE for median or RWI median, simple GROUP BY for others
                 let query: String
                 if useMedianCTE {
                     // Median requires window functions with CTE
@@ -749,6 +758,26 @@ class OptimizedQueryManager {
                         SELECT year,
                                AVG(value) as value
                         FROM ranked_values
+                        WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                        GROUP BY year
+                        ORDER BY year
+                        """
+                } else if useRWIMedianCTE {
+                    // RWI Median requires CTE to calculate RWI, then find median
+                    query = """
+                        WITH rwi_values AS (
+                            SELECT y.year,
+                                   \(rwiCalculationExpr) as value,
+                                   ROW_NUMBER() OVER (PARTITION BY y.year ORDER BY \(rwiCalculationExpr)) as row_num,
+                                   COUNT(*) OVER (PARTITION BY y.year) as total_count
+                            FROM vehicles v
+                            JOIN year_enum y ON v.year_id = y.id
+                            \(additionalJoins)
+                            \(whereClause)\(additionalWhereConditions)
+                        )
+                        SELECT year,
+                               AVG(value) as value
+                        FROM rwi_values
                         WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
                         GROUP BY year
                         ORDER BY year
