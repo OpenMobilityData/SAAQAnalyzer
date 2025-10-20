@@ -1209,6 +1209,46 @@ class DatabaseManager: ObservableObject {
                         query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
                     }
 
+                case .median:
+                    if filters.metricField == .vehicleAge {
+                        // Special case: median of computed age using window functions
+                        query = """
+                            WITH ranked_values AS (
+                                SELECT year,
+                                       (year - model_year) as value,
+                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY (year - model_year)) as row_num,
+                                       COUNT(*) OVER (PARTITION BY year) as total_count
+                                FROM vehicles
+                                WHERE model_year IS NOT NULL AND 1=1
+                            )
+                            SELECT year,
+                                   AVG(value) as value
+                            FROM ranked_values
+                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                            GROUP BY year
+                            """
+                    } else if let column = filters.metricField.databaseColumn {
+                        // General median calculation using window functions
+                        query = """
+                            WITH ranked_values AS (
+                                SELECT year,
+                                       \(column) as value,
+                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY \(column)) as row_num,
+                                       COUNT(*) OVER (PARTITION BY year) as total_count
+                                FROM vehicles
+                                WHERE \(column) IS NOT NULL AND 1=1
+                            )
+                            SELECT year,
+                                   AVG(value) as value
+                            FROM ranked_values
+                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                            GROUP BY year
+                            """
+                    } else {
+                        // Fallback to count if no valid field
+                        query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                    }
+
                 case .minimum:
                     if filters.metricField == .vehicleAge {
                         query = "SELECT year, MIN(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
@@ -1272,6 +1312,24 @@ class DatabaseManager: ObservableObject {
                         """
                     if filters.roadWearIndexMode == .average {
                         query = "SELECT year, AVG(\(rwiCalculation)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
+                    } else if filters.roadWearIndexMode == .median {
+                        // Median requires window functions with CTE
+                        query = """
+                            WITH rwi_values AS (
+                                SELECT year,
+                                       \(rwiCalculation) as value,
+                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY \(rwiCalculation)) as row_num,
+                                       COUNT(*) OVER (PARTITION BY year) as total_count
+                                FROM vehicles
+                                WHERE net_mass IS NOT NULL AND 1=1
+                            )
+                            SELECT year,
+                                   AVG(value) as value
+                            FROM rwi_values
+                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                            GROUP BY year
+                            ORDER BY year
+                            """
                     } else {
                         query = "SELECT year, SUM(\(rwiCalculation)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
                     }
@@ -1561,6 +1619,35 @@ class DatabaseManager: ObservableObject {
                                 has_driver_license_1234 + has_driver_license_5 + has_driver_license_6abce +
                                 has_driver_license_6d + has_driver_license_8
                             ) as value FROM licenses WHERE 1=1
+                            """
+                    } else {
+                        // Fallback to count
+                        query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
+                    }
+
+                case .median:
+                    // For licenses, median operations for license classes per person
+                    if filters.metricField == .licenseClassCount {
+                        query = """
+                            WITH ranked_values AS (
+                                SELECT year,
+                                       (has_learner_permit_123 + has_learner_permit_5 + has_learner_permit_6a6r +
+                                        has_driver_license_1234 + has_driver_license_5 + has_driver_license_6abce +
+                                        has_driver_license_6d + has_driver_license_8) as value,
+                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY (
+                                           has_learner_permit_123 + has_learner_permit_5 + has_learner_permit_6a6r +
+                                           has_driver_license_1234 + has_driver_license_5 + has_driver_license_6abce +
+                                           has_driver_license_6d + has_driver_license_8
+                                       )) as row_num,
+                                       COUNT(*) OVER (PARTITION BY year) as total_count
+                                FROM licenses
+                                WHERE 1=1
+                            )
+                            SELECT year,
+                                   AVG(value) as value
+                            FROM ranked_values
+                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                            GROUP BY year
                             """
                     } else {
                         // Fallback to count
@@ -1943,6 +2030,45 @@ class DatabaseManager: ObservableObject {
                         query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
                     }
 
+                case .median:
+                    if filters.metricField == .vehicleAge {
+                        // Special case: median of computed age using window functions
+                        query = """
+                            WITH ranked_values AS (
+                                SELECT year,
+                                       (year - model_year) as value,
+                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY (year - model_year)) as row_num,
+                                       COUNT(*) OVER (PARTITION BY year) as total_count
+                                FROM vehicles
+                                WHERE model_year IS NOT NULL AND 1=1
+                            )
+                            SELECT year,
+                                   AVG(value) as value
+                            FROM ranked_values
+                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                            GROUP BY year
+                            """
+                    } else if let column = filters.metricField.databaseColumn {
+                        // General median calculation using window functions
+                        query = """
+                            WITH ranked_values AS (
+                                SELECT year,
+                                       \(column) as value,
+                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY \(column)) as row_num,
+                                       COUNT(*) OVER (PARTITION BY year) as total_count
+                                FROM vehicles
+                                WHERE \(column) IS NOT NULL AND 1=1
+                            )
+                            SELECT year,
+                                   AVG(value) as value
+                            FROM ranked_values
+                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                            GROUP BY year
+                            """
+                    } else {
+                        query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
+                    }
+
                 case .minimum:
                     if filters.metricField == .vehicleAge {
                         query = "SELECT year, MIN(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
@@ -2002,6 +2128,24 @@ class DatabaseManager: ObservableObject {
                         """
                     if filters.roadWearIndexMode == .average {
                         query = "SELECT year, AVG(\(rwiCalculation)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
+                    } else if filters.roadWearIndexMode == .median {
+                        // Median requires window functions with CTE
+                        query = """
+                            WITH rwi_values AS (
+                                SELECT year,
+                                       \(rwiCalculation) as value,
+                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY \(rwiCalculation)) as row_num,
+                                       COUNT(*) OVER (PARTITION BY year) as total_count
+                                FROM vehicles
+                                WHERE net_mass IS NOT NULL AND 1=1
+                            )
+                            SELECT year,
+                                   AVG(value) as value
+                            FROM rwi_values
+                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                            GROUP BY year
+                            ORDER BY year
+                            """
                     } else {
                         query = "SELECT year, SUM(\(rwiCalculation)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
                     }
@@ -2350,7 +2494,7 @@ class DatabaseManager: ObservableObject {
 
         // Add metric information if not count
         if filters.metricType != .count {
-            if filters.metricType == .sum || filters.metricType == .average || filters.metricType == .minimum || filters.metricType == .maximum {
+            if filters.metricType == .sum || filters.metricType == .average || filters.metricType == .median || filters.metricType == .minimum || filters.metricType == .maximum {
                 // For aggregate functions, build filter description and use "metric field in [filters]" format
                 var filterComponents: [String] = []
 
@@ -2435,6 +2579,11 @@ class DatabaseManager: ObservableObject {
                     metricLabel = "Cumulative " + metricLabel
                 }
 
+                // Add normalization indicator if enabled
+                if filters.normalizeToFirstYear {
+                    metricLabel += " [Normalized]"
+                }
+
                 // Return in "metric field in [filters]" format
                 if !filterComponents.isEmpty {
                     return "\(metricLabel) in [\(filterComponents.joined(separator: " AND "))]"
@@ -2444,20 +2593,27 @@ class DatabaseManager: ObservableObject {
 
             } else if filters.metricType == .percentage {
                 // For percentage, put the specific category first, then "in" baseline
+                var percentageLabel: String
                 if let baseFilters = filters.percentageBaseFilters {
                     let droppedCategory = determineDifference(original: filters, baseline: baseFilters)
                     let specificValue = getSpecificCategoryValue(filters: filters, droppedCategory: droppedCategory)
                     let baselineDesc = await generateBaselineDescription(baseFilters: baseFilters, originalFilters: filters)
 
                     if let specific = specificValue {
-                        // Return complete percentage description - no need to add other components
-                        return "% [\(specific)] in [\(baselineDesc)]"
+                        percentageLabel = "% [\(specific)] in [\(baselineDesc)]"
                     } else {
-                        return "% of [\(baselineDesc)]"
+                        percentageLabel = "% of [\(baselineDesc)]"
                     }
                 } else {
-                    return "% of All Vehicles"
+                    percentageLabel = "% of All Vehicles"
                 }
+
+                // Add normalization indicator if enabled
+                if filters.normalizeToFirstYear {
+                    percentageLabel += " [Normalized]"
+                }
+
+                return percentageLabel
             } else if filters.metricType == .coverage {
                 // For coverage, describe the field being analyzed and the mode (percentage or count)
                 if let coverageField = filters.coverageField {
@@ -2523,22 +2679,43 @@ class DatabaseManager: ObservableObject {
                         filterComponents.append("[Municipality: \(municipalityNames.joined(separator: " OR "))]")
                     }
 
-                    // Return coverage description
+                    // Build coverage description
+                    var coverageLabel: String
                     if !filterComponents.isEmpty {
-                        return "\(modePrefix) [\(coverageField.rawValue)] in [\(filterComponents.joined(separator: " AND "))]"
+                        coverageLabel = "\(modePrefix) [\(coverageField.rawValue)] in [\(filterComponents.joined(separator: " AND "))]"
                     } else {
-                        return "\(modePrefix) [\(coverageField.rawValue)] in [All \(filters.dataEntityType == .vehicle ? "Vehicles" : "License Holders")]"
+                        coverageLabel = "\(modePrefix) [\(coverageField.rawValue)] in [All \(filters.dataEntityType == .vehicle ? "Vehicles" : "License Holders")]"
                     }
+
+                    // Add normalization indicator if enabled
+                    if filters.normalizeToFirstYear {
+                        coverageLabel += " [Normalized]"
+                    }
+
+                    return coverageLabel
                 } else {
                     return "Coverage (No Field Selected)"
                 }
             } else if filters.metricType == .roadWearIndex {
-                // For Road Wear Index, describe the mode (average or sum) and filters
-                var modePrefix = filters.roadWearIndexMode == .average ? "Avg RWI" : "Total RWI"
+                // For Road Wear Index, describe the mode (average, median, or sum) and filters
+                var modePrefix: String
+                switch filters.roadWearIndexMode {
+                case .average:
+                    modePrefix = "Avg RWI"
+                case .median:
+                    modePrefix = "Median RWI"
+                case .sum:
+                    modePrefix = "Total RWI"
+                }
 
                 // Add "Cumulative" prefix if cumulative sum is enabled
                 if filters.showCumulativeSum {
                     modePrefix = "Cumulative " + modePrefix
+                }
+
+                // Add normalization indicator if enabled
+                if filters.normalizeToFirstYear {
+                    modePrefix += " [Normalized]"
                 }
 
                 // Build filter context
@@ -2745,6 +2922,11 @@ class DatabaseManager: ObservableObject {
         // Add "Cumulative" prefix if cumulative sum is enabled (for count metric)
         if filters.showCumulativeSum && filters.metricType == .count {
             result = "Cumulative " + result
+        }
+
+        // Add normalization indicator if enabled (for count metric)
+        if filters.normalizeToFirstYear && filters.metricType == .count {
+            result += " [Normalized]"
         }
 
         return result

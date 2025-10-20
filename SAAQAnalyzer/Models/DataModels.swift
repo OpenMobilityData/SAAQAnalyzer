@@ -1136,11 +1136,13 @@ struct FilterConfiguration: Equatable, Sendable {
     /// Mode for Road Wear Index calculation
     enum RoadWearIndexMode: String, CaseIterable, Sendable {
         case average = "Average"
+        case median = "Median"
         case sum = "Sum"
 
         var description: String {
             switch self {
             case .average: return "Average Road Wear Index"
+            case .median: return "Median Road Wear Index"
             case .sum: return "Total Road Wear Index"
             }
         }
@@ -1326,6 +1328,7 @@ enum ChartMetricType: String, CaseIterable, Sendable {
     case count = "Count"
     case sum = "Sum"
     case average = "Average"
+    case median = "Median"
     case minimum = "Minimum"
     case maximum = "Maximum"
     case roadWearIndex = "Road Wear Index"
@@ -1337,6 +1340,7 @@ enum ChartMetricType: String, CaseIterable, Sendable {
         case .count: return "Record Count"
         case .sum: return "Sum of Values"
         case .average: return "Average Value"
+        case .median: return "Median Value"
         case .minimum: return "Minimum Value"
         case .maximum: return "Maximum Value"
         case .roadWearIndex: return "Road Wear Index"
@@ -1350,6 +1354,7 @@ enum ChartMetricType: String, CaseIterable, Sendable {
         case .count: return "Count"
         case .sum: return "Sum"
         case .average: return "Avg"
+        case .median: return "Median"
         case .minimum: return "Min"
         case .maximum: return "Max"
         case .roadWearIndex: return "RWI"
@@ -1494,6 +1499,12 @@ class FilteredDataSeries: Identifiable {
             } else {
                 return "Average \(metricField.rawValue)"
             }
+        case .median:
+            if let unit = metricField.unit {
+                return "Median \(metricField.rawValue) (\(unit))"
+            } else {
+                return "Median \(metricField.rawValue)"
+            }
         case .minimum:
             if let unit = metricField.unit {
                 return "Minimum \(metricField.rawValue) (\(unit))"
@@ -1515,7 +1526,15 @@ class FilteredDataSeries: Identifiable {
                 return "NULL Count"
             }
         case .roadWearIndex:
-            let baseLabel = filters.roadWearIndexMode == .average ? "Average Road Wear Index" : "Total Road Wear Index"
+            let baseLabel: String
+            switch filters.roadWearIndexMode {
+            case .average:
+                baseLabel = "Average Road Wear Index"
+            case .median:
+                baseLabel = "Median Road Wear Index"
+            case .sum:
+                baseLabel = "Total Road Wear Index"
+            }
             return filters.normalizeToFirstYear ? "\(baseLabel) (Normalized)" : "\(baseLabel) (Raw)"
         }
     }
@@ -1577,7 +1596,7 @@ class FilteredDataSeries: Identifiable {
                 let formattedValue = formatWithThousandsSeparator(Int(value))
                 return formattedValue
             }
-        case .average, .minimum, .maximum:
+        case .average, .median, .minimum, .maximum:
             if metricField == .vehicleAge || metricField == .displacement {
                 // Use adaptive precision for continuous metrics
                 let format = adaptiveDecimalFormat(value)

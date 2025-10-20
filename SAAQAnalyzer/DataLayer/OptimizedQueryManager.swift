@@ -560,6 +560,10 @@ class OptimizedQueryManager {
                 var selectClause: String
                 var additionalJoins = ""
                 var additionalWhereConditions = ""
+                var useMedianCTE = false
+                var medianValueExpr = ""
+                var useRWIMedianCTE = false
+                var rwiCalculationExpr = ""
 
                 // Build SELECT clause based on metric type
                 switch filters.metricType {
@@ -593,6 +597,28 @@ class OptimizedQueryManager {
                         selectClause = "AVG(v.\(intColumn)) as value"
                         additionalWhereConditions = " AND v.\(intColumn) IS NOT NULL"
                     } else {
+                        selectClause = "COUNT(*) as value"
+                    }
+
+                case .median:
+                    // Median requires a CTE with window functions - handle specially
+                    // We'll build the full query after the switch and skip the normal path
+                    useMedianCTE = true
+                    selectClause = ""  // Will be replaced with CTE query
+
+                    // Set up the value expression and joins for median calculation
+                    if filters.metricField == .vehicleAge {
+                        medianValueExpr = "(y.year - my.year)"
+                        additionalJoins = " LEFT JOIN model_year_enum my ON v.model_year_id = my.id"
+                        additionalWhereConditions = " AND v.model_year_id IS NOT NULL"
+                    } else if let column = filters.metricField.databaseColumn {
+                        let intColumn = column == "net_mass" ? "net_mass_int" :
+                                       column == "displacement" ? "displacement_int" : column
+                        medianValueExpr = "v.\(intColumn)"
+                        additionalWhereConditions = " AND v.\(intColumn) IS NOT NULL"
+                    } else {
+                        // Fallback to count
+                        useMedianCTE = false
                         selectClause = "COUNT(*) as value"
                     }
 
@@ -667,10 +693,17 @@ class OptimizedQueryManager {
                         """
                     if filters.roadWearIndexMode == .average {
                         selectClause = "AVG(\(rwiCalculation)) as value"
+                        additionalWhereConditions = " AND v.net_mass_int IS NOT NULL"
+                    } else if filters.roadWearIndexMode == .median {
+                        // Median RWI requires CTE with window functions
+                        useRWIMedianCTE = true
+                        rwiCalculationExpr = rwiCalculation
+                        selectClause = ""  // Will be replaced with CTE query
+                        additionalWhereConditions = " AND v.net_mass_int IS NOT NULL"
                     } else {
                         selectClause = "SUM(\(rwiCalculation)) as value"
+                        additionalWhereConditions = " AND v.net_mass_int IS NOT NULL"
                     }
-                    additionalWhereConditions = " AND v.net_mass_int IS NOT NULL"
                 }
 
                 // Age range filter (requires model_year join for age calculation)
@@ -707,15 +740,59 @@ class OptimizedQueryManager {
                     }
                 }
 
-                let query = """
-                    SELECT y.year, \(selectClause)
-                    FROM vehicles v
-                    JOIN year_enum y ON v.year_id = y.id
-                    \(additionalJoins)
-                    \(whereClause)\(additionalWhereConditions)
-                    GROUP BY v.year_id, y.year
-                    ORDER BY y.year
-                """
+                // Build query - use CTE for median or RWI median, simple GROUP BY for others
+                let query: String
+                if useMedianCTE {
+                    // Median requires window functions with CTE
+                    query = """
+                        WITH ranked_values AS (
+                            SELECT y.year,
+                                   \(medianValueExpr) as value,
+                                   ROW_NUMBER() OVER (PARTITION BY y.year ORDER BY \(medianValueExpr)) as row_num,
+                                   COUNT(*) OVER (PARTITION BY y.year) as total_count
+                            FROM vehicles v
+                            JOIN year_enum y ON v.year_id = y.id
+                            \(additionalJoins)
+                            \(whereClause)\(additionalWhereConditions)
+                        )
+                        SELECT year,
+                               AVG(value) as value
+                        FROM ranked_values
+                        WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                        GROUP BY year
+                        ORDER BY year
+                        """
+                } else if useRWIMedianCTE {
+                    // RWI Median requires CTE to calculate RWI, then find median
+                    query = """
+                        WITH rwi_values AS (
+                            SELECT y.year,
+                                   \(rwiCalculationExpr) as value,
+                                   ROW_NUMBER() OVER (PARTITION BY y.year ORDER BY \(rwiCalculationExpr)) as row_num,
+                                   COUNT(*) OVER (PARTITION BY y.year) as total_count
+                            FROM vehicles v
+                            JOIN year_enum y ON v.year_id = y.id
+                            \(additionalJoins)
+                            \(whereClause)\(additionalWhereConditions)
+                        )
+                        SELECT year,
+                               AVG(value) as value
+                        FROM rwi_values
+                        WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
+                        GROUP BY year
+                        ORDER BY year
+                        """
+                } else {
+                    query = """
+                        SELECT y.year, \(selectClause)
+                        FROM vehicles v
+                        JOIN year_enum y ON v.year_id = y.id
+                        \(additionalJoins)
+                        \(whereClause)\(additionalWhereConditions)
+                        GROUP BY v.year_id, y.year
+                        ORDER BY y.year
+                        """
+                }
 
                 print("🔍 Optimized query: \(query)")
                 print("🔍 Bind values: \(bindValues.map { "(\($0.0), \($0.1))" }.joined(separator: ", "))")
