@@ -72,15 +72,91 @@ class RegularizationManager {
 
     /// Updates the year configuration
     func setYearConfiguration(_ config: RegularizationYearConfiguration) {
+        // Check if configuration actually changed
+        let configChanged = yearConfig.curatedYears != config.curatedYears ||
+                           yearConfig.uncuratedYears != config.uncuratedYears
+
         self.yearConfig = config
-        // Invalidate cached hierarchy when year configuration changes
-        self.cachedHierarchy = nil
-        logger.info("Updated regularization year configuration: Curated=\(config.curatedYearRange), Uncurated=\(config.uncuratedYearRange)")
+
+        if configChanged {
+            // Invalidate cached hierarchy when year configuration changes
+            self.cachedHierarchy = nil
+
+            // Invalidate database caches asynchronously
+            Task { [weak databaseManager, logger] in
+                do {
+                    try await databaseManager?.invalidateCanonicalHierarchyCache()
+                    try await databaseManager?.invalidateUncuratedPairsCache()
+                    logger.notice("Invalidated regularization caches due to year configuration change")
+                } catch {
+                    logger.error("Failed to invalidate caches: \(error.localizedDescription)")
+                }
+            }
+
+            logger.info("Updated regularization year configuration: Curated=\(config.curatedYearRange), Uncurated=\(config.uncuratedYearRange)")
+        } else {
+            logger.debug("Year configuration unchanged, preserving caches")
+        }
     }
 
     /// Gets the current year configuration
     func getYearConfiguration() -> RegularizationYearConfiguration {
         return yearConfig
+    }
+
+    /// Get distinct model years that exist for a specific Make/Model pair in uncurated years
+    /// This is used to show ONLY the model years that need fuel type assignment (not all years from canonical)
+    func getModelYearsForUncuratedPair(makeId: Int, modelId: Int) async throws -> [Int] {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        let uncuratedYearsList = Array(yearConfig.uncuratedYears).sorted()
+        guard !uncuratedYearsList.isEmpty else {
+            return []
+        }
+
+        let yearPlaceholders = uncuratedYearsList.map { _ in "?" }.joined(separator: ",")
+
+        let sql = """
+        SELECT DISTINCT my.year
+        FROM vehicles v
+        JOIN year_enum y ON v.year_id = y.id
+        JOIN model_year_enum my ON v.model_year_id = my.id
+        WHERE v.make_id = ?
+        AND v.model_id = ?
+        AND y.year IN (\(yearPlaceholders))
+        AND my.year IS NOT NULL
+        ORDER BY my.year;
+        """
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                // Bind make_id and model_id
+                sqlite3_bind_int(stmt, 1, Int32(makeId))
+                sqlite3_bind_int(stmt, 2, Int32(modelId))
+
+                // Bind uncurated years
+                var bindIndex: Int32 = 3
+                for year in uncuratedYearsList {
+                    sqlite3_bind_int(stmt, bindIndex, Int32(year))
+                    bindIndex += 1
+                }
+
+                var modelYears: [Int] = []
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let year = Int(sqlite3_column_int(stmt, 0))
+                    modelYears.append(year)
+                }
+
+                logger.debug("Found \(modelYears.count) distinct model years for makeId=\(makeId) modelId=\(modelId) in uncurated years: \(modelYears)")
+                continuation.resume(returning: modelYears)
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to get uncurated model years: \(error)"))
+            }
+        }
     }
 
     // MARK: - Canonical Hierarchy Generation
@@ -285,6 +361,7 @@ class RegularizationManager {
     /// Identifies Make/Model pairs in uncurated years that don't have exact matches in curated years
     func findUncuratedPairs(includeExactMatches: Bool = false) async throws -> [UnverifiedMakeModelPair] {
         guard let db = db else { throw DatabaseError.notConnected }
+        guard let dbManager = databaseManager else { throw DatabaseError.notConnected }
 
         let curatedYearsList = Array(yearConfig.curatedYears).sorted()
         let uncuratedYearsList = Array(yearConfig.uncuratedYears).sorted()
@@ -296,8 +373,29 @@ class RegularizationManager {
             throw DatabaseError.queryFailed("No curated years configured")
         }
 
+        // Check if cache is valid for current configuration
+        let cacheValid = await dbManager.isUncuratedPairsCacheValid(
+            uncuratedYears: uncuratedYearsList,
+            includeExactMatches: includeExactMatches
+        )
+
+        if cacheValid {
+            // Load from cache (fast!)
+            let startTime = CFAbsoluteTimeGetCurrent()
+            logger.info("Loading uncurated pairs from cache")
+
+            if let cachedPairs = try? await dbManager.loadUncuratedPairsFromCache() {
+                let duration = CFAbsoluteTimeGetCurrent() - startTime
+                logger.notice("✅ Loaded \(cachedPairs.count) uncurated pairs from cache in \(String(format: "%.3f", duration))s")
+                return cachedPairs
+            } else {
+                logger.warning("Failed to load from cache, will recompute")
+            }
+        }
+
+        // Cache invalid or load failed - compute fresh data
         let startTime = CFAbsoluteTimeGetCurrent()
-        logger.info("Finding uncurated Make/Model pairs in \(uncuratedYearsList.count) uncurated years: \(uncuratedYearsList), includeExactMatches=\(includeExactMatches)")
+        logger.info("Computing uncurated Make/Model pairs in \(uncuratedYearsList.count) uncurated years: \(uncuratedYearsList), includeExactMatches=\(includeExactMatches)")
 
         // Build IN clauses
         let uncuratedPlaceholders = uncuratedYearsList.map { _ in "?" }.joined(separator: ",")
@@ -354,7 +452,18 @@ class RegularizationManager {
         ORDER BY u.record_count DESC;
         """
 
-        return try await withCheckedThrowingContinuation { continuation in
+        // Load existing mappings BEFORE the continuation (must be async)
+        let existingMappings = (try? await self.getAllMappings()) ?? []
+        var mappingsDict: [String: [RegularizationMapping]] = [:]
+        for mapping in existingMappings {
+            let key = "\(mapping.uncuratedMakeId)_\(mapping.uncuratedModelId)"
+            if mappingsDict[key] == nil {
+                mappingsDict[key] = []
+            }
+            mappingsDict[key]?.append(mapping)
+        }
+
+        var pairs = try await withCheckedThrowingContinuation { continuation in
             var stmt: OpaquePointer?
             defer { sqlite3_finalize(stmt) }
 
@@ -391,6 +500,7 @@ class RegularizationManager {
                     let recordCount = Int(sqlite3_column_int(stmt, 6))
                     let percentage = sqlite3_column_double(stmt, 7)
 
+                    // Create pair with placeholders (vehicleTypeId and status will be computed after query completes)
                     let pair = UnverifiedMakeModelPair(
                         id: "\(makeId)_\(modelId)",
                         makeId: makeId,
@@ -400,7 +510,9 @@ class RegularizationManager {
                         recordCount: recordCount,
                         percentageOfTotal: percentage,
                         earliestYear: earliestYear,
-                        latestYear: latestYear
+                        latestYear: latestYear,
+                        regularizationStatus: .unassigned,  // Placeholder - will be computed
+                        vehicleTypeId: nil  // Placeholder - will be computed
                     )
                     pairs.append(pair)
                 }
@@ -425,6 +537,136 @@ class RegularizationManager {
                 let error = String(cString: sqlite3_errmsg(db))
                 continuation.resume(throwing: DatabaseError.queryFailed("Failed to find uncurated pairs: \(error)"))
             }
+        }
+
+        // Compute status for each pair asynchronously (AFTER database query completes)
+        // mappingsDict already loaded above before the continuation
+        let statusStartTime = CFAbsoluteTimeGetCurrent()
+
+        for i in 0..<pairs.count {
+            let pair = pairs[i]
+            let key = "\(pair.makeId)_\(pair.modelId)"
+            let yearRange = pair.earliestYear...pair.latestYear
+
+            // Compute status
+            let status = await computeRegularizationStatus(
+                forKey: key,
+                mappings: mappingsDict,
+                yearRange: yearRange
+            )
+
+            // Extract vehicle type ID from wildcard mapping
+            let vehicleTypeId: Int? = {
+                guard let pairMappings = mappingsDict[key] else { return nil }
+                guard let wildcardMapping = pairMappings.first(where: { $0.modelYearId == nil }) else { return nil }
+                return wildcardMapping.vehicleTypeId
+            }()
+
+            pairs[i].regularizationStatus = status
+            pairs[i].vehicleTypeId = vehicleTypeId
+        }
+
+        let statusDuration = CFAbsoluteTimeGetCurrent() - statusStartTime
+        logger.notice("Computed status for \(pairs.count) pairs in \(String(format: "%.3f", statusDuration))s")
+
+        // Populate cache in background after query completes
+        Task.detached { [weak dbManager, logger] in
+            do {
+                try await dbManager?.populateUncuratedPairsCache(pairs: pairs)
+                try await dbManager?.saveCacheMetadata(
+                    cacheName: "uncurated_pairs",
+                    curatedYears: curatedYearsList,
+                    uncuratedYears: uncuratedYearsList,
+                    includeExactMatches: includeExactMatches,
+                    recordCount: pairs.count
+                )
+                logger.info("✅ Populated uncurated pairs cache with \(pairs.count) entries")
+            } catch {
+                logger.error("Failed to populate cache: \(error.localizedDescription)")
+            }
+        }
+
+        return pairs
+    }
+
+    /// Compute regularization status for a make/model pair
+    /// - .complete: VehicleType assigned AND EVERY uncurated model year has at least one non-null fuel type
+    /// - .partial: Some assignments exist but not comprehensive
+    /// - .unassigned: No mappings exist
+    ///
+    /// NOTE: Queries distinct model years from uncurated dataset (not from triplets!)
+    func computeRegularizationStatus(
+        forKey key: String,
+        mappings: [String: [RegularizationMapping]],
+        yearRange: ClosedRange<Int>  // Deprecated parameter - unused, kept for compatibility
+    ) async -> RegularizationStatus {
+        guard let pairMappings = mappings[key], !pairMappings.isEmpty else {
+            return .unassigned
+        }
+
+        // Extract make/model IDs from key
+        let components = key.split(separator: "_")
+        guard components.count == 2,
+              let makeId = Int(components[0]),
+              let modelId = Int(components[1]) else {
+            logger.error("Invalid key format for status computation: \(key)")
+            return .unassigned
+        }
+
+        // Check for wildcard mapping (VehicleType assignment)
+        let wildcardMapping = pairMappings.first { $0.modelYearId == nil }
+        let hasVehicleType = wildcardMapping?.vehicleType != nil
+
+        // Check triplet mappings (FuelType assignments)
+        let triplets = pairMappings.filter { $0.modelYearId != nil }
+
+        // For "complete" status, we need:
+        // 1. VehicleType assigned (wildcard mapping with non-null vehicleType)
+        // 2. EVERY uncurated model year must have at least one fuel type assignment (non-null)
+        //    - "Unknown" is a valid non-null fuel type
+        //    - "Not Assigned" means NULL in database
+        if hasVehicleType && !triplets.isEmpty {
+            // CRITICAL: Query database for ALL model years in uncurated data
+            // (not just years that have triplets, since some years might not be assigned yet)
+            var uncuratedModelYears: [Int] = []
+            do {
+                // Use async context to query database
+                uncuratedModelYears = try await getModelYearsForUncuratedPair(makeId: makeId, modelId: modelId)
+            } catch {
+                logger.error("Failed to get uncurated model years for status check: \(error.localizedDescription)")
+                // Fallback: Use triplet years (will be incorrect for incomplete assignments)
+                uncuratedModelYears = Set(triplets.compactMap { $0.modelYear }).sorted()
+            }
+
+            logger.debug("📊 Status check for \(key): uncuratedModelYears=\(uncuratedModelYears), triplets=\(triplets.count), hasVehicleType=\(hasVehicleType)")
+
+            var allYearsCovered = true
+            var uncoveredYears: [Int] = []
+
+            for year in uncuratedModelYears {
+                // Find triplets for this specific model year
+                let tripletsForYear = triplets.filter { $0.modelYear == year }
+
+                // Check if at least one triplet has a non-null fuel type
+                let hasAssignedFuelType = tripletsForYear.contains { $0.fuelType != nil }
+
+                if !hasAssignedFuelType {
+                    allYearsCovered = false
+                    uncoveredYears.append(year)
+                }
+            }
+
+            if allYearsCovered {
+                logger.debug("✅ Status COMPLETE: All \(uncuratedModelYears.count) model years covered")
+                return .complete
+            } else {
+                logger.debug("⚠️ Status PARTIAL: Missing coverage for model years: \(uncoveredYears)")
+                return .partial  // Has vehicle type and some triplets, but not all years covered
+            }
+        } else if wildcardMapping != nil || !triplets.isEmpty {
+            return .partial  // Has some assignments but not comprehensive
+        } else {
+            return .unassigned  // Mappings exist but no meaningful assignments
         }
     }
 
@@ -459,6 +701,39 @@ class RegularizationManager {
             modelYearId: modelYearId
         )
 
+        // CRITICAL: For wildcard mappings (model_year_id = NULL), SQLite UNIQUE constraint
+        // doesn't prevent duplicates because NULL != NULL. Must DELETE first.
+        if modelYearId == nil {
+            let deleteSql = """
+            DELETE FROM make_model_regularization
+            WHERE uncurated_make_id = ? AND uncurated_model_id = ? AND model_year_id IS NULL;
+            """
+
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                var deleteStmt: OpaquePointer?
+                defer { sqlite3_finalize(deleteStmt) }
+
+                if sqlite3_prepare_v2(db, deleteSql, -1, &deleteStmt, nil) == SQLITE_OK {
+                    sqlite3_bind_int(deleteStmt, 1, Int32(uncuratedMakeId))
+                    sqlite3_bind_int(deleteStmt, 2, Int32(uncuratedModelId))
+
+                    if sqlite3_step(deleteStmt) == SQLITE_DONE {
+                        let changes = sqlite3_changes(db)
+                        if changes > 0 {
+                            logger.debug("Deleted \(changes) existing wildcard mapping(s) before INSERT")
+                        }
+                        continuation.resume()
+                    } else {
+                        let error = String(cString: sqlite3_errmsg(db))
+                        continuation.resume(throwing: DatabaseError.queryFailed("Failed to delete old wildcard: \(error)"))
+                    }
+                } else {
+                    let error = String(cString: sqlite3_errmsg(db))
+                    continuation.resume(throwing: DatabaseError.queryFailed("Failed to prepare delete: \(error)"))
+                }
+            }
+        }
+
         let sql = """
         INSERT OR REPLACE INTO make_model_regularization
             (uncurated_make_id, uncurated_model_id, model_year_id, canonical_make_id, canonical_model_id,
@@ -466,7 +741,7 @@ class RegularizationManager {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """
 
-        return try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { continuation in
             var stmt: OpaquePointer?
             defer { sqlite3_finalize(stmt) }
 
@@ -521,6 +796,9 @@ class RegularizationManager {
                 continuation.resume(throwing: DatabaseError.queryFailed("Failed to prepare save mapping: \(error)"))
             }
         }
+
+        // NOTE: Cache invalidation moved to caller (RegularizationView.saveMapping)
+        // to avoid 40+ invalidations when saving wildcard + triplets in batch
     }
 
     /// Deletes a regularization mapping
@@ -529,7 +807,7 @@ class RegularizationManager {
 
         let sql = "DELETE FROM make_model_regularization WHERE id = ?;"
 
-        return try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { continuation in
             var stmt: OpaquePointer?
             defer { sqlite3_finalize(stmt) }
 
@@ -546,6 +824,16 @@ class RegularizationManager {
             } else {
                 let error = String(cString: sqlite3_errmsg(db))
                 continuation.resume(throwing: DatabaseError.queryFailed("Failed to prepare delete mapping: \(error)"))
+            }
+        }
+
+        // Invalidate uncurated pairs cache since status may have changed
+        Task { [weak databaseManager, logger] in
+            do {
+                try await databaseManager?.invalidateUncuratedPairsCache()
+                logger.info("Invalidated uncurated pairs cache due to mapping deletion")
+            } catch {
+                logger.error("Failed to invalidate cache: \(error.localizedDescription)")
             }
         }
     }
@@ -566,7 +854,9 @@ class RegularizationManager {
             cm.name as canonical_make,
             cmd.name as canonical_model,
             ft.description as fuel_type,
+            r.fuel_type_id,
             vt.description as vehicle_type,
+            r.vehicle_type_id,
             r.record_count,
             r.year_range_start,
             r.year_range_end
@@ -604,14 +894,18 @@ class RegularizationManager {
 
                     let fuelType: String? = sqlite3_column_type(stmt, 9) != SQLITE_NULL
                         ? String(cString: sqlite3_column_text(stmt, 9)) : nil
-                    let vehicleType: String? = sqlite3_column_type(stmt, 10) != SQLITE_NULL
-                        ? String(cString: sqlite3_column_text(stmt, 10)) : nil
+                    let fuelTypeId: Int? = sqlite3_column_type(stmt, 10) != SQLITE_NULL
+                        ? Int(sqlite3_column_int(stmt, 10)) : nil
+                    let vehicleType: String? = sqlite3_column_type(stmt, 11) != SQLITE_NULL
+                        ? String(cString: sqlite3_column_text(stmt, 11)) : nil
+                    let vehicleTypeId: Int? = sqlite3_column_type(stmt, 12) != SQLITE_NULL
+                        ? Int(sqlite3_column_int(stmt, 12)) : nil
 
-                    let recordCount = Int(sqlite3_column_int(stmt, 11))
+                    let recordCount = Int(sqlite3_column_int(stmt, 13))
                     totalRecords += recordCount
 
-                    let yearStart = Int(sqlite3_column_int(stmt, 12))
-                    let yearEnd = Int(sqlite3_column_int(stmt, 13))
+                    let yearStart = Int(sqlite3_column_int(stmt, 14))
+                    let yearEnd = Int(sqlite3_column_int(stmt, 15))
                     let yearRange = "\(yearStart)-\(yearEnd)"
 
                     let mapping = RegularizationMapping(
@@ -625,7 +919,9 @@ class RegularizationManager {
                         canonicalMake: canonicalMake,
                         canonicalModel: canonicalModel,
                         fuelType: fuelType,
+                        fuelTypeId: fuelTypeId,
                         vehicleType: vehicleType,
+                        vehicleTypeId: vehicleTypeId,
                         recordCount: recordCount,
                         percentageOfTotal: 0.0, // Will calculate after we have total
                         yearRange: yearRange
@@ -647,7 +943,9 @@ class RegularizationManager {
                             canonicalMake: mapping.canonicalMake,
                             canonicalModel: mapping.canonicalModel,
                             fuelType: mapping.fuelType,
+                            fuelTypeId: mapping.fuelTypeId,
                             vehicleType: mapping.vehicleType,
+                            vehicleTypeId: mapping.vehicleTypeId,
                             recordCount: mapping.recordCount,
                             percentageOfTotal: Double(mapping.recordCount) / Double(totalRecords) * 100.0,
                             yearRange: mapping.yearRange
@@ -1238,6 +1536,55 @@ class RegularizationManager {
             } else {
                 let error = String(cString: sqlite3_errmsg(db))
                 continuation.resume(throwing: DatabaseError.queryFailed("Failed to get vehicle types: \(error)"))
+            }
+        }
+    }
+
+    /// Get all fuel types from schema (fuel_type_enum table)
+    /// Used for new model years that don't exist in canonical hierarchy
+    func getAllFuelTypes() async throws -> [MakeModelHierarchy.FuelTypeInfo] {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        let sql = """
+        SELECT id, code, description
+        FROM fuel_type_enum
+        WHERE code != 'NS'  -- Exclude "Not Specified"
+        ORDER BY
+            CASE code
+                WHEN 'UK' THEN 999  -- Unknown at end
+                ELSE 0
+            END,
+            description;
+        """
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                var fuelTypes: [MakeModelHierarchy.FuelTypeInfo] = []
+
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let id = Int(sqlite3_column_int(stmt, 0))
+                    let code = String(cString: sqlite3_column_text(stmt, 1))
+                    let description = String(cString: sqlite3_column_text(stmt, 2))
+
+                    let fuelType = MakeModelHierarchy.FuelTypeInfo(
+                        id: id,
+                        code: code,
+                        description: description,
+                        recordCount: 0,      // Not applicable for schema-level list
+                        modelYearId: nil,    // Not year-specific
+                        modelYear: nil       // Not year-specific
+                    )
+                    fuelTypes.append(fuelType)
+                }
+
+                logger.info("Loaded \(fuelTypes.count) fuel types from schema")
+                continuation.resume(returning: fuelTypes)
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to get fuel types: \(error)"))
             }
         }
     }

@@ -1813,7 +1813,9 @@ struct RegularizationMapping: Identifiable, Sendable {
     let canonicalMake: String
     let canonicalModel: String
     let fuelType: String?
+    let fuelTypeId: Int?            // Integer enum ID for filtering (core architecture pattern)
     let vehicleType: String?
+    let vehicleTypeId: Int?         // Integer enum ID for filtering (core architecture pattern)
     let recordCount: Int
     let percentageOfTotal: Double
     let yearRange: String
@@ -1837,6 +1839,13 @@ struct RegularizationMapping: Identifiable, Sendable {
 }
 
 /// Unverified Make/Model pair requiring regularization
+/// Regularization status for a Make/Model pair
+enum RegularizationStatus: Int, Sendable, Hashable {
+    case unassigned = 0         // 🔴 No mapping exists
+    case partial = 1            // 🟠 Mapping exists but FuelType/VehicleType incomplete
+    case complete = 2           // 🟢 Mapping complete with all fields assigned
+}
+
 struct UnverifiedMakeModelPair: Identifiable, Sendable, Hashable {
     let id: String  // Composite: "\(makeId)_\(modelId)"
     let makeId: Int
@@ -1847,6 +1856,14 @@ struct UnverifiedMakeModelPair: Identifiable, Sendable, Hashable {
     let percentageOfTotal: Double
     let earliestYear: Int
     let latestYear: Int
+
+    // Regularization status (computed once at load time, updated when mappings change)
+    var regularizationStatus: RegularizationStatus
+
+    // Cached vehicle type ID from wildcard mapping (for fast filtering)
+    // nil = no mapping exists OR mapping has NULL vehicle type
+    // Uses integer enumeration (vehicle_type_enum table) following core architecture pattern
+    var vehicleTypeId: Int?
 
     var makeModelDisplay: String {
         "\(makeName) / \(modelName)"
