@@ -291,11 +291,12 @@ class DatabaseManager: ObservableObject {
 
             // Conditionally update statistics based on user preference
             if AppSettings.shared.updateDatabaseStatisticsOnLaunch {
-                print("🔄 Updating database statistics (ANALYZE) - this may take a few minutes...")
+                AppLogger.database.info("Updating database statistics for main tables")
                 let startTime = Date()
-                sqlite3_exec(db, "ANALYZE", nil, nil, nil)
+                sqlite3_exec(db, "ANALYZE vehicles", nil, nil, nil)
+                sqlite3_exec(db, "ANALYZE licenses", nil, nil, nil)
                 let duration = Date().timeIntervalSince(startTime)
-                print("✅ Database statistics updated in \(String(format: "%.1f", duration))s")
+                AppLogger.performance.notice("Database statistics updated in \(String(format: "%.1f", duration), privacy: .public)s")
             }
 
             print("✅ Database AGGRESSIVELY optimized for M3 Ultra: 8GB cache, 32GB mmap, 16 threads")
@@ -557,7 +558,8 @@ class DatabaseManager: ObservableObject {
     }
 
     /// Manually update database statistics (ANALYZE command)
-    func updateDatabaseStatistics() async throws {
+    /// - Parameter tables: Optional array of table names to analyze. If nil, analyzes main tables (vehicles, licenses)
+    func updateDatabaseStatistics(for tables: [String]? = nil) async throws {
         return try await withCheckedThrowingContinuation { continuation in
             dbQueue.async { [weak self] in
                 guard let db = self?.db else {
@@ -565,23 +567,35 @@ class DatabaseManager: ObservableObject {
                     return
                 }
 
-                print("🔄 Updating database statistics (ANALYZE) - this may take several minutes...")
+                // Default to main tables if none specified
+                let tablesToAnalyze = tables ?? ["vehicles", "licenses"]
+
+                AppLogger.database.info("Updating database statistics for tables: \(tablesToAnalyze.joined(separator: ", "), privacy: .public)")
                 let startTime = Date()
 
-                let result = sqlite3_exec(db, "ANALYZE", nil, nil, nil)
+                var analysisResult = SQLITE_OK
+                for tableName in tablesToAnalyze {
+                    let sql = "ANALYZE \(tableName)"
+                    let result = sqlite3_exec(db, sql, nil, nil, nil)
+                    if result != SQLITE_OK {
+                        analysisResult = result
+                        break
+                    }
+                }
+
                 let duration = Date().timeIntervalSince(startTime)
 
-                if result == SQLITE_OK {
-                    print("✅ Database statistics updated successfully in \(String(format: "%.1f", duration))s")
+                if analysisResult == SQLITE_OK {
+                    AppLogger.performance.notice("Database statistics updated in \(String(format: "%.1f", duration), privacy: .public)s for \(tablesToAnalyze.count, privacy: .public) table(s)")
                     continuation.resume()
                 } else {
                     if let errorMessage = sqlite3_errmsg(db) {
                         let error = DatabaseError.queryFailed(String(cString: errorMessage))
-                        print("❌ Failed to update database statistics: \(error)")
+                        AppLogger.database.error("Failed to update database statistics: \(String(describing: error), privacy: .public)")
                         continuation.resume(throwing: error)
                     } else {
                         let error = DatabaseError.queryFailed("Unknown error during ANALYZE")
-                        print("❌ Failed to update database statistics: \(error)")
+                        AppLogger.database.error("Failed to update database statistics: \(String(describing: error), privacy: .public)")
                         continuation.resume(throwing: error)
                     }
                 }

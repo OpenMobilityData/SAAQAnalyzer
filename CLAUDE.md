@@ -221,6 +221,7 @@ SAAQAnalyzer is a macOS SwiftUI application designed to import, analyze, and vis
 - **Prefer**: SwiftUI equivalents and modern Swift APIs
 
 ### Command Line Workflow
+- **NEVER auto-run builds or tests**: User ALWAYS prefers to build and run manually
 - **Manual execution preferred**: Generate robust command-line invocations for copy/paste into console
 - **Don't auto-run**: User prefers to run scripts manually to monitor output and selectively copy results back
 - **Output format**: Ensure scripts produce clear, copy-friendly output for integration into Claude Code sessions
