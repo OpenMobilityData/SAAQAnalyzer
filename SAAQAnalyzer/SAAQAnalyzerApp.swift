@@ -1921,6 +1921,9 @@ struct RegularizationSettingsView: View {
     @State private var lastCachedYearConfig: RegularizationYearConfiguration?
     @State private var statisticsNeedRefresh = false
 
+    // Persistent ViewModel - survives sheet close/open cycles to preserve cached data
+    @State private var regularizationViewModel: RegularizationViewModel?
+
     var body: some View {
         Form {
             Section("Year Curation Configuration") {
@@ -2224,11 +2227,15 @@ struct RegularizationSettingsView: View {
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .padding(20)
-        .task {
-            await loadInitialData()
+        .onAppear {
+            // CRITICAL: Defer all work to allow view to appear first
+            // Use DispatchQueue.main.async to push work to AFTER current render cycle
+            DispatchQueue.main.async {
+                self.loadInitialData()
+            }
         }
         .sheet(isPresented: $showingRegularizationView) {
-            RegularizationView(databaseManager: databaseManager, yearConfig: yearConfig)
+            regularizationSheet()
         }
         .onChange(of: showingRegularizationView) { oldValue, newValue in
             // When RegularizationView closes, automatically reload filter cache and mark stats as stale
@@ -2240,33 +2247,36 @@ struct RegularizationSettingsView: View {
         }
     }
 
-    private func loadInitialData() async {
+    private func loadInitialData() {
         // Initialize regularization manager if needed
         if databaseManager.regularizationManager == nil {
             // Will be initialized when we integrate with DatabaseManager
             print("⚠️ RegularizationManager not yet initialized in DatabaseManager")
         }
 
-        // Check if regularization mappings exist but filter cache hasn't loaded them yet
-        if let manager = databaseManager.regularizationManager {
-            do {
-                let mappings = try await manager.getAllMappings()
-                if !mappings.isEmpty {
-                    // Mappings exist - check if cache knows about them
-                    if let cacheManager = databaseManager.filterCacheManager {
-                        // Invalidate cache to ensure fresh data on launch
+        // Check if regularization mappings exist but filter cache hasn't loaded them yet (NON-BLOCKING)
+        // Use Task.detached to avoid inheriting MainActor context
+        if let manager = databaseManager.regularizationManager,
+           let cacheManager = databaseManager.filterCacheManager {
+            Task.detached(priority: .userInitiated) {
+                do {
+                    let mappings = try await manager.getAllMappings()
+                    if !mappings.isEmpty {
+                        // Mappings exist - invalidate cache to ensure fresh data on launch
                         // This handles the case where user added mappings and quit before reloading
-                        cacheManager.invalidateCache()
-                        print("✅ Filter cache invalidated on launch - will reload with latest regularization data")
+                        await MainActor.run {
+                            cacheManager.invalidateCache()
+                            print("✅ Filter cache invalidated on launch - will reload with latest regularization data")
+                        }
                     }
+                } catch {
+                    print("⚠️ Could not check regularization mappings: \(error)")
                 }
-            } catch {
-                print("⚠️ Could not check regularization mappings: \(error)")
             }
         }
 
-        // Load statistics
-        loadStatistics()
+        // Note: Statistics are NOT auto-loaded on pane open to avoid expensive 14M record query
+        // User clicks "Refresh Statistics" button when needed (staleness tracking shows warning badge)
     }
 
     // Note: generateHierarchy() function removed - hierarchy generation happens automatically
@@ -2279,18 +2289,19 @@ struct RegularizationSettingsView: View {
 
         isLoadingStats = true
 
-        Task {
+        // Use Task.detached to avoid inheriting MainActor context (SwiftUI View runs on MainActor)
+        Task.detached(priority: .userInitiated) {
             do {
                 let stats = try await manager.getDetailedRegularizationStatistics()
 
                 await MainActor.run {
-                    statistics = stats
-                    isLoadingStats = false
-                    statisticsNeedRefresh = false  // Clear staleness flag after refresh
+                    self.statistics = stats
+                    self.isLoadingStats = false
+                    self.statisticsNeedRefresh = false  // Clear staleness flag after refresh
                 }
             } catch {
                 await MainActor.run {
-                    isLoadingStats = false
+                    self.isLoadingStats = false
                     print("❌ Error loading statistics: \(error)")
                 }
             }
@@ -2323,6 +2334,29 @@ struct RegularizationSettingsView: View {
             print("✅ Filter cache invalidated - will reload on next filter access")
             print("💡 Open the Filter panel to trigger cache reload with latest Make/Model values")
         }
+    }
+
+    @ViewBuilder
+    private func regularizationSheet() -> some View {
+        // Initialize viewModel lazily on first open, reuse on subsequent opens
+        let viewModel: RegularizationViewModel = {
+            if let existing = regularizationViewModel {
+                // Update year config if it changed while view was closed
+                existing.updateYearConfiguration(yearConfig)
+                return existing
+            } else {
+                let newViewModel = RegularizationViewModel(
+                    databaseManager: databaseManager,
+                    yearConfig: yearConfig
+                )
+                DispatchQueue.main.async {
+                    regularizationViewModel = newViewModel
+                }
+                return newViewModel
+            }
+        }()
+
+        RegularizationView(viewModel: viewModel)
     }
 
     // Note: checkCacheStaleness() function removed - cache invalidation now happens automatically

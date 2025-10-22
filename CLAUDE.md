@@ -2,6 +2,253 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## CRITICAL: Read Architecture Guide First
+
+**Before starting any development work**, review the architectural guides:
+
+📚 **Quick Start**: [Documentation/QUICK_REFERENCE.md](Documentation/QUICK_REFERENCE.md) (5 min read)
+📖 **Full Details**: [Documentation/ARCHITECTURAL_GUIDE.md](Documentation/ARCHITECTURAL_GUIDE.md) (comprehensive)
+
+---
+
+## ⚠️ CRITICAL RULES - Prevent Regressions
+
+**These rules MUST be followed. Violations cause crashes, performance issues, or data corruption.**
+
+### 1. Integer Enumeration ONLY
+
+**ALL categorical data uses integer foreign keys. NEVER use string columns or string queries.**
+
+```swift
+// ✅ CORRECT
+CREATE TABLE vehicles (
+    make_id INTEGER REFERENCES make_enum(id),
+    model_id INTEGER REFERENCES model_enum(id)
+);
+
+// ❌ WRONG - DO NOT DO THIS
+CREATE TABLE vehicles (
+    make TEXT,  // NEVER use string columns!
+    model TEXT
+);
+```
+
+**Why**: 10x performance improvement, enables covering indexes.
+**Lesson**: September 2024 - Complete schema redesign based on this principle.
+
+### 2. Always Ask Before NS-Prefixed APIs
+
+**NEVER use AppKit/Foundation NS-prefixed APIs without asking the human developer first.**
+
+Examples that require approval: `NSOpenPanel`, `NSSavePanel`, `NSAlert`, `NSColor`, etc.
+
+Prefer SwiftUI equivalents: `.fileImporter()`, `.alert()`, `Color`, etc.
+
+### 3. Manual Triggers for Filter State Updates
+
+**NEVER use `.onChange` handlers for filter state updates. Always use manual button triggers.**
+
+```swift
+// ✅ CORRECT
+Button("Filter Models") {
+    Task { await filterModels() }
+}
+
+// ❌ WRONG - CAUSES CRASHES
+.onChange(of: selectedMakes) { _ in
+    Task { await filterModels() }  // AttributeGraph CRASH!
+}
+```
+
+**Why**: SwiftUI AttributeGraph has hard limits on circular dependencies.
+**Lesson**: October 14, 2025 - Hierarchical filtering crashed until pattern corrected.
+
+### 4. Background Processing for Expensive Operations
+
+**Any operation taking >100ms MUST run in background via `Task.detached`.**
+
+```swift
+// ✅ CORRECT
+Task.detached(priority: .background) {
+    let result = await heavyComputation()
+    await MainActor.run {
+        self.data = result
+    }
+}
+
+// ❌ WRONG - Blocks UI
+let result = heavyComputation()  // Causes beachball cursor
+self.data = result
+```
+
+**Why**: Prevents UI freezing and beachball cursor.
+**Lesson**: October 11, 2025 - Regularization UI blocked for minutes until fixed.
+
+### 5. Cache Invalidation Pattern
+
+**ALWAYS call `invalidateCache()` before `initializeCache()` after data changes.**
+
+```swift
+// ✅ CORRECT
+await filterCacheManager.invalidateCache()
+await filterCacheManager.initializeCache()
+
+// ❌ WRONG - Stale data persists
+await filterCacheManager.initializeCache()  // Has guard, won't reload!
+```
+
+**Why**: Cache has `isInitialized` guard preventing re-initialization.
+
+### 6. Enum Table Indexes
+
+**ALL enumeration tables MUST have indexes on their `id` columns.**
+
+```sql
+CREATE INDEX idx_make_enum_id ON make_enum(id);
+CREATE INDEX idx_model_enum_id ON model_enum(id);
+-- etc for ALL enum tables
+```
+
+**Why**: Without indexes, 6-way JOINs take 165s instead of <10s.
+**Lesson**: October 11, 2025 - Adding 9 indexes improved performance 16x.
+
+### 7. Data-Type-Aware Operations
+
+**Pass `dataType` parameter through import/cache chains. License imports should NOT load vehicle caches.**
+
+```swift
+// ✅ CORRECT
+await endBulkImport(dataType: .vehicle)
+await refreshAllCaches(dataType: .vehicle)
+
+// ❌ WRONG - Loads unnecessary data
+await refreshAllCaches()  // Loads 10K+ vehicle items for license import!
+```
+
+**Why**: License imports hung 30+ seconds loading vehicle caches.
+**Lesson**: October 15, 2025 - Selective cache loading implemented.
+
+### 8. Use os.Logger in Production Code
+
+**ALL production code uses `os.Logger` (AppLogger). NEVER use `print()`.**
+
+```swift
+// ✅ CORRECT - Production code
+AppLogger.database.info("Importing \(fileName, privacy: .public)")
+
+// ❌ WRONG - Production code
+print("Importing \(fileName)")
+
+// ✅ EXCEPTION - CLI scripts in Scripts/ can use print()
+```
+
+**Why**: Console.app integration, performance, structured logging.
+**Lesson**: October 10, 2025 - Migration to os.Logger initiated.
+
+### 9. Thread-Safe Database Access
+
+**Pass database PATHS (strings) to concurrent tasks, NEVER share connections.**
+
+```swift
+// ✅ CORRECT
+await withTaskGroup { group in
+    group.addTask {
+        let db = try openDatabase(path: dbPath)  // Fresh connection
+        return query(db, item)
+    }
+}
+
+// ❌ WRONG
+let db = try openDatabase(path: dbPath)
+await withTaskGroup { group in
+    group.addTask {
+        return query(db, item)  // SEGFAULT!
+    }
+}
+```
+
+**Why**: SQLite not thread-safe across concurrent tasks.
+**Lesson**: October 5, 2025 - Segfaults until pattern corrected.
+
+### 10. Table-Specific ANALYZE
+
+**ALWAYS specify table name in ANALYZE commands.**
+
+```swift
+// ✅ CORRECT
+sqlite3_exec(db, "ANALYZE vehicles")
+
+// ❌ WRONG
+sqlite3_exec(db, "ANALYZE")  // Analyzes entire 35GB+ database!
+```
+
+**Why**: Without table name, analyzes entire database (can take minutes).
+**Lesson**: October 15, 2025 - License imports hung until fixed.
+
+### 11. Parent-Scope ViewModels for Expensive Sheet Data
+
+**Sheet-scoped @StateObject loses all cached data on every close/open cycle.**
+
+```swift
+// ❌ WRONG - ViewModel destroyed on sheet close
+struct ParentView: View {
+    @State private var showingSheet = false
+
+    .sheet(isPresented: $showingSheet) {
+        ChildView(databaseManager: dbManager)  // Creates new ViewModel every time!
+    }
+}
+
+struct ChildView: View {
+    @StateObject private var viewModel: ExpensiveViewModel  // Destroyed on dismiss
+}
+
+// ✅ CORRECT - Persistent ViewModel survives sheet cycles
+struct ParentView: View {
+    @State private var showingSheet = false
+    @State private var childViewModel: ExpensiveViewModel?  // Persists in parent
+
+    .sheet(isPresented: $showingSheet) {
+        if let viewModel = childViewModel {
+            ChildView(viewModel: viewModel)  // Reuses existing ViewModel
+        }
+    }
+}
+
+struct ChildView: View {
+    @ObservedObject var viewModel: ExpensiveViewModel  // Doesn't own lifecycle
+}
+```
+
+**Why**: Sheet-scoped ViewModels lose all cached data (database queries, computed hierarchies) on every close, forcing expensive reloads.
+
+**When to use parent-scoped**:
+- ViewModel loads expensive data (>1s database queries)
+- Data doesn't change between sheet opens
+- User frequently opens/closes the sheet
+
+**Lesson**: October 21, 2025 - Regularization Manager had >60s beachball on every reopen until ViewModel moved to parent scope.
+
+---
+
+## Pre-Development Checklist
+
+Before writing ANY code, verify:
+
+- [ ] Am I using **integer foreign keys** for categorical data?
+- [ ] Will this query need **indexes on enum table IDs**?
+- [ ] Should this expensive operation run in **background**?
+- [ ] Does this state update need **MainActor.run**?
+- [ ] Am I about to use an **NS-prefixed API**? (ASK FIRST!)
+- [ ] Will this import **invalidate caches**?
+- [ ] Is this operation **data-type aware**?
+- [ ] Am I using **os.Logger** for production code?
+- [ ] Will this **onChange** trigger during rendering?
+- [ ] Am I passing a **database PATH** to concurrent tasks?
+- [ ] Does this sheet ViewModel load **expensive data**? (Use parent scope!)
+
+---
+
 ## Project Overview
 
 SAAQAnalyzer is a macOS SwiftUI application designed to import, analyze, and visualize vehicle registration data from SAAQ (Société de l'assurance automobile du Québec). The application provides a three-panel interface for filtering data, displaying charts, and inspecting details.
@@ -19,6 +266,7 @@ SAAQAnalyzer is a macOS SwiftUI application designed to import, analyze, and vis
 - **Prefer**: SwiftUI equivalents and modern Swift APIs
 
 ### Command Line Workflow
+- **NEVER auto-run builds or tests**: User ALWAYS prefers to build and run manually
 - **Manual execution preferred**: Generate robust command-line invocations for copy/paste into console
 - **Don't auto-run**: User prefers to run scripts manually to monitor output and selectively copy results back
 - **Output format**: Ensure scripts produce clear, copy-friendly output for integration into Claude Code sessions

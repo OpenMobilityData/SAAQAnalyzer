@@ -25,13 +25,38 @@ The regularization system allows you to map typos and variants in uncurated data
 
 ### Regularization Status Badges (in RegularizationView)
 
-When working in the Regularization Editor, each Make/Model pair shows a status badge:
+**Status Indicator (Left Side):**
+Each Make/Model pair row shows a colored circle indicator on the left:
 
-- 🔴 **Unassigned** - No regularization mapping exists yet
-- 🟠 **Needs Review** - Mapping exists but FuelType and/or VehicleType are NULL (needs user review)
-- 🟢 **Complete** - Both FuelType AND VehicleType are assigned (including "Unknown" when disambiguation is impossible)
+- 🔴 **Red circle** - Unassigned (no regularization mapping exists yet)
+- 🟠 **Orange circle** - Partial (mapping exists but incomplete)
+- 🟢 **Green circle** - Complete (all required fields assigned)
 
-**Note:** The green "Complete" badge requires both FuelType AND VehicleType to be non-NULL. Setting a field to "Unknown" counts as assigned (user has made a decision), while "Not Specified" (NULL) means the field hasn't been reviewed yet.
+**Field-Specific Badges (Right Side - October 2025):**
+For Partial and Complete status, the row shows small icon badges indicating which specific fields have been assigned:
+
+- **Blue badge** (checkmark icon) - Make/Model assigned
+- **Orange badge** (car icon) - Vehicle Type assigned
+- **Purple badge** (fuel pump icon) - Fuel Types assigned for ALL model years
+
+These badges appear **only when the field is assigned**. For example:
+- Partial status with only Make/Model: Shows only blue badge
+- Partial status with Make/Model + Vehicle Type: Shows blue and orange badges
+- Complete status: Shows all three badges (blue + orange + purple)
+
+**Model Year Information:**
+When editing a pair, each model year in the fuel type assignment section displays:
+
+- **"Uncurated Only" badge** (purple) - Model year exists only in uncurated data, not in canonical hierarchy
+- **Record count** - Number of vehicles with this model year in uncurated data (e.g., "1,234 records")
+  - Helps prioritize which years to regularize based on impact
+
+**Refresh Button:**
+- **Label:** "Reload Pairs List" (clearer than generic "Refresh")
+- **Tooltip:** "Reload the uncurated pairs list from the database to pick up any changes made by auto-regularization or external updates"
+- **Purpose:** Update status badges and counts after auto-regularization or manual changes
+
+**Note:** The green "Complete" status requires both VehicleType AND all model years to have fuel types assigned (including "Unknown" when disambiguation is impossible). Setting a field to "Unknown" counts as assigned (user has made a decision), while "Not Specified" (NULL) means the field hasn't been reviewed yet.
 
 **Terminology Note:** "VehicleType" refers to the physical type of vehicle (TYP_VEH_CATEG_USA field: AU, CA, MC, etc.), not the usage-based classification (CLAS field: PAU, CAU, TAX, etc.).
 

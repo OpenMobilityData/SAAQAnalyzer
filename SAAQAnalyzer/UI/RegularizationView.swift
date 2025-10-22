@@ -8,13 +8,10 @@ struct RegularizationView: View {
     // Use centralized logging
     private let logger = AppLogger.regularization
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var viewModel: RegularizationViewModel
+    @ObservedObject var viewModel: RegularizationViewModel
 
-    init(databaseManager: DatabaseManager, yearConfig: RegularizationYearConfiguration) {
-        _viewModel = StateObject(wrappedValue: RegularizationViewModel(
-            databaseManager: databaseManager,
-            yearConfig: yearConfig
-        ))
+    init(viewModel: RegularizationViewModel) {
+        self.viewModel = viewModel
     }
 
     var body: some View {
@@ -42,17 +39,32 @@ struct RegularizationView: View {
                             .scaleEffect(0.8)
                     }
 
-                    Button("Refresh") {
+                    Button("Reload Pairs List") {
                         Task {
                             await viewModel.loadUncuratedPairs()
                         }
                     }
+                    .help("Reload the uncurated pairs list from the database to pick up any changes made by auto-regularization or external updates")
                     .disabled(viewModel.isLoading)
                 }
             }
         }
-        .task {
-            await viewModel.loadInitialData()
+        .onAppear {
+            // Only load initial data if not already loaded (preserves cached data on reopen)
+            if viewModel.uncuratedPairs.isEmpty && !viewModel.isLoading {
+                Task { @MainActor in
+                    viewModel.loadInitialData()
+                }
+            }
+        }
+        .onChange(of: viewModel.selectedPair) { oldValue, newValue in
+            // Load mapping when selection changes
+            // Use Task.detached to break out of view update cycle and avoid publishing warnings
+            if newValue != oldValue, newValue != nil {
+                Task.detached { @MainActor in
+                    await viewModel.loadMappingForSelectedPair()
+                }
+            }
         }
         .frame(minWidth: 1000, minHeight: 700)
     }
@@ -65,10 +77,10 @@ struct UncuratedPairsListView: View {
     @State private var searchText = ""
     @State private var sortOrder: SortOrder = .recordCountDescending
     @State private var showUnassigned = true
-    @State private var showNeedsReview = true
+    @State private var showPartial = true
     @State private var showComplete = true
     @State private var showOnlyRegularizationVehicleTypes = false
-    @State private var selectedVehicleTypeFilter: String? = nil
+    @State private var selectedVehicleTypeFilter: Int? = nil  // Vehicle type ID (nil = All, -1 = Not Assigned)
     @State private var filterByIncompleteFields = false
     @State private var incompleteVehicleType = false
     @State private var incompleteFuelType = false
@@ -80,34 +92,24 @@ struct UncuratedPairsListView: View {
         case percentageDescending = "Percentage (High to Low)"
     }
 
-    // Lazy-computed status counts - only calculate when filter buttons are visible
-    // Uses simple heuristic: if existingMappings is empty, all pairs are unassigned
-    var statusCounts: (unassignedCount: Int, needsReviewCount: Int, completeCount: Int) {
-        let totalPairs = viewModel.uncuratedPairs.count
-
-        // Fast path: if no mappings exist yet, everything is unassigned
-        if viewModel.existingMappings.isEmpty {
-            return (unassignedCount: totalPairs, needsReviewCount: 0, completeCount: 0)
-        }
-
-        // Only do full computation if we have mappings
+    // Fast status counts (status embedded in struct - no computation needed)
+    var statusCounts: (unassignedCount: Int, partialCount: Int, completeCount: Int) {
         var unassignedCount = 0
-        var needsReviewCount = 0
+        var partialCount = 0
         var completeCount = 0
 
         for pair in viewModel.uncuratedPairs {
-            let status = viewModel.getRegularizationStatus(for: pair)
-            switch status {
-            case .none:
+            switch pair.regularizationStatus {
+            case .unassigned:
                 unassignedCount += 1
-            case .needsReview:
-                needsReviewCount += 1
-            case .fullyRegularized:
+            case .partial:
+                partialCount += 1
+            case .complete:
                 completeCount += 1
             }
         }
 
-        return (unassignedCount, needsReviewCount, completeCount)
+        return (unassignedCount, partialCount, completeCount)
     }
 
     var filteredAndSortedPairs: [UnverifiedMakeModelPair] {
@@ -121,42 +123,29 @@ struct UncuratedPairsListView: View {
             }
         }
 
-        // Filter by status
+        // Filter by status (using embedded status - instant!)
         pairs = pairs.filter { pair in
-            let status = viewModel.getRegularizationStatus(for: pair)
-            switch status {
-            case .none:
+            switch pair.regularizationStatus {
+            case .unassigned:
                 return showUnassigned
-            case .needsReview:
-                return showNeedsReview
-            case .fullyRegularized:
+            case .partial:
+                return showPartial
+            case .complete:
                 return showComplete
             }
         }
 
-        // Filter by vehicle type
-        if let selectedCode = selectedVehicleTypeFilter {
+        // Filter by vehicle type (using cached vehicleTypeId for performance)
+        // Uses integer enumeration following core architecture pattern
+        if let selectedId = selectedVehicleTypeFilter {
             pairs = pairs.filter { pair in
-                let wildcardMapping = viewModel.getWildcardMapping(for: pair)
-
-                // Handle "Not Assigned" filter
-                if selectedCode == "NA" {
-                    // Include pairs with no mapping OR pairs with mapping but NULL vehicle type
-                    if let mapping = wildcardMapping {
-                        return mapping.vehicleType == nil
-                    }
-                    return true  // No mapping at all = not assigned
+                // Handle "Not Assigned" filter (-1 sentinel value)
+                if selectedId == -1 {
+                    return pair.vehicleTypeId == nil
                 }
 
-                // Handle specific vehicle type filters
-                if let mapping = wildcardMapping,
-                   let vehicleType = mapping.vehicleType {
-                    // Extract the code from the vehicle type description
-                    let vehicleTypeCode = viewModel.getVehicleTypeCode(for: vehicleType)
-                    return vehicleTypeCode == selectedCode
-                }
-
-                return false
+                // Handle specific vehicle type filters (integer comparison)
+                return pair.vehicleTypeId == selectedId
             }
         }
 
@@ -250,9 +239,9 @@ struct UncuratedPairsListView: View {
                         )
 
                         StatusFilterButton(
-                            isSelected: $showNeedsReview,
-                            label: "Needs Review",
-                            count: statusCounts.needsReviewCount,
+                            isSelected: $showPartial,
+                            label: "Partial",
+                            count: statusCounts.partialCount,
                             color: .orange
                         )
 
@@ -278,12 +267,13 @@ struct UncuratedPairsListView: View {
                             Text("In regularization list only")
                                 .font(.caption2)
                         }
+                        .help("Controls which vehicle types appear in the dropdown below: all types from schema (13) vs. only types with existing mappings (~10)")
                         .toggleStyle(.switch)
                         .controlSize(.mini)
                         .onChange(of: showOnlyRegularizationVehicleTypes) { _, newValue in
                             // Clear selection if toggling to regularization-only and current selection isn't in that list
-                            if newValue, let selectedCode = selectedVehicleTypeFilter {
-                                if selectedCode != "NA" && !viewModel.regularizationVehicleTypes.contains(where: { $0.code == selectedCode }) {
+                            if newValue, let selectedId = selectedVehicleTypeFilter {
+                                if selectedId != -1 && !viewModel.regularizationVehicleTypes.contains(where: { $0.id == selectedId }) {
                                     selectedVehicleTypeFilter = nil
                                 }
                             }
@@ -291,10 +281,11 @@ struct UncuratedPairsListView: View {
                     }
 
                     Picker("Vehicle Type", selection: $selectedVehicleTypeFilter) {
-                        Text("All Types").tag(nil as String?)
+                        Text("All Types").tag(nil as Int?)
 
                         // Not Assigned option (pairs with no vehicle type mapping)
-                        Text("Not Assigned").tag("NA" as String?)
+                        // Uses -1 as sentinel value (not a valid vehicle_type_enum.id)
+                        Text("Not Assigned").tag(-1 as Int?)
 
                         let vehicleTypes = showOnlyRegularizationVehicleTypes
                             ? viewModel.regularizationVehicleTypes
@@ -307,13 +298,14 @@ struct UncuratedPairsListView: View {
                             return type1.code < type2.code
                         }
 
-                        ForEach(sortedTypes, id: \.code) { vehicleType in
+                        ForEach(sortedTypes, id: \.id) { vehicleType in
                             Text("\(vehicleType.code) - \(vehicleType.description)")
-                                .tag(vehicleType.code as String?)
+                                .tag(vehicleType.id as Int?)
                         }
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
+                    .id("vehicleTypePicker-\(showOnlyRegularizationVehicleTypes)")
                 }
 
                 // Incomplete Fields Filter
@@ -412,32 +404,41 @@ struct UncuratedPairsListView: View {
 
             Divider()
 
-            // List
-            if viewModel.isLoading {
-                VStack {
-                    Spacer()
-                    ProgressView("Loading uncurated pairs...")
-                    Spacer()
-                }
-            } else if filteredAndSortedPairs.isEmpty {
-                VStack {
-                    Spacer()
-                    Text(searchText.isEmpty ? "No uncurated pairs found" : "No matches for \"\(searchText)\"")
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-            } else {
-                List(selection: $viewModel.selectedPair) {
+            // List - ALWAYS show to prevent UI blocking
+            List(selection: $viewModel.selectedPair) {
+                if viewModel.isLoading {
+                    Section {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                                .scaleEffect(1.2)
+                            Text("Loading uncurated pairs...")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            Text("Database query may take several minutes")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 40)
+                    }
+                } else if filteredAndSortedPairs.isEmpty {
+                    Section {
+                        Text(searchText.isEmpty ? "No uncurated pairs found" : "No matches for \"\(searchText)\"")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 40)
+                    }
+                } else {
                     ForEach(filteredAndSortedPairs) { pair in
                         UncuratedPairRow(
                             pair: pair,
-                            regularizationStatus: viewModel.getRegularizationStatus(for: pair)
+                            regularizationStatus: pair.regularizationStatus
                         )
                         .tag(pair)
                     }
                 }
-                .listStyle(.inset)
             }
+            .listStyle(.inset)
         }
     }
 }
@@ -445,6 +446,20 @@ struct UncuratedPairsListView: View {
 struct UncuratedPairRow: View {
     let pair: UnverifiedMakeModelPair
     let regularizationStatus: RegularizationStatus
+
+    // Pre-compute field status using cached data on pair (avoid accessing @Published during view updates)
+    private var fieldStatus: (makeModel: Bool, vehicleType: Bool, fuelTypes: Bool) {
+        // Make/Model assigned if any mapping exists (status != unassigned)
+        let hasMakeModel = pair.regularizationStatus != .unassigned
+
+        // Vehicle type is already cached on the pair from wildcard mapping
+        let hasVehicleType = pair.vehicleTypeId != nil
+
+        // Fuel types complete only when overall status is .complete (all model years assigned)
+        let hasFuelTypes = pair.regularizationStatus == .complete
+
+        return (makeModel: hasMakeModel, vehicleType: hasVehicleType, fuelTypes: hasFuelTypes)
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -474,8 +489,10 @@ struct UncuratedPairRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    // Regularization status badge
-                    statusBadge
+                    Spacer()
+
+                    // Regularization status badges (right-justified)
+                    statusBadges
                 }
             }
         }
@@ -485,22 +502,22 @@ struct UncuratedPairRow: View {
     @ViewBuilder
     private var statusIndicator: some View {
         switch regularizationStatus {
-        case .none:
+        case .unassigned:
             Circle()
                 .fill(Color.red)
-        case .needsReview:
+        case .partial:
             Circle()
                 .fill(Color.orange)
-        case .fullyRegularized:
+        case .complete:
             Circle()
                 .fill(Color.green)
         }
     }
 
     @ViewBuilder
-    private var statusBadge: some View {
+    private var statusBadges: some View {
         switch regularizationStatus {
-        case .none:
+        case .unassigned:
             Text("Unassigned")
                 .font(.caption2)
                 .padding(.horizontal, 6)
@@ -508,33 +525,60 @@ struct UncuratedPairRow: View {
                 .background(Color.red.opacity(0.2))
                 .foregroundColor(.red)
                 .cornerRadius(4)
-        case .needsReview:
-            Text("Needs Review")
-                .font(.caption2)
+        case .partial, .complete:
+            // Show field-specific badges for both partial and complete status
+            // Note: Overall status already indicated by colored circle on left
+            HStack(spacing: 4) {
+                // Make/Model badge (always shown)
+                FieldBadge(
+                    icon: "checkmark",
+                    tooltip: "Make/Model assigned",
+                    isAssigned: fieldStatus.makeModel,
+                    color: .blue
+                )
+
+                // Vehicle Type badge
+                FieldBadge(
+                    icon: "car.fill",
+                    tooltip: "Vehicle Type assigned",
+                    isAssigned: fieldStatus.vehicleType,
+                    color: .orange
+                )
+
+                // Fuel Types badge (shown when ALL model years assigned)
+                FieldBadge(
+                    icon: "fuelpump.fill",
+                    tooltip: "Fuel Types assigned (all model years)",
+                    isAssigned: fieldStatus.fuelTypes,
+                    color: .purple
+                )
+            }
+        }
+    }
+}
+
+/// Field-specific assignment badge with solid colored background
+struct FieldBadge: View {
+    let icon: String
+    let tooltip: String
+    let isAssigned: Bool
+    let color: Color
+
+    var body: some View {
+        if isAssigned {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.primary)
                 .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.orange.opacity(0.2))
-                .foregroundColor(.orange)
+                .padding(.vertical, 3)
+                .background(color.opacity(0.25))
                 .cornerRadius(4)
-        case .fullyRegularized:
-            Text("Complete")
-                .font(.caption2)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.green.opacity(0.2))
-                .foregroundColor(.green)
-                .cornerRadius(4)
+                .help(tooltip)
         }
     }
 }
 
 /// Regularization status for an uncurated pair
-enum RegularizationStatus {
-    case none                   // 🔴 No mapping exists
-    case needsReview            // 🟠 Mapping exists but FuelType/VehicleType are NULL (needs user review)
-    case fullyRegularized       // 🟢 Mapping exists with both fields assigned (including "Unknown")
-}
-
 // MARK: - Right Panel: Mapping Editor
 
 struct MappingEditorView: View {
@@ -611,8 +655,13 @@ struct MappingFormView: View {
                         .font(.headline)
                     Spacer()
                     if viewModel.selectedCanonicalMake != nil {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.blue.opacity(0.25))
+                            .cornerRadius(4)
                     }
                 }
 
@@ -651,8 +700,13 @@ struct MappingFormView: View {
                         .font(.headline)
                     Spacer()
                     if viewModel.selectedCanonicalModel != nil {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.blue.opacity(0.25))
+                            .cornerRadius(4)
                     }
                 }
 
@@ -680,9 +734,14 @@ struct MappingFormView: View {
                     Text("3. Select Vehicle Type (Optional)")
                         .font(.headline)
                     Spacer()
-                    if viewModel.selectedVehicleType != nil {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                    if viewModel.selectedVehicleTypeId != nil {
+                        Image(systemName: "car.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.orange.opacity(0.25))
+                            .cornerRadius(4)
                     }
                 }
 
@@ -691,24 +750,22 @@ struct MappingFormView: View {
                     .foregroundStyle(.secondary)
 
                 if let model = viewModel.selectedCanonicalModel {
-                    Picker("Vehicle Type", selection: $viewModel.selectedVehicleType) {
-                        Text("Not Assigned").tag(nil as MakeModelHierarchy.VehicleTypeInfo?)
+                    Picker("Vehicle Type", selection: $viewModel.selectedVehicleTypeId) {
+                        Text("Not Assigned").tag(nil as Int?)
 
                         // Special "Unknown" option (not in hierarchy since it doesn't appear in curated years)
-                        Text("UK - Unknown").tag(MakeModelHierarchy.VehicleTypeInfo(
-                            id: -1,  // Placeholder ID - will be looked up from enum table when saving
-                            code: "UK",  // Unknown vehicle type (user-assigned when type cannot be determined)
-                            description: "Unknown",
-                            recordCount: 0
-                        ) as MakeModelHierarchy.VehicleTypeInfo?)
+                        // Uses -1 as placeholder ID - will be resolved to actual enum ID when saving
+                        Text("UK - Unknown").tag(-1 as Int?)
 
+                        // Show only vehicle types that exist in curated data for this model
+                        // (preserves UX feature of helping users understand canonical mappings)
                         ForEach(model.vehicleTypes) { vehicleType in
                             HStack {
                                 Text("\(vehicleType.code) - \(vehicleType.description)")
                                 Text("(\(vehicleType.recordCount.formatted()))")
                                     .foregroundStyle(.secondary)
                             }
-                            .tag(vehicleType as MakeModelHierarchy.VehicleTypeInfo?)
+                            .tag(vehicleType.id as Int?)
                         }
                     }
                     .pickerStyle(.menu)
@@ -730,8 +787,13 @@ struct MappingFormView: View {
                     Spacer()
                     if let model = viewModel.selectedCanonicalModel,
                        viewModel.allFuelTypesAssigned(for: model) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                        Image(systemName: "fuelpump.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.purple.opacity(0.25))
+                            .cornerRadius(4)
                     }
                 }
 
@@ -786,6 +848,11 @@ struct FuelTypeYearSelectionView: View {
     @ObservedObject var viewModel: RegularizationViewModel
     @State private var showOnlyNotAssigned = false
 
+    // Get all uncurated model years (actual years that exist in database)
+    private var uncuratedYears: [Int] {
+        viewModel.uncuratedModelYears
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             // Filter toggle
@@ -804,7 +871,7 @@ struct FuelTypeYearSelectionView: View {
 
                 Spacer()
 
-                Text("\(filteredYears.count) of \(sortedYears.count) years")
+                Text("\(filteredYears.count) of \(uncuratedYears.count) years")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -815,14 +882,12 @@ struct FuelTypeYearSelectionView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    ForEach(filteredYears, id: \.self) { yearId in
-                        if let yearId = yearId, let fuelTypes = model.modelYearFuelTypes[yearId] {
-                            ModelYearFuelTypeRow(
-                                yearId: yearId,
-                                fuelTypes: fuelTypes,
-                                viewModel: viewModel
-                            )
-                        }
+                    ForEach(filteredYears, id: \.self) { modelYear in
+                        ModelYearFuelTypeRow(
+                            modelYear: modelYear,
+                            model: model,
+                            viewModel: viewModel
+                        )
                     }
                 }
                 .padding(8)
@@ -833,19 +898,15 @@ struct FuelTypeYearSelectionView: View {
         .cornerRadius(6)
     }
 
-    private var sortedYears: [Int?] {
-        model.modelYearFuelTypes.keys.sorted { yearId1, yearId2 in
-            guard let id1 = yearId1, let fuelTypes1 = model.modelYearFuelTypes[id1], let year1 = fuelTypes1.first?.modelYear else { return false }
-            guard let id2 = yearId2, let fuelTypes2 = model.modelYearFuelTypes[id2], let year2 = fuelTypes2.first?.modelYear else { return true }
-            return year1 < year2
-        }
+    private var sortedYears: [Int] {
+        uncuratedYears.sorted()
     }
 
-    private var filteredYears: [Int?] {
+    private var filteredYears: [Int] {
         if showOnlyNotAssigned {
-            return sortedYears.filter { yearId in
-                guard let yearId = yearId else { return false }
-                return viewModel.getSelectedFuelType(forYearId: yearId) == nil
+            return sortedYears.filter { modelYear in
+                // Show if no fuel type assigned (using model year directly)
+                return viewModel.getSelectedFuelType(forModelYear: modelYear) == nil
             }
         } else {
             return sortedYears
@@ -854,33 +915,87 @@ struct FuelTypeYearSelectionView: View {
 }
 
 struct ModelYearFuelTypeRow: View {
-    let yearId: Int
-    let fuelTypes: [MakeModelHierarchy.FuelTypeInfo]
+    let modelYear: Int
+    let model: MakeModelHierarchy.Model
     @ObservedObject var viewModel: RegularizationViewModel
+
+    // Find yearId in canonical hierarchy (if it exists)
+    // Returns unwrapped Int (keys are Int? so .first returns Int??)
+    private var yearId: Int? {
+        let foundYearId = model.modelYearFuelTypes.keys.first { optionalYearId in
+            guard let unwrappedYearId = optionalYearId,
+                  let fuelTypes = model.modelYearFuelTypes[unwrappedYearId],
+                  let year = fuelTypes.first?.modelYear else {
+                return false
+            }
+            return year == modelYear
+        }
+        // Unwrap double-optional: foundYearId is Int??, we need Int?
+        return foundYearId.flatMap { $0 }
+    }
+
+    // Get fuel type options: use canonical if available, otherwise use all from schema
+    private var fuelTypes: [MakeModelHierarchy.FuelTypeInfo] {
+        if let yearId = yearId, let canonicalTypes = model.modelYearFuelTypes[yearId] {
+            // Year exists in canonical hierarchy - use specific fuel types
+            return canonicalTypes
+        } else {
+            // Year NOT in canonical (e.g., 2025) - show all fuel types from schema
+            return viewModel.allFuelTypes
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Year header
-            Text("Model Year \(String(fuelTypes.first?.modelYear ?? 0))")
-                .font(.system(.body, design: .monospaced))
-                .fontWeight(.semibold)
-                .foregroundColor(.primary)
+            // Year header with badges
+            HStack(spacing: 8) {
+                Text("Model Year \(String(modelYear))")
+                    .font(.system(.body, design: .monospaced))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+
+                // Badge for uncurated-only years (not in canonical hierarchy)
+                if yearId == nil {
+                    Text("Uncurated Only")
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.purple.opacity(0.2))
+                        .foregroundColor(.purple)
+                        .cornerRadius(4)
+                        .help("This model year only appears in uncurated data (not in curated years)")
+                }
+
+                Spacer()
+
+                // Record count from uncurated data
+                if let count = viewModel.uncuratedModelYearCounts[modelYear] {
+                    Text("\(count.formatted()) records")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .help("Number of vehicles with this model year in uncurated data")
+                }
+            }
 
             // Radio button options
             VStack(alignment: .leading, spacing: 4) {
                 // Option 1: Not Assigned (default)
                 RadioButtonRow(
                     label: "Not Assigned",
-                    isSelected: viewModel.getSelectedFuelType(forYearId: yearId) == nil,
-                    action: { viewModel.setFuelType(yearId: yearId, fuelTypeId: nil) }
+                    isSelected: viewModel.getSelectedFuelType(forModelYear: modelYear) == nil,
+                    action: {
+                        viewModel.setFuelType(modelYear: modelYear, fuelTypeId: nil)
+                    }
                 )
                 .foregroundColor(.secondary)
 
                 // Option 2: Unknown
                 RadioButtonRow(
                     label: "Unknown",
-                    isSelected: viewModel.getSelectedFuelType(forYearId: yearId) == -1,
-                    action: { viewModel.setFuelType(yearId: yearId, fuelTypeId: -1) }
+                    isSelected: viewModel.getSelectedFuelType(forModelYear: modelYear) == -1,
+                    action: {
+                        viewModel.setFuelType(modelYear: modelYear, fuelTypeId: -1)
+                    }
                 )
                 .foregroundColor(.orange)
 
@@ -890,8 +1005,10 @@ struct ModelYearFuelTypeRow: View {
                 ForEach(validFuelTypes) { fuelType in
                     RadioButtonRow(
                         label: "\(fuelType.description) (\(fuelType.recordCount.formatted()))",
-                        isSelected: viewModel.getSelectedFuelType(forYearId: yearId) == fuelType.id,
-                        action: { viewModel.setFuelType(yearId: yearId, fuelTypeId: fuelType.id) }
+                        isSelected: viewModel.getSelectedFuelType(forModelYear: modelYear) == fuelType.id,
+                        action: {
+                            viewModel.setFuelType(modelYear: modelYear, fuelTypeId: fuelType.id)
+                        }
                     )
                 }
             }
@@ -915,12 +1032,9 @@ struct ModelYearFuelTypeRow: View {
 
 // MARK: - View Model
 
-@MainActor
 class RegularizationViewModel: ObservableObject {
     private let databaseManager: DatabaseManager
-    private var regularizationManager: RegularizationManager? {
-        databaseManager.regularizationManager
-    }
+    private let regularizationManager: RegularizationManager?
 
     // Use centralized logging
     private let logger = AppLogger.regularization
@@ -928,19 +1042,11 @@ class RegularizationViewModel: ObservableObject {
     @Published var yearConfig: RegularizationYearConfiguration
     @Published var uncuratedPairs: [UnverifiedMakeModelPair] = []
     @Published var canonicalHierarchy: MakeModelHierarchy?
-    @Published var selectedPair: UnverifiedMakeModelPair? {
-        didSet {
-            // Load existing mapping when selection changes
-            if selectedPair != oldValue {
-                Task { @MainActor in
-                    await loadMappingForSelectedPair()
-                }
-            }
-        }
-    }
+    @Published var selectedPair: UnverifiedMakeModelPair?
     @Published var existingMappings: [String: [RegularizationMapping]] = [:] // Key: "\(makeId)_\(modelId)" → Array of mappings (triplets + wildcard)
     @Published var allVehicleTypes: [MakeModelHierarchy.VehicleTypeInfo] = []
     @Published var regularizationVehicleTypes: [MakeModelHierarchy.VehicleTypeInfo] = []
+    @Published var allFuelTypes: [MakeModelHierarchy.FuelTypeInfo] = []  // All fuel types from schema (for new model years)
 
     // Mapping form state
     @Published var selectedCanonicalMake: MakeModelHierarchy.Make?
@@ -948,7 +1054,7 @@ class RegularizationViewModel: ObservableObject {
         didSet {
             // Clear fuel type selections when model changes
             if selectedCanonicalModel?.id != oldValue?.id {
-                selectedFuelTypesByYear = [:]
+                selectedFuelTypesByModelYear = [:]
 
                 // Auto-populate Vehicle Type and Fuel Types when a new model is selected
                 // This is particularly useful for 'Unassigned' pairs where no existing mapping exists
@@ -958,11 +1064,21 @@ class RegularizationViewModel: ObservableObject {
             }
         }
     }
-    @Published var selectedVehicleType: MakeModelHierarchy.VehicleTypeInfo?
+    // Use integer ID (not struct) to avoid SwiftUI Picker equality issues
+    // Follows core architecture pattern of integer enumeration
+    @Published var selectedVehicleTypeId: Int?
 
     // Year-based fuel type selections for table UI (single selection per year)
     // Dictionary: modelYearId → fuelTypeId (or nil for "Not Assigned", -1 for "Unknown")
-    @Published var selectedFuelTypesByYear: [Int: Int?] = [:]
+    @Published var selectedFuelTypesByModelYear: [Int: Int?] = [:]  // Key: model year value (2024, 2025, etc.)
+
+    // Model years that actually exist in uncurated data for selected pair
+    // Used to filter fuel type UI (show only years needing assignment)
+    @Published var uncuratedModelYears: [Int] = []
+
+    // Record counts per model year for prioritizing regularization effort
+    // Dictionary: modelYear → record count in uncurated data
+    @Published var uncuratedModelYearCounts: [Int: Int] = [:]
 
     // Loading states
     @Published var isLoading = false
@@ -970,6 +1086,7 @@ class RegularizationViewModel: ObservableObject {
     @Published var isSaving = false
     @Published var isAutoRegularizing = false
 
+    @MainActor
     var canSaveMapping: Bool {
         selectedPair != nil &&
         selectedCanonicalMake != nil &&
@@ -977,6 +1094,7 @@ class RegularizationViewModel: ObservableObject {
     }
 
     /// Calculate regularization progress based on total records
+    @MainActor
     var regularizationProgress: (regularizedRecords: Int, totalRecords: Int, percentage: Double) {
         let totalRecords = uncuratedPairs.reduce(0) { $0 + $1.recordCount }
 
@@ -995,42 +1113,63 @@ class RegularizationViewModel: ObservableObject {
 
     init(databaseManager: DatabaseManager, yearConfig: RegularizationYearConfiguration) {
         self.databaseManager = databaseManager
+        self.regularizationManager = databaseManager.regularizationManager
         self.yearConfig = yearConfig
     }
 
-    func loadInitialData() async {
-        // Update year configuration in manager
+    /// Updates the year configuration in the regularization manager
+    func updateYearConfiguration(_ newConfig: RegularizationYearConfiguration) {
+        self.yearConfig = newConfig
+        if let manager = regularizationManager {
+            manager.setYearConfiguration(newConfig)
+        }
+    }
+
+    @MainActor
+    func loadInitialData() {
+        // Update year configuration in manager (main thread OK, just setter)
         if let manager = regularizationManager {
             manager.setYearConfiguration(yearConfig)
         }
 
-        // Show loading UI immediately
-        await MainActor.run {
-            isLoading = true
+        // Launch ALL data loading in background to avoid blocking UI
+        // CRITICAL: Must use Task.detached to break away from MainActor context
+        // This method returns immediately after launching tasks - no blocking!
+
+        // 1. Load vehicle types (fast, needed for UI) - runs on background thread
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+            await self.loadVehicleTypesAsync()
         }
 
-        // Load vehicle types (fast, needed for UI)
-        await loadVehicleTypes()
-
-        // Load existing mappings (fast, needed for status display)
-        await loadExistingMappings()
-
-        // Load uncurated pairs (potentially slow)
-        await loadUncuratedPairs()
-
-        // Hide loading UI - list is now ready
-        await MainActor.run {
-            isLoading = false
+        // 2. Load existing mappings (78K mappings can be slow) - load in background
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+            await self.loadExistingMappingsAsync()
         }
 
-        // Auto-regularize exact matches in background (SLOW - don't block UI)
-        // This will update mappings automatically after completion
-        Task.detached(priority: .background) {
-            await self.autoRegularizeExactMatches()
+        // 3. Load uncurated pairs (SLOW: 29s) - don't await, let it run in background
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+            await self.loadUncuratedPairsAsync()
+        }
+
+        // 4. Pre-generate canonical hierarchy (0.5s via cache) - ready when user selects a pair
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+            await self.loadHierarchyAsync()
+        }
+
+        // 5. Auto-regularize exact matches (VERY SLOW) - lowest priority background task
+        Task.detached(priority: .background) { [weak self] in
+            guard let self else { return }
+            await self.autoRegularizeExactMatchesAsync()
         }
     }
 
-    func loadVehicleTypes() async {
+    // MARK: - Async Database Loading Methods (nonisolated, run on background threads)
+
+    nonisolated func loadVehicleTypesAsync() async {
         guard let manager = regularizationManager else {
             logger.error("RegularizationManager not available")
             return
@@ -1039,36 +1178,43 @@ class RegularizationViewModel: ObservableObject {
         do {
             let allTypes = try await manager.getAllVehicleTypes()
             let regTypes = try await manager.getRegularizationVehicleTypes()
+            let allFuels = try await manager.getAllFuelTypes()
 
             await MainActor.run {
-                allVehicleTypes = allTypes
-                regularizationVehicleTypes = regTypes
+                self.allVehicleTypes = allTypes
+                self.regularizationVehicleTypes = regTypes
+                self.allFuelTypes = allFuels
             }
 
             logger.info("Loaded vehicle types: \(allTypes.count) total, \(regTypes.count) in regularization list")
+            logger.info("Loaded fuel types: \(allFuels.count) from schema")
         } catch {
             logger.error("Error loading vehicle types: \(error.localizedDescription)")
         }
     }
 
-    func loadExistingMappings() async {
+    nonisolated func loadExistingMappingsAsync() async {
         guard let manager = regularizationManager else { return }
 
         do {
             let mappings = try await manager.getAllMappings()
-            var mappingsDict: [String: [RegularizationMapping]] = [:]
 
-            // Group mappings by Make/Model pair (multiple mappings per pair for triplets)
-            for mapping in mappings {
-                let key = mapping.uncuratedKey
-                if mappingsDict[key] == nil {
-                    mappingsDict[key] = []
+            // Build mappingsDict on background thread (compute key manually to avoid actor isolation)
+            let mappingsDict = await Task.detached {
+                var dict: [String: [RegularizationMapping]] = [:]
+                for mapping in mappings {
+                    // Compute key manually instead of using .uncuratedKey property
+                    let key = "\(mapping.uncuratedMakeId)_\(mapping.uncuratedModelId)"
+                    if dict[key] == nil {
+                        dict[key] = []
+                    }
+                    dict[key]?.append(mapping)
                 }
-                mappingsDict[key]?.append(mapping)
-            }
+                return dict
+            }.value
 
             await MainActor.run {
-                existingMappings = mappingsDict
+                self.existingMappings = mappingsDict
             }
 
             // Count unique pairs vs total mappings (including triplets)
@@ -1084,14 +1230,14 @@ class RegularizationViewModel: ObservableObject {
         }
     }
 
-    func loadUncuratedPairs() async {
+    nonisolated func loadUncuratedPairsAsync() async {
         guard let manager = regularizationManager else {
             logger.error("RegularizationManager not available")
             return
         }
 
         await MainActor.run {
-            isLoading = true
+            self.isLoading = true
         }
 
         let startTime = CFAbsoluteTimeGetCurrent()
@@ -1099,44 +1245,65 @@ class RegularizationViewModel: ObservableObject {
             // Always load all pairs (including exact matches) - filtering is done in UI by status
             let pairs = try await manager.findUncuratedPairs(includeExactMatches: true)
             await MainActor.run {
-                uncuratedPairs = pairs
-                isLoading = false
+                self.uncuratedPairs = pairs
+                self.isLoading = false
             }
             let duration = CFAbsoluteTimeGetCurrent() - startTime
             logger.notice("Loaded \(pairs.count) uncurated pairs in \(String(format: "%.3f", duration))s")
         } catch {
             logger.error("Error loading uncurated pairs: \(error.localizedDescription)")
             await MainActor.run {
-                isLoading = false
+                self.isLoading = false
             }
         }
     }
 
+    // Keep old method for backwards compatibility (delegates to async version)
+    @MainActor
+    func loadUncuratedPairs() async {
+        Task {
+            await loadUncuratedPairsAsync()
+        }
+    }
+
+    nonisolated func loadHierarchyAsync() async {
+        guard let manager = regularizationManager else {
+            logger.error("RegularizationManager not available")
+            return
+        }
+
+        do {
+            let hierarchy = try await manager.generateCanonicalHierarchy(forceRefresh: false)
+            await MainActor.run {
+                self.canonicalHierarchy = hierarchy
+            }
+            logger.debug("Pre-warmed canonical hierarchy in background: \(hierarchy.makes.count) makes")
+        } catch {
+            logger.error("Failed to pre-warm hierarchy: \(error.localizedDescription)")
+        }
+    }
+
+    @MainActor
     func generateHierarchy() async {
         guard let manager = regularizationManager else {
             logger.error("RegularizationManager not available")
             return
         }
 
-        await MainActor.run {
-            isLoadingHierarchy = true
-        }
+        isLoadingHierarchy = true
 
         do {
             let hierarchy = try await manager.generateCanonicalHierarchy(forceRefresh: true)
-            await MainActor.run {
-                canonicalHierarchy = hierarchy
-                isLoadingHierarchy = false
-            }
+            canonicalHierarchy = hierarchy
+            isLoadingHierarchy = false
             logger.info("Generated hierarchy with \(hierarchy.makes.count) makes")
         } catch {
             logger.error("Error generating hierarchy: \(error.localizedDescription)")
-            await MainActor.run {
-                isLoadingHierarchy = false
-            }
+            isLoadingHierarchy = false
         }
     }
 
+    @MainActor
     func saveMapping() async {
         guard let manager = regularizationManager,
               let pair = selectedPair,
@@ -1148,26 +1315,29 @@ class RegularizationViewModel: ObservableObject {
         isSaving = true
 
         do {
-            // Resolve vehicle type ID (handle "Unknown" placeholder)
-            var vehicleTypeId = selectedVehicleType?.id
+            // Resolve vehicle type ID (handle "Unknown" placeholder ID -1)
+            var vehicleTypeId = selectedVehicleTypeId
 
-            if let vehicleType = selectedVehicleType, vehicleType.id == -1 {
-                logger.debug("Resolving placeholder VehicleType ID -1 (code: \(vehicleType.code))")
+            if selectedVehicleTypeId == -1 {
+                logger.debug("Resolving placeholder VehicleType ID -1 (Unknown)")
                 let enumManager = CategoricalEnumManager(databaseManager: databaseManager)
                 if let resolvedId = try await enumManager.getEnumId(
                     table: "vehicle_type_enum",
                     column: "code",
-                    value: vehicleType.code
+                    value: "UK"
                 ) {
                     vehicleTypeId = resolvedId
-                    logger.debug("Resolved VehicleType '\(vehicleType.code)' to ID \(resolvedId)")
+                    logger.debug("Resolved VehicleType 'UK' to ID \(resolvedId)")
                 } else {
-                    logger.error("Failed to resolve VehicleType '\(vehicleType.code)' - will save as NULL")
+                    logger.error("Failed to resolve VehicleType 'UK' - will save as NULL")
                     vehicleTypeId = nil
                 }
             }
 
             // STEP 1: Create ONE wildcard mapping with VehicleType only (FuelType = NULL)
+            let vtIdString = vehicleTypeId != nil ? String(vehicleTypeId!) : "nil"
+            logger.debug("💾 About to save wildcard: vehicleTypeId=\(vtIdString)")
+
             try await manager.saveMapping(
                 uncuratedMakeId: pair.makeId,
                 uncuratedModelId: pair.modelId,
@@ -1178,7 +1348,9 @@ class RegularizationViewModel: ObservableObject {
                 vehicleTypeId: vehicleTypeId
             )
 
-            logger.info("Saved wildcard mapping: \(pair.makeModelDisplay) → \(canonicalMake.name)/\(canonicalModel.name), VehicleType=\(self.selectedVehicleType?.description ?? "NULL")")
+            // Log vehicle type description for debugging
+            let vtDesc = vehicleTypeId != nil ? (allVehicleTypes.first(where: { $0.id == vehicleTypeId })?.description ?? "ID:\(vehicleTypeId!)") : "NULL"
+            logger.info("Saved wildcard mapping: \(pair.makeModelDisplay) → \(canonicalMake.name)/\(canonicalModel.name), VehicleType=\(vtDesc)")
 
             // STEP 2: Create triplet mappings for ALL model years (with user selections or NULL)
             var tripletCount = 0
@@ -1186,11 +1358,37 @@ class RegularizationViewModel: ObservableObject {
             var unknownCount = 0
 
             if let model = selectedCanonicalModel {
-                for (yearId, _) in model.modelYearFuelTypes {
-                    guard let yearId = yearId else { continue }
-
+                // Iterate through all uncurated model years (includes non-canonical years like 2024, 2025)
+                for modelYear in uncuratedModelYears {
                     // Get user selection for this year (nil = Not Assigned, -1 = Unknown, or specific ID)
-                    let selectedFuelTypeId = selectedFuelTypesByYear[yearId] ?? nil
+                    let selectedFuelTypeId = selectedFuelTypesByModelYear[modelYear] ?? nil
+
+                    // Look up yearId from model year value
+                    // First try to find it in canonical hierarchy
+                    var yearId: Int? = nil
+                    for (candidateYearId, fuelTypes) in model.modelYearFuelTypes {
+                        if let unwrappedYearId = candidateYearId,
+                           let firstFuel = fuelTypes.first,
+                           firstFuel.modelYear == modelYear {
+                            yearId = unwrappedYearId
+                            break
+                        }
+                    }
+
+                    // If not in canonical hierarchy, look up from enum table
+                    if yearId == nil {
+                        let enumManager = CategoricalEnumManager(databaseManager: databaseManager)
+                        yearId = try await enumManager.getEnumId(
+                            table: "model_year_enum",
+                            column: "year",
+                            value: String(modelYear)
+                        )
+                    }
+
+                    guard let yearId = yearId else {
+                        logger.warning("Could not find yearId for model year \(modelYear) - skipping")
+                        continue
+                    }
 
                     // Resolve -1 (Unknown placeholder) to actual Unknown fuel type ID
                     var resolvedFuelTypeId = selectedFuelTypeId
@@ -1227,11 +1425,65 @@ class RegularizationViewModel: ObservableObject {
 
             logger.info("Saved \(tripletCount) triplet mappings: \(assignedCount) assigned, \(unknownCount) unknown, \(tripletCount - assignedCount - unknownCount) not assigned")
 
-            // Reload existing mappings to update status indicators
-            await loadExistingMappings()
+            // Reload existing mappings to update status indicators (MUST wait before reloading form)
+            await loadExistingMappingsAsync()
 
             // Reload the mapping for the current pair to show updated form fields
             await loadMappingForSelectedPair()
+
+            // Update the status for the affected pair in the uncurated pairs list
+            if let index = uncuratedPairs.firstIndex(where: { $0.id == pair.id }) {
+                // Recompute status with updated mappings
+                let key = "\(pair.makeId)_\(pair.modelId)"
+                let pairMappings = existingMappings[key] ?? []
+
+                // Get mappings dict in the format expected by computeRegularizationStatus
+                var mappingsDict: [String: [RegularizationMapping]] = [:]
+                for mapping in pairMappings {
+                    let key = "\(mapping.uncuratedMakeId)_\(mapping.uncuratedModelId)"
+                    if mappingsDict[key] == nil {
+                        mappingsDict[key] = []
+                    }
+                    mappingsDict[key]?.append(mapping)
+                }
+
+                let yearRange = pair.earliestYear...pair.latestYear
+                let newStatus = await manager.computeRegularizationStatus(
+                    forKey: key,
+                    mappings: mappingsDict,
+                    yearRange: yearRange
+                )
+
+                // Recompute vehicleTypeId from updated mappings
+                let vehicleTypeId: Int? = {
+                    guard let pairMappings = existingMappings[key] else { return nil }
+                    guard let wildcardMapping = pairMappings.first(where: { $0.modelYearId == nil }) else { return nil }
+                    return wildcardMapping.vehicleTypeId
+                }()
+
+                // Update the pair with new status and vehicleTypeId
+                var updatedPair = pair
+                updatedPair.regularizationStatus = newStatus
+                updatedPair.vehicleTypeId = vehicleTypeId
+                uncuratedPairs[index] = updatedPair
+
+                let statusString = switch newStatus {
+                case .unassigned: "unassigned"
+                case .partial: "partial"
+                case .complete: "complete"
+                }
+                logger.debug("Updated status for \(pair.makeModelDisplay): \(statusString)")
+            }
+
+            // Invalidate cache ONCE after all saves (wildcard + all triplets)
+            Task {
+                do {
+                    try await databaseManager.invalidateUncuratedPairsCache()
+                    logger.info("Invalidated uncurated pairs cache after batch save")
+                } catch {
+                    logger.error("Failed to invalidate cache: \(error.localizedDescription)")
+                }
+            }
 
         } catch {
             logger.error("Error saving mapping: \(error.localizedDescription)")
@@ -1240,38 +1492,45 @@ class RegularizationViewModel: ObservableObject {
         isSaving = false
     }
 
+    @MainActor
     func clearMappingSelection() {
         selectedPair = nil
         clearMappingFormFields()
     }
 
+    @MainActor
     func clearMappingFormFields() {
         selectedCanonicalMake = nil
         selectedCanonicalModel = nil
-        selectedVehicleType = nil
-        selectedFuelTypesByYear = [:]
+        selectedVehicleTypeId = nil
+        selectedFuelTypesByModelYear = [:]
+        uncuratedModelYears = []
+        uncuratedModelYearCounts = [:]
     }
 
     // MARK: - Year-Based Fuel Type Selection Methods
 
     /// Get the selected fuel type ID for a given model year
     /// Returns: fuel type ID, -1 for "Unknown", or nil for "Not Assigned"
-    func getSelectedFuelType(forYearId yearId: Int) -> Int? {
-        return selectedFuelTypesByYear[yearId] ?? nil
+    @MainActor
+    func getSelectedFuelType(forModelYear modelYear: Int) -> Int? {
+        return selectedFuelTypesByModelYear[modelYear] ?? nil
     }
 
     /// Set the fuel type for a specific model year
     /// Pass nil for "Not Assigned", -1 for "Unknown", or a specific fuel type ID
-    func setFuelType(yearId: Int, fuelTypeId: Int?) {
-        selectedFuelTypesByYear[yearId] = fuelTypeId
+    @MainActor
+    func setFuelType(modelYear: Int, fuelTypeId: Int?) {
+        selectedFuelTypesByModelYear[modelYear] = fuelTypeId
     }
 
     /// Check if all model years have assigned fuel types (not "Not Assigned")
     /// Returns true if all years have either a specific fuel type or "Unknown" (-1)
+    @MainActor
     func allFuelTypesAssigned(for model: MakeModelHierarchy.Model) -> Bool {
-        for (yearId, _) in model.modelYearFuelTypes {
-            guard let yearId = yearId else { continue }
-            let selection = selectedFuelTypesByYear[yearId] ?? nil
+        // Check ALL uncurated model years (not just canonical years)
+        for modelYear in uncuratedModelYears {
+            let selection = selectedFuelTypesByModelYear[modelYear] ?? nil
             if selection == nil {
                 return false  // "Not Assigned" found
             }
@@ -1280,25 +1539,31 @@ class RegularizationViewModel: ObservableObject {
     }
 
     /// Auto-regularize pairs where Make/Model exactly match curated pairs
-    func autoRegularizeExactMatches() async {
+    nonisolated func autoRegularizeExactMatchesAsync() async {
         guard let manager = regularizationManager else {
             logger.error("RegularizationManager not available for auto-regularization")
             return
         }
 
-        var hierarchy = canonicalHierarchy
+        // Wait for hierarchy to be pre-warmed by background task (avoid duplicate generation)
+        // Poll for up to 60 seconds, checking every 0.5s
+        var hierarchy = await MainActor.run { canonicalHierarchy }
+        var waitAttempts = 0
+        while hierarchy == nil && waitAttempts < 120 {
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            hierarchy = await MainActor.run { canonicalHierarchy }
+            waitAttempts += 1
+        }
+
         if hierarchy == nil {
-            // Generate hierarchy if not already done
-            await generateHierarchy()
-            hierarchy = canonicalHierarchy
-            guard hierarchy != nil else {
-                logger.error("Failed to generate hierarchy for auto-regularization")
-                return
-            }
+            logger.warning("Hierarchy not ready after 60s, skipping auto-regularization")
+            return
         }
 
         let startTime = CFAbsoluteTimeGetCurrent()
-        isAutoRegularizing = true
+        await MainActor.run {
+            self.isAutoRegularizing = true
+        }
 
         // Build a lookup of canonical Make/Model combinations with their metadata
         var canonicalPairs: [String: MakeModelHierarchy.Model] = [:]
@@ -1309,16 +1574,30 @@ class RegularizationViewModel: ObservableObject {
             }
         }
 
-        // Fetch ALL uncurated pairs including exact matches for auto-regularization
-        // Don't rely on the uncuratedPairs array since it may have exact matches filtered out
-        let allUncuratedPairs: [UnverifiedMakeModelPair]
-        do {
-            allUncuratedPairs = try await manager.findUncuratedPairs(includeExactMatches: true)
-        } catch {
-            logger.error("Error fetching uncurated pairs for auto-regularization: \(error.localizedDescription)")
-            isAutoRegularizing = false
+        // Wait for uncurated pairs to be loaded by loadUncuratedPairs() task (avoid duplicate query)
+        // Poll for up to 60 seconds, checking every 0.5s
+        var allUncuratedPairs = await MainActor.run { uncuratedPairs }
+        var pairsWaitAttempts = 0
+        while allUncuratedPairs.isEmpty && pairsWaitAttempts < 120 {
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            allUncuratedPairs = await MainActor.run { uncuratedPairs }
+            pairsWaitAttempts += 1
+        }
+
+        if allUncuratedPairs.isEmpty {
+            logger.info("No uncurated pairs loaded after 60s, skipping auto-regularization")
+            await MainActor.run {
+                self.isAutoRegularizing = false
+            }
             return
         }
+
+        // Get existingMappings snapshot
+        let existingMappingsSnapshot = await MainActor.run { existingMappings }
+
+        // Capture AppSettings values before entering loop (avoid main actor access in nonisolated context)
+        let useCardinalTypes = await MainActor.run { AppSettings.shared.useCardinalTypes }
+        let cardinalCodes = await MainActor.run { AppSettings.shared.cardinalVehicleTypeCodes }
 
         // Find uncurated pairs that exactly match
         var autoRegularizedCount = 0
@@ -1326,7 +1605,8 @@ class RegularizationViewModel: ObservableObject {
             let pairKey = "\(pair.makeName)/\(pair.modelName)"
 
             // Check if this pair already has a mapping (check if array is non-empty)
-            let mappings = getMappingsForPair(pair.makeId, pair.modelId)
+            let key = "\(pair.makeId)_\(pair.modelId)"
+            let mappings = existingMappingsSnapshot[key] ?? []
             if !mappings.isEmpty {
                 continue  // Already mapped
             }
@@ -1351,8 +1631,7 @@ class RegularizationViewModel: ObservableObject {
                         return validVehicleTypes.first?.id
                     }
 
-                    if validVehicleTypes.count > 1 && AppSettings.shared.useCardinalTypes {
-                        let cardinalCodes = AppSettings.shared.cardinalVehicleTypeCodes
+                    if validVehicleTypes.count > 1 && useCardinalTypes {
                         for cardinalCode in cardinalCodes {
                             if let matchingType = validVehicleTypes.first(where: { $0.code == cardinalCode }) {
                                 return matchingType.id
@@ -1425,29 +1704,35 @@ class RegularizationViewModel: ObservableObject {
             logger.notice("Auto-regularized \(autoRegularizedCount) exact matches in \(String(format: "%.3f", duration))s")
             // Reload mappings in background - don't block UI with immediate status recalculation
             // The UI will update naturally when users interact with the list
-            await loadExistingMappings()
+            await loadExistingMappingsAsync()
             logger.info("Background auto-regularization complete - status indicators will update on next refresh")
         } else {
             logger.debug("No exact matches found for auto-regularization")
         }
 
         await MainActor.run {
-            isAutoRegularizing = false
+            self.isAutoRegularizing = false
         }
     }
 
     /// Helper: Get all mappings for a Make/Model pair (includes triplets and wildcards)
+    @MainActor
     func getMappingsForPair(_ makeId: Int, _ modelId: Int) -> [RegularizationMapping] {
         let key = "\(makeId)_\(modelId)"
         return existingMappings[key] ?? []
     }
 
     /// Helper: Get the wildcard mapping for a pair (model_year_id = NULL)
+    @MainActor
     func getWildcardMapping(for pair: UnverifiedMakeModelPair) -> RegularizationMapping? {
-        return getMappingsForPair(pair.makeId, pair.modelId).first { $0.modelYearId == nil }
+        let allMappings = getMappingsForPair(pair.makeId, pair.modelId)
+        let wildcard = allMappings.first { $0.modelYearId == nil }
+        logger.debug("getWildcardMapping: \(allMappings.count) total mappings, wildcard vehicleType: \(wildcard?.vehicleType ?? "nil")")
+        return wildcard
     }
 
     /// Helper: Get vehicle type code from description
+    @MainActor
     func getVehicleTypeCode(for description: String) -> String? {
         // Check in allVehicleTypes first (includes all types from schema)
         if let vehicleType = allVehicleTypes.first(where: { $0.description == description }) {
@@ -1460,72 +1745,35 @@ class RegularizationViewModel: ObservableObject {
         return nil
     }
 
-    /// Get regularization status for a pair
-    /// Status logic:
-    /// - 🟢 Complete: VehicleType assigned AND ALL triplets have assigned fuel types (including "Unknown", but NOT "Not Assigned"/NULL)
-    /// - 🟠 Needs Review: VehicleType assigned OR some triplets have assigned fuel types (partial work done)
-    /// - 🔴 Unassigned: No mappings exist
-    func getRegularizationStatus(for pair: UnverifiedMakeModelPair) -> RegularizationStatus {
-        let key = "\(pair.makeId)_\(pair.modelId)"
+    /// Helper: Get field assignment status for a pair
+    /// Returns tuple: (hasMakeModel, hasVehicleType, hasFuelTypes)
+    /// Note: hasFuelTypes only true if status is .complete (ALL model years assigned)
+    @MainActor
+    func getFieldAssignmentStatus(for pair: UnverifiedMakeModelPair) -> (makeModel: Bool, vehicleType: Bool, fuelTypes: Bool) {
+        let mappings = getMappingsForPair(pair.makeId, pair.modelId)
 
-        guard let mappings = existingMappings[key], !mappings.isEmpty else {
-            return .none  // 🔴 No mapping exists
+        // If no mappings, nothing is assigned
+        guard !mappings.isEmpty else {
+            return (makeModel: false, vehicleType: false, fuelTypes: false)
         }
 
-        // Separate wildcard and triplet mappings
+        // Make/Model always assigned if any mapping exists
+        let hasMakeModel = true
+
+        // Check vehicle type (from wildcard mapping)
         let wildcardMapping = mappings.first { $0.modelYearId == nil }
-        let tripletMappings = mappings.filter { $0.modelYearId != nil }
+        let hasVehicleType = wildcardMapping?.vehicleTypeId != nil
 
-        // Check if vehicle type is assigned (should be in wildcard)
-        let hasVehicleType = wildcardMapping?.vehicleType != nil
+        // Fuel types only considered complete if status is .complete
+        // (meaning ALL model years have assigned fuel types, not just some)
+        let hasFuelTypes = pair.regularizationStatus == .complete
 
-        // CRITICAL: Check if ALL model years have triplets AND all triplets have ASSIGNED fuel types
-        // "Unknown" counts as assigned, but NULL does not
-        // If there are no triplets at all, we consider this "needs review"
-        let allTripletsHaveFuelType: Bool
-        if tripletMappings.isEmpty {
-            allTripletsHaveFuelType = false  // No triplets = incomplete
-        } else {
-            // Check that ALL triplets have non-NULL fuel types
-            let allExistingTripletsAssigned = tripletMappings.allSatisfy { $0.fuelType != nil }
-
-            // Also check that we have a year-specific mapping for EVERY model year
-            // Get expected model years from canonical hierarchy
-            var expectedYearCount: Int?
-            if let wildcardMapping = wildcardMapping,
-               let hierarchy = canonicalHierarchy {
-
-                let canonicalMakeName = wildcardMapping.canonicalMake
-                let canonicalModelName = wildcardMapping.canonicalModel
-
-                // Find the canonical model in hierarchy
-                if let make = hierarchy.makes.first(where: { $0.name == canonicalMakeName }),
-                   let model = make.models.first(where: { $0.name == canonicalModelName }) {
-                    expectedYearCount = model.modelYearFuelTypes.count
-                }
-            }
-
-            // If we can determine expected year count, check that we have all triplets
-            if let expectedYearCount = expectedYearCount {
-                allTripletsHaveFuelType = allExistingTripletsAssigned &&
-                                          tripletMappings.count == expectedYearCount
-            } else {
-                // Fallback: just check existing triplets (old behavior)
-                allTripletsHaveFuelType = allExistingTripletsAssigned
-            }
-        }
-
-        if hasVehicleType && allTripletsHaveFuelType {
-            return .fullyRegularized  // 🟢 VehicleType assigned AND all fuel types assigned (including "Unknown")
-        } else if hasVehicleType || tripletMappings.contains(where: { $0.fuelType != nil }) {
-            return .needsReview  // 🟠 Partial assignment - some work done but not complete
-        } else {
-            return .none  // 🔴 No meaningful assignments yet
-        }
+        return (makeModel: hasMakeModel, vehicleType: hasVehicleType, fuelTypes: hasFuelTypes)
     }
 
     /// Auto-populate Vehicle Type and Fuel Types when user selects a canonical Make/Model
     /// This enhances UX for 'Unassigned' pairs by suggesting values from the canonical hierarchy
+    @MainActor
     func autoPopulateFieldsForNewModel() async {
         guard let model = selectedCanonicalModel else { return }
 
@@ -1552,13 +1800,13 @@ class RegularizationViewModel: ObservableObject {
 
         if validVehicleTypes.count == 1 {
             // Single vehicle type - auto-assign it
-            selectedVehicleType = validVehicleTypes.first
+            selectedVehicleTypeId = validVehicleTypes.first?.id
         } else if validVehicleTypes.count > 1 && AppSettings.shared.useCardinalTypes {
             // Multiple types - try cardinal matching
             let cardinalCodes = AppSettings.shared.cardinalVehicleTypeCodes
             for cardinalCode in cardinalCodes {
                 if let matchingType = validVehicleTypes.first(where: { $0.code == cardinalCode }) {
-                    selectedVehicleType = matchingType
+                    selectedVehicleTypeId = matchingType.id
                     break
                 }
             }
@@ -1567,7 +1815,7 @@ class RegularizationViewModel: ObservableObject {
         // STEP 2: Auto-populate Fuel Types by Model Year
         // Strategy: Only auto-assign if a model year has exactly ONE valid fuel type
         for (modelYearId, fuelTypes) in model.modelYearFuelTypes {
-            guard let modelYearId = modelYearId else { continue }
+            guard modelYearId != nil else { continue }
 
             let validFuelTypes = fuelTypes.filter { fuelType in
                 fuelType.id != -1 &&  // Filter out placeholder entries
@@ -1578,25 +1826,56 @@ class RegularizationViewModel: ObservableObject {
 
             if validFuelTypes.count == 1, let fuelType = validFuelTypes.first {
                 // Single fuel type - auto-assign it
-                selectedFuelTypesByYear[modelYearId] = fuelType.id
+                // modelYearId is actually the yearId, need to convert to modelYear
+                if let modelYear = fuelType.modelYear {
+                    selectedFuelTypesByModelYear[modelYear] = fuelType.id
+                }
             }
         }
 
-        let assignedVT = selectedVehicleType != nil
-        let assignedFT = selectedFuelTypesByYear.values.filter { $0 != nil }.count
-        logger.debug("Auto-population complete: VehicleType=\(assignedVT), FuelTypes=\(assignedFT)/\(model.modelYearFuelTypes.count)")
+        let assignedVT = selectedVehicleTypeId != nil
+        let assignedFT = selectedFuelTypesByModelYear.values.filter { $0 != nil }.count
+        logger.debug("Auto-population complete: VehicleType=\(assignedVT), FuelTypes=\(assignedFT)/\(self.uncuratedModelYears.count)")
     }
 
     /// Load existing mapping data for the selected pair
+    @MainActor
     func loadMappingForSelectedPair() async {
         guard let pair = selectedPair else {
             clearMappingFormFields()
             return
         }
 
-        // Ensure hierarchy is loaded
+        // Load model years that exist in uncurated data for this pair
+        let manager = RegularizationManager(databaseManager: databaseManager)
+        do {
+            self.uncuratedModelYears = try await manager.getModelYearsForUncuratedPair(
+                makeId: pair.makeId,
+                modelId: pair.modelId
+            )
+            logger.debug("Loaded \(self.uncuratedModelYears.count) uncurated model years: \(self.uncuratedModelYears)")
+        } catch {
+            logger.error("Failed to load uncurated model years: \(error.localizedDescription)")
+            self.uncuratedModelYears = []
+        }
+
+        // Load record counts per model year for prioritization
+        do {
+            self.uncuratedModelYearCounts = try await manager.getModelYearCountsForUncuratedPair(
+                makeId: pair.makeId,
+                modelId: pair.modelId
+            )
+            let totalRecords = self.uncuratedModelYearCounts.values.reduce(0, +)
+            logger.debug("Loaded model year counts: \(totalRecords) total records across \(self.uncuratedModelYearCounts.count) model years")
+        } catch {
+            logger.error("Failed to load model year counts: \(error.localizedDescription)")
+            self.uncuratedModelYearCounts = [:]
+        }
+
+        // Ensure hierarchy is loaded (wait if it's still loading in background)
         var hierarchy = canonicalHierarchy
         if hierarchy == nil {
+            logger.debug("Hierarchy not ready, generating now for \(pair.makeModelDisplay)")
             await generateHierarchy()
             hierarchy = canonicalHierarchy
             guard hierarchy != nil else {
@@ -1609,6 +1888,13 @@ class RegularizationViewModel: ObservableObject {
         // Get the wildcard mapping for this pair (form editor uses wildcard for UI display)
         let mapping = getWildcardMapping(for: pair)
 
+        logger.debug("🔍 loadMappingForSelectedPair for \(pair.makeModelDisplay)")
+        logger.debug("  Wildcard mapping exists: \(mapping != nil)")
+        if let mapping = mapping {
+            logger.debug("  Mapping vehicleType: \(mapping.vehicleType ?? "nil")")
+            logger.debug("  Mapping fuelType: \(mapping.fuelType ?? "nil")")
+        }
+
         // Try to find canonical Make/Model for this pair
         // First check if there's an existing mapping
         var canonicalMakeName: String?
@@ -1618,6 +1904,7 @@ class RegularizationViewModel: ObservableObject {
             // Use wildcard mapping's canonical values
             canonicalMakeName = mapping.canonicalMake
             canonicalModelName = mapping.canonicalModel
+            logger.debug("  Using canonical: \(canonicalMakeName!)/\(canonicalModelName!)")
         } else {
             // Check if this is an exact match to a canonical pair
             let pairKey = "\(pair.makeName)/\(pair.modelName)"
@@ -1637,58 +1924,92 @@ class RegularizationViewModel: ObservableObject {
         if let canonicalMakeName = canonicalMakeName,
            let canonicalModelName = canonicalModelName {
 
+            logger.debug("  Searching hierarchy for \(canonicalMakeName)/\(canonicalModelName)")
+
             if let make = hierarchy!.makes.first(where: { $0.name == canonicalMakeName }) {
                 selectedCanonicalMake = make
+                logger.debug("  ✅ Found make in hierarchy")
 
                 // Find the canonical model
                 if let model = make.models.first(where: { $0.name == canonicalModelName }) {
                     selectedCanonicalModel = model
+                    logger.debug("  ✅ Found model in hierarchy, vehicleTypes count: \(model.vehicleTypes.count)")
 
                     // Reset type selections first (in case mapping has NULL values)
-                    selectedVehicleType = nil
+                    selectedVehicleTypeId = nil
 
                     // Find the vehicle type if assigned (only from existing mapping)
-                    if let mapping = mapping, let vehicleTypeName = mapping.vehicleType {
-                        if vehicleTypeName == "Unknown" {
-                            // Create special "Unknown" instance (matches picker option)
-                            selectedVehicleType = MakeModelHierarchy.VehicleTypeInfo(
-                                id: -1,
-                                code: "UK",  // Unknown vehicle type (user-assigned)
-                                description: "Unknown",
-                                recordCount: 0
-                            )
+                    // Use integer ID directly (matches picker's tag values)
+                    if let mapping = mapping, let vehicleTypeId = mapping.vehicleTypeId {
+                        logger.debug("Loading vehicle type ID from mapping: \(vehicleTypeId)")
+                        selectedVehicleTypeId = vehicleTypeId
+
+                        // Log for debugging (optional - look up description)
+                        if let vtInfo = allVehicleTypes.first(where: { $0.id == vehicleTypeId }) {
+                            logger.debug("✅ Set selectedVehicleTypeId: \(vehicleTypeId) (\(vtInfo.code) - \(vtInfo.description))")
                         } else {
-                            selectedVehicleType = model.vehicleTypes.first { $0.description == vehicleTypeName }
+                            logger.debug("✅ Set selectedVehicleTypeId: \(vehicleTypeId) (not in allVehicleTypes, might be UK)")
                         }
                     }
 
                     // Populate year-based fuel type radio selections from triplet mappings
-                    selectedFuelTypesByYear = [:]
+                    selectedFuelTypesByModelYear = [:]
                     let allMappings = getMappingsForPair(pair.makeId, pair.modelId)
 
                     for mapping in allMappings {
                         // Only process triplet mappings (those with model_year_id set)
                         if let yearId = mapping.modelYearId {
+                            // Convert yearId to modelYear value
+                            var modelYear: Int? = nil
+
+                            // First try to find it in canonical hierarchy
+                            for (candidateYearId, fuelTypes) in model.modelYearFuelTypes {
+                                if candidateYearId == yearId, let firstFuel = fuelTypes.first {
+                                    modelYear = firstFuel.modelYear
+                                    break
+                                }
+                            }
+
+                            // If not in canonical hierarchy, look it up from RegularizationMapping
+                            if modelYear == nil, let mappingYear = mapping.modelYear {
+                                modelYear = mappingYear
+                            }
+
+                            guard let modelYear = modelYear else {
+                                logger.warning("Could not find model year for yearId \(yearId) - skipping")
+                                continue
+                            }
+
                             if let fuelTypeName = mapping.fuelType {
                                 // Check if this is "Unknown"
                                 if fuelTypeName == "Unknown" {
-                                    selectedFuelTypesByYear[yearId] = -1
+                                    selectedFuelTypesByModelYear[modelYear] = -1
                                 } else {
                                     // Find the fuel type ID by matching description
-                                    if let yearFuelTypes = model.modelYearFuelTypes[yearId],
-                                       let fuelType = yearFuelTypes.first(where: { $0.description == fuelTypeName }) {
-                                        selectedFuelTypesByYear[yearId] = fuelType.id
+                                    // Try canonical hierarchy first
+                                    var fuelTypeId: Int? = nil
+                                    if let yearFuelTypes = model.modelYearFuelTypes[yearId] {
+                                        fuelTypeId = yearFuelTypes.first(where: { $0.description == fuelTypeName })?.id
+                                    }
+                                    // If not found, try allFuelTypes
+                                    if fuelTypeId == nil {
+                                        fuelTypeId = allFuelTypes.first(where: { $0.description == fuelTypeName })?.id
+                                    }
+                                    if let fuelTypeId = fuelTypeId {
+                                        selectedFuelTypesByModelYear[modelYear] = fuelTypeId
                                     }
                                 }
                             } else {
                                 // Fuel type is NULL (Not Assigned)
-                                selectedFuelTypesByYear[yearId] = nil
+                                selectedFuelTypesByModelYear[modelYear] = nil
                             }
                         }
                     }
                 }
             }
 
+            let vtDesc = selectedVehicleTypeId != nil ? String(selectedVehicleTypeId!) : "nil"
+            logger.debug("  Final state - selectedVehicleTypeId: \(vtDesc)")
             logger.debug("Loaded mapping for \(pair.makeModelDisplay): \(mapping != nil ? "existing" : "exact match")")
         } else {
             // No mapping and no exact match - clear form fields but keep pair selected

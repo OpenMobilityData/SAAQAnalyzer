@@ -291,11 +291,12 @@ class DatabaseManager: ObservableObject {
 
             // Conditionally update statistics based on user preference
             if AppSettings.shared.updateDatabaseStatisticsOnLaunch {
-                print("🔄 Updating database statistics (ANALYZE) - this may take a few minutes...")
+                AppLogger.database.info("Updating database statistics for main tables")
                 let startTime = Date()
-                sqlite3_exec(db, "ANALYZE", nil, nil, nil)
+                sqlite3_exec(db, "ANALYZE vehicles", nil, nil, nil)
+                sqlite3_exec(db, "ANALYZE licenses", nil, nil, nil)
                 let duration = Date().timeIntervalSince(startTime)
-                print("✅ Database statistics updated in \(String(format: "%.1f", duration))s")
+                AppLogger.performance.notice("Database statistics updated in \(String(format: "%.1f", duration), privacy: .public)s")
             }
 
             print("✅ Database AGGRESSIVELY optimized for M3 Ultra: 8GB cache, 32GB mmap, 16 threads")
@@ -557,7 +558,8 @@ class DatabaseManager: ObservableObject {
     }
 
     /// Manually update database statistics (ANALYZE command)
-    func updateDatabaseStatistics() async throws {
+    /// - Parameter tables: Optional array of table names to analyze. If nil, analyzes main tables (vehicles, licenses)
+    func updateDatabaseStatistics(for tables: [String]? = nil) async throws {
         return try await withCheckedThrowingContinuation { continuation in
             dbQueue.async { [weak self] in
                 guard let db = self?.db else {
@@ -565,23 +567,35 @@ class DatabaseManager: ObservableObject {
                     return
                 }
 
-                print("🔄 Updating database statistics (ANALYZE) - this may take several minutes...")
+                // Default to main tables if none specified
+                let tablesToAnalyze = tables ?? ["vehicles", "licenses"]
+
+                AppLogger.database.info("Updating database statistics for tables: \(tablesToAnalyze.joined(separator: ", "), privacy: .public)")
                 let startTime = Date()
 
-                let result = sqlite3_exec(db, "ANALYZE", nil, nil, nil)
+                var analysisResult = SQLITE_OK
+                for tableName in tablesToAnalyze {
+                    let sql = "ANALYZE \(tableName)"
+                    let result = sqlite3_exec(db, sql, nil, nil, nil)
+                    if result != SQLITE_OK {
+                        analysisResult = result
+                        break
+                    }
+                }
+
                 let duration = Date().timeIntervalSince(startTime)
 
-                if result == SQLITE_OK {
-                    print("✅ Database statistics updated successfully in \(String(format: "%.1f", duration))s")
+                if analysisResult == SQLITE_OK {
+                    AppLogger.performance.notice("Database statistics updated in \(String(format: "%.1f", duration), privacy: .public)s for \(tablesToAnalyze.count, privacy: .public) table(s)")
                     continuation.resume()
                 } else {
                     if let errorMessage = sqlite3_errmsg(db) {
                         let error = DatabaseError.queryFailed(String(cString: errorMessage))
-                        print("❌ Failed to update database statistics: \(error)")
+                        AppLogger.database.error("Failed to update database statistics: \(String(describing: error), privacy: .public)")
                         continuation.resume(throwing: error)
                     } else {
                         let error = DatabaseError.queryFailed("Unknown error during ANALYZE")
-                        print("❌ Failed to update database statistics: \(error)")
+                        AppLogger.database.error("Failed to update database statistics: \(String(describing: error), privacy: .public)")
                         continuation.resume(throwing: error)
                     }
                 }
@@ -891,6 +905,37 @@ class DatabaseManager: ObservableObject {
                 FOREIGN KEY (vehicle_type_id) REFERENCES vehicle_type_enum(id)
             );
             """
+
+        let createCacheMetadataTable = """
+            CREATE TABLE IF NOT EXISTS regularization_cache_metadata (
+                cache_name TEXT PRIMARY KEY,
+                curated_years TEXT,
+                uncurated_years TEXT,
+                include_exact_matches INTEGER DEFAULT 0,
+                last_updated TEXT,
+                record_count INTEGER DEFAULT 0,
+                cache_version INTEGER DEFAULT 1
+            );
+            """
+
+        let createUncuratedPairsCacheTable = """
+            CREATE TABLE IF NOT EXISTS uncurated_pairs_cache (
+                make_id INTEGER NOT NULL,
+                model_id INTEGER NOT NULL,
+                make_name TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                record_count INTEGER NOT NULL,
+                percentage_of_total REAL NOT NULL,
+                earliest_year INTEGER NOT NULL,
+                latest_year INTEGER NOT NULL,
+                regularization_status INTEGER NOT NULL,
+                vehicle_type_id INTEGER,
+                PRIMARY KEY (make_id, model_id),
+                FOREIGN KEY (vehicle_type_id) REFERENCES vehicle_type_enum(id),
+                FOREIGN KEY (make_id) REFERENCES make_enum(id),
+                FOREIGN KEY (model_id) REFERENCES model_enum(id)
+            );
+            """
         
         // Create indexes for better query performance
         let createIndexes = [
@@ -967,12 +1012,16 @@ class DatabaseManager: ObservableObject {
             // Canonical hierarchy cache indexes for fast queries
             "CREATE INDEX IF NOT EXISTS idx_cache_make_id ON canonical_hierarchy_cache(make_id);",
             "CREATE INDEX IF NOT EXISTS idx_cache_model_id ON canonical_hierarchy_cache(model_id);",
-            "CREATE INDEX IF NOT EXISTS idx_cache_make_model ON canonical_hierarchy_cache(make_id, model_id);"
+            "CREATE INDEX IF NOT EXISTS idx_cache_make_model ON canonical_hierarchy_cache(make_id, model_id);",
+
+            // Uncurated pairs cache indexes
+            "CREATE INDEX IF NOT EXISTS idx_uncurated_cache_status ON uncurated_pairs_cache(regularization_status);",
+            "CREATE INDEX IF NOT EXISTS idx_uncurated_cache_record_count ON uncurated_pairs_cache(record_count DESC);"
         ]
         
         // Create tables and indexes SYNCHRONOUSLY to ensure they exist before cache operations
         // Create main tables
-        for query in [createVehiclesTable, createLicensesTable, createGeographicTable, createImportLogTable, createCanonicalHierarchyCacheTable] {
+        for query in [createVehiclesTable, createLicensesTable, createGeographicTable, createImportLogTable, createCanonicalHierarchyCacheTable, createCacheMetadataTable, createUncuratedPairsCacheTable] {
             if sqlite3_exec(db, query, nil, nil, nil) != SQLITE_OK {
                 if let errorMessage = sqlite3_errmsg(db) {
                     print("Error creating table: \(String(cString: errorMessage))")
@@ -5747,6 +5796,324 @@ class DatabaseManager: ObservableObject {
                     continuation.resume(throwing: DatabaseError.queryFailed("Failed to prepare cache population: \(error)"))
                 }
             }
+        }
+    }
+
+    // MARK: - Regularization Cache Management
+
+    /// Checks if uncurated pairs cache is valid for the given configuration
+    func isUncuratedPairsCacheValid(uncuratedYears: [Int], includeExactMatches: Bool) async -> Bool {
+        guard let db = db else { return false }
+
+        return await withCheckedContinuation { continuation in
+            nonisolated(unsafe) let unsafeDB = db
+            dbQueue.async {
+                let db = unsafeDB
+                var stmt: OpaquePointer?
+                defer { sqlite3_finalize(stmt) }
+
+                let sql = """
+                SELECT curated_years, uncurated_years, include_exact_matches
+                FROM regularization_cache_metadata
+                WHERE cache_name = 'uncurated_pairs';
+                """
+
+                if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                    if sqlite3_step(stmt) == SQLITE_ROW {
+                        // Parse stored configuration
+                        let storedUncuratedYears: String? = sqlite3_column_type(stmt, 1) != SQLITE_NULL
+                            ? String(cString: sqlite3_column_text(stmt, 1)) : nil
+                        let storedIncludeExactMatches = sqlite3_column_int(stmt, 2) != 0
+
+                        // Compare configuration
+                        if let storedYears = storedUncuratedYears,
+                           let yearsData = storedYears.data(using: .utf8),
+                           let parsedYears = try? JSONDecoder().decode([Int].self, from: yearsData) {
+                            let isValid = Set(parsedYears) == Set(uncuratedYears) &&
+                                          storedIncludeExactMatches == includeExactMatches
+
+                            if isValid {
+                                AppLogger.database.info("✅ Uncurated pairs cache is VALID: years match, includeExactMatches=\(includeExactMatches)")
+                            } else {
+                                AppLogger.database.warning("❌ Uncurated pairs cache is INVALID: stored=\(parsedYears), requested=\(uncuratedYears), storedFlag=\(storedIncludeExactMatches), requestedFlag=\(includeExactMatches)")
+                            }
+                            continuation.resume(returning: isValid)
+                        } else {
+                            AppLogger.database.warning("❌ Uncurated pairs cache metadata exists but failed to parse years JSON: \(storedUncuratedYears ?? "nil")")
+                            continuation.resume(returning: false)
+                        }
+                    } else {
+                        // No metadata found, cache is invalid
+                        AppLogger.database.info("❌ No uncurated pairs cache metadata found - cache is empty")
+                        continuation.resume(returning: false)
+                    }
+                } else {
+                    let error = String(cString: sqlite3_errmsg(db))
+                    AppLogger.database.error("Failed to check cache validity: \(error)")
+                    continuation.resume(returning: false)
+                }
+            }
+        }
+    }
+
+    /// Saves cache metadata for tracking configuration
+    func saveCacheMetadata(
+        cacheName: String,
+        curatedYears: [Int]?,
+        uncuratedYears: [Int]?,
+        includeExactMatches: Bool,
+        recordCount: Int
+    ) async throws {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        let sql = """
+        INSERT OR REPLACE INTO regularization_cache_metadata
+            (cache_name, curated_years, uncurated_years, include_exact_matches, last_updated, record_count, cache_version)
+        VALUES (?, ?, ?, ?, ?, ?, 1);
+        """
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                // Bind cache name using NSString for proper C string conversion
+                sqlite3_bind_text(stmt, 1, (cacheName as NSString).utf8String, -1, SQLITE_TRANSIENT)
+
+                // Serialize year arrays to JSON
+                if let curated = curatedYears, let jsonData = try? JSONEncoder().encode(curated),
+                   let jsonString = String(data: jsonData, encoding: .utf8) {
+                    sqlite3_bind_text(stmt, 2, (jsonString as NSString).utf8String, -1, SQLITE_TRANSIENT)
+                } else {
+                    sqlite3_bind_null(stmt, 2)
+                }
+
+                if let uncurated = uncuratedYears, let jsonData = try? JSONEncoder().encode(uncurated),
+                   let jsonString = String(data: jsonData, encoding: .utf8) {
+                    sqlite3_bind_text(stmt, 3, (jsonString as NSString).utf8String, -1, SQLITE_TRANSIENT)
+                } else {
+                    sqlite3_bind_null(stmt, 3)
+                }
+
+                sqlite3_bind_int(stmt, 4, includeExactMatches ? 1 : 0)
+
+                let dateFormatter = ISO8601DateFormatter()
+                let dateString = dateFormatter.string(from: Date())
+                sqlite3_bind_text(stmt, 5, (dateString as NSString).utf8String, -1, SQLITE_TRANSIENT)
+
+                sqlite3_bind_int(stmt, 6, Int32(recordCount))
+
+                if sqlite3_step(stmt) == SQLITE_DONE {
+                    AppLogger.database.info("Saved cache metadata for \(cacheName): \(recordCount) records")
+                    continuation.resume()
+                } else {
+                    let error = String(cString: sqlite3_errmsg(db))
+                    continuation.resume(throwing: DatabaseError.queryFailed("Failed to save cache metadata: \(error)"))
+                }
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to prepare cache metadata: \(error)"))
+            }
+        }
+    }
+
+    /// Populates the uncurated pairs cache with pre-computed data
+    func populateUncuratedPairsCache(pairs: [UnverifiedMakeModelPair]) async throws {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        let startTime = CFAbsoluteTimeGetCurrent()
+        AppLogger.database.info("Populating uncurated pairs cache with \(pairs.count) pairs")
+
+        // First, clear existing cache
+        let clearSQL = "DELETE FROM uncurated_pairs_cache;"
+        var errorMsg: UnsafeMutablePointer<CChar>?
+        defer { sqlite3_free(errorMsg) }
+
+        if sqlite3_exec(db, clearSQL, nil, nil, &errorMsg) != SQLITE_OK {
+            let error = errorMsg != nil ? String(cString: errorMsg!) : "Unknown error"
+            throw DatabaseError.queryFailed("Failed to clear uncurated pairs cache: \(error)")
+        }
+
+        // Insert all pairs in a transaction
+        return try await withCheckedThrowingContinuation { continuation in
+            nonisolated(unsafe) let unsafeDB = db
+            let unsafePairs = pairs
+
+            dbQueue.async {
+                let db = unsafeDB
+                let pairs = unsafePairs
+
+                // Begin transaction
+                sqlite3_exec(db, "BEGIN TRANSACTION;", nil, nil, nil)
+
+                let sql = """
+                INSERT INTO uncurated_pairs_cache
+                    (make_id, model_id, make_name, model_name, record_count, percentage_of_total,
+                     earliest_year, latest_year, regularization_status, vehicle_type_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """
+
+                var stmt: OpaquePointer?
+                defer { sqlite3_finalize(stmt) }
+
+                if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                    var insertCount = 0
+
+                    for pair in pairs {
+                        sqlite3_bind_int(stmt, 1, Int32(pair.makeId))
+                        sqlite3_bind_int(stmt, 2, Int32(pair.modelId))
+                        sqlite3_bind_text(stmt, 3, (pair.makeName as NSString).utf8String, -1, SQLITE_TRANSIENT)
+                        sqlite3_bind_text(stmt, 4, (pair.modelName as NSString).utf8String, -1, SQLITE_TRANSIENT)
+                        sqlite3_bind_int(stmt, 5, Int32(pair.recordCount))
+                        sqlite3_bind_double(stmt, 6, pair.percentageOfTotal)
+                        sqlite3_bind_int(stmt, 7, Int32(pair.earliestYear))
+                        sqlite3_bind_int(stmt, 8, Int32(pair.latestYear))
+                        sqlite3_bind_int(stmt, 9, Int32(pair.regularizationStatus.rawValue))
+
+                        // Bind vehicle_type_id (nullable integer)
+                        if let vehicleTypeId = pair.vehicleTypeId {
+                            sqlite3_bind_int(stmt, 10, Int32(vehicleTypeId))
+                        } else {
+                            sqlite3_bind_null(stmt, 10)
+                        }
+
+                        if sqlite3_step(stmt) == SQLITE_DONE {
+                            insertCount += 1
+                            sqlite3_reset(stmt)
+                        } else {
+                            let error = String(cString: sqlite3_errmsg(db))
+                            sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+                            continuation.resume(throwing: DatabaseError.queryFailed("Failed to insert pair: \(error)"))
+                            return
+                        }
+                    }
+
+                    // Commit transaction
+                    sqlite3_exec(db, "COMMIT;", nil, nil, nil)
+
+                    let duration = CFAbsoluteTimeGetCurrent() - startTime
+                    AppLogger.database.notice("Uncurated pairs cache populated: \(insertCount) entries in \(String(format: "%.3f", duration))s")
+                    continuation.resume()
+                } else {
+                    let error = String(cString: sqlite3_errmsg(db))
+                    sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
+                    continuation.resume(throwing: DatabaseError.queryFailed("Failed to prepare cache insert: \(error)"))
+                }
+            }
+        }
+    }
+
+    /// Loads uncurated pairs from cache
+    func loadUncuratedPairsFromCache() async throws -> [UnverifiedMakeModelPair] {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        let sql = """
+        SELECT make_id, model_id, make_name, model_name, record_count, percentage_of_total,
+               earliest_year, latest_year, regularization_status, vehicle_type_id
+        FROM uncurated_pairs_cache
+        ORDER BY record_count DESC;
+        """
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                var pairs: [UnverifiedMakeModelPair] = []
+
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let makeId = Int(sqlite3_column_int(stmt, 0))
+                    let modelId = Int(sqlite3_column_int(stmt, 1))
+                    let makeName = String(cString: sqlite3_column_text(stmt, 2))
+                    let modelName = String(cString: sqlite3_column_text(stmt, 3))
+                    let recordCount = Int(sqlite3_column_int(stmt, 4))
+                    let percentage = sqlite3_column_double(stmt, 5)
+                    let earliestYear = Int(sqlite3_column_int(stmt, 6))
+                    let latestYear = Int(sqlite3_column_int(stmt, 7))
+                    let statusRawValue = Int(sqlite3_column_int(stmt, 8))
+                    let vehicleTypeId: Int? = sqlite3_column_type(stmt, 9) != SQLITE_NULL
+                        ? Int(sqlite3_column_int(stmt, 9)) : nil
+
+                    let status = RegularizationStatus(rawValue: statusRawValue) ?? .unassigned
+
+                    let pair = UnverifiedMakeModelPair(
+                        id: "\(makeId)_\(modelId)",
+                        makeId: makeId,
+                        modelId: modelId,
+                        makeName: makeName,
+                        modelName: modelName,
+                        recordCount: recordCount,
+                        percentageOfTotal: percentage,
+                        earliestYear: earliestYear,
+                        latestYear: latestYear,
+                        regularizationStatus: status,
+                        vehicleTypeId: vehicleTypeId
+                    )
+                    pairs.append(pair)
+                }
+
+                AppLogger.database.info("Loaded \(pairs.count) uncurated pairs from cache")
+                continuation.resume(returning: pairs)
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to load cached pairs: \(error)"))
+            }
+        }
+    }
+
+    /// Invalidates uncurated pairs cache
+    func invalidateUncuratedPairsCache() async throws {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        let sql1 = "DELETE FROM uncurated_pairs_cache;"
+        let sql2 = "DELETE FROM regularization_cache_metadata WHERE cache_name = 'uncurated_pairs';"
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var errorMsg: UnsafeMutablePointer<CChar>?
+            defer { sqlite3_free(errorMsg) }
+
+            if sqlite3_exec(db, sql1, nil, nil, &errorMsg) != SQLITE_OK {
+                let error = errorMsg != nil ? String(cString: errorMsg!) : "Unknown error"
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to clear cache: \(error)"))
+                return
+            }
+
+            if sqlite3_exec(db, sql2, nil, nil, &errorMsg) != SQLITE_OK {
+                let error = errorMsg != nil ? String(cString: errorMsg!) : "Unknown error"
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to clear metadata: \(error)"))
+                return
+            }
+
+            AppLogger.database.notice("Uncurated pairs cache invalidated")
+            continuation.resume()
+        }
+    }
+
+    /// Invalidates canonical hierarchy cache
+    func invalidateCanonicalHierarchyCache() async throws {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        let sql1 = "DELETE FROM canonical_hierarchy_cache;"
+        let sql2 = "DELETE FROM regularization_cache_metadata WHERE cache_name = 'canonical_hierarchy';"
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var errorMsg: UnsafeMutablePointer<CChar>?
+            defer { sqlite3_free(errorMsg) }
+
+            if sqlite3_exec(db, sql1, nil, nil, &errorMsg) != SQLITE_OK {
+                let error = errorMsg != nil ? String(cString: errorMsg!) : "Unknown error"
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to clear cache: \(error)"))
+                return
+            }
+
+            if sqlite3_exec(db, sql2, nil, nil, &errorMsg) != SQLITE_OK {
+                let error = errorMsg != nil ? String(cString: errorMsg!) : "Unknown error"
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to clear metadata: \(error)"))
+                return
+            }
+
+            AppLogger.database.notice("Canonical hierarchy cache invalidated")
+            continuation.resume()
         }
     }
 }
