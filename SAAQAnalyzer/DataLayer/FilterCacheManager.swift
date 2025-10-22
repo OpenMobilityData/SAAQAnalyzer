@@ -26,6 +26,7 @@ class FilterCacheManager {
     private var cachedExperienceLevels: [FilterItem] = []
 
     private var isInitialized = false
+    private var isInitializing = false  // Prevents concurrent initialization attempts
 
     // Regularization display info: maps "makeId_modelId" to (canonicalMake, canonicalModel, recordCount)
     private var regularizationInfo: [String: (canonicalMake: String, canonicalModel: String, recordCount: Int)] = [:]
@@ -55,7 +56,16 @@ class FilterCacheManager {
 
     /// Initialize filter caches for a specific data type only
     func initializeCache(for dataType: DataEntityType?) async throws {
+        // Guard against both completed and in-progress initialization
         guard !isInitialized else { return }
+        guard !isInitializing else {
+            // Another call is already initializing - wait for it to complete
+            print("⏳ Cache initialization already in progress, waiting...")
+            return
+        }
+
+        isInitializing = true
+        defer { isInitializing = false }
 
         // Create signpost for overall cache initialization (visible in Instruments)
         let signpostID = OSSignpostID(log: AppLogger.cacheLog)
@@ -127,99 +137,47 @@ class FilterCacheManager {
                     "%d pairs", regularizationInfo.count)
     }
 
+    // Store uncurated pairs temporarily for reuse by loadUncuratedMakes
+    private var cachedUncuratedPairsData: [UnverifiedMakeModelPair]?
+
     private func loadUncuratedPairs() async throws {
         let signpostID = OSSignpostID(log: AppLogger.cacheLog)
         os_signpost(.begin, log: AppLogger.cacheLog, name: "Load Uncurated Pairs", signpostID: signpostID)
 
-        guard let db = self.db,
-              let regularizationManager = databaseManager?.regularizationManager else {
-            print("⚠️ Cannot load uncurated pairs - database or RegularizationManager not available")
+        guard let regularizationManager = databaseManager?.regularizationManager else {
+            print("⚠️ Cannot load uncurated pairs - RegularizationManager not available")
             uncuratedPairs = [:]
+            cachedUncuratedPairsData = nil
             os_signpost(.end, log: AppLogger.cacheLog, name: "Load Uncurated Pairs", signpostID: signpostID)
             return
         }
 
-        let yearConfig = regularizationManager.getYearConfiguration()
-        let curatedYearsList = Array(yearConfig.curatedYears).sorted()
-        let uncuratedYearsList = Array(yearConfig.uncuratedYears).sorted()
+        // Use RegularizationManager's cached query instead of duplicate SQL
+        // This leverages the uncurated_pairs_cache table if populated
+        do {
+            let pairs = try await regularizationManager.findUncuratedPairs(includeExactMatches: false)
 
-        guard !uncuratedYearsList.isEmpty else {
-            print("⚠️ No uncurated years configured")
+            // Store for reuse by loadUncuratedMakes
+            cachedUncuratedPairsData = pairs
+
+            // Convert to simple lookup dictionary for badge display
+            uncuratedPairs = Dictionary(uniqueKeysWithValues:
+                pairs.map { ("\($0.makeId)_\($0.modelId)", $0.recordCount) }
+            )
+
+            print("✅ Loaded \(uncuratedPairs.count) uncurated Make/Model pairs from cache")
+
+            // Debug: Show first 5 keys
+            if uncuratedPairs.count > 0 {
+                print("   First 5 uncurated pair keys:")
+                for (index, key) in uncuratedPairs.keys.prefix(5).enumerated() {
+                    print("   \(index + 1). Key: \(key), Count: \(uncuratedPairs[key] ?? 0)")
+                }
+            }
+        } catch {
+            print("⚠️ Could not load uncurated pairs: \(error)")
             uncuratedPairs = [:]
-            os_signpost(.end, log: AppLogger.cacheLog, name: "Load Uncurated Pairs", signpostID: signpostID)
-            return
-        }
-
-        let curatedPlaceholders = curatedYearsList.map { _ in "?" }.joined(separator: ",")
-        let uncuratedPlaceholders = uncuratedYearsList.map { _ in "?" }.joined(separator: ",")
-
-        // Find Make/Model pairs that exist ONLY in uncurated years (not in curated years)
-        // This uses a simpler approach: get all pairs from uncurated years, then subtract those that also exist in curated years
-        let sql = """
-        SELECT u.make_id, u.model_id, u.record_count
-        FROM (
-            SELECT v.make_id, v.model_id, COUNT(*) as record_count
-            FROM vehicles v
-            JOIN year_enum y ON v.year_id = y.id
-            WHERE y.year IN (\(uncuratedPlaceholders))
-            GROUP BY v.make_id, v.model_id
-        ) u
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM vehicles v2
-            JOIN year_enum y2 ON v2.year_id = y2.id
-            WHERE v2.make_id = u.make_id
-            AND v2.model_id = u.model_id
-            AND y2.year IN (\(curatedPlaceholders))
-        );
-        """
-
-        uncuratedPairs = try await withCheckedThrowingContinuation { continuation in
-            var results: [String: Int] = [:]
-            var stmt: OpaquePointer?
-            defer { sqlite3_finalize(stmt) }
-
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                var bindIndex: Int32 = 1
-
-                // Bind uncurated years (for the subquery)
-                for year in uncuratedYearsList {
-                    sqlite3_bind_int(stmt, bindIndex, Int32(year))
-                    bindIndex += 1
-                }
-
-                // Bind curated years (for the NOT EXISTS clause)
-                for year in curatedYearsList {
-                    sqlite3_bind_int(stmt, bindIndex, Int32(year))
-                    bindIndex += 1
-                }
-
-                while sqlite3_step(stmt) == SQLITE_ROW {
-                    let makeId = Int(sqlite3_column_int(stmt, 0))
-                    let modelId = Int(sqlite3_column_int(stmt, 1))
-                    let recordCount = Int(sqlite3_column_int(stmt, 2))
-
-                    let key = "\(makeId)_\(modelId)"
-                    results[key] = recordCount
-                }
-                continuation.resume(returning: results)
-            } else {
-                let error = String(cString: sqlite3_errmsg(db))
-                print("⚠️ Could not load uncurated pairs: \(error)")
-                continuation.resume(returning: [:])
-            }
-        }
-
-        if !uncuratedPairs.isEmpty {
-            print("✅ Loaded \(uncuratedPairs.count) uncurated Make/Model pairs (only in uncurated years)")
-        }
-
-        // Debug: Show first 5 keys
-        if uncuratedPairs.count > 0 {
-            print("   First 5 uncurated pair keys:")
-            for (index, key) in uncuratedPairs.keys.prefix(5).enumerated() {
-                print("   \(index + 1). Key: \(key), Count: \(uncuratedPairs[key] ?? 0)")
-            }
+            cachedUncuratedPairsData = nil
         }
 
         os_signpost(.end, log: AppLogger.cacheLog, name: "Load Uncurated Pairs", signpostID: signpostID,
@@ -245,84 +203,25 @@ class FilterCacheManager {
     }
 
     private func loadUncuratedMakes() async throws {
-        guard let db = self.db,
-              let regularizationManager = databaseManager?.regularizationManager else {
-            print("⚠️ Cannot load uncurated Makes - database or RegularizationManager not available")
+        // Reuse pairs data from loadUncuratedPairs to avoid duplicate query
+        guard let pairs = cachedUncuratedPairsData else {
+            print("⚠️ No uncurated pairs data available - cannot derive uncurated Makes")
             uncuratedMakes = [:]
             return
         }
 
-        let yearConfig = regularizationManager.getYearConfiguration()
-        let curatedYearsList = Array(yearConfig.curatedYears).sorted()
-        let uncuratedYearsList = Array(yearConfig.uncuratedYears).sorted()
-
-        guard !uncuratedYearsList.isEmpty else {
-            print("⚠️ No uncurated years configured")
-            uncuratedMakes = [:]
-            return
+        // Group by makeId and sum record counts
+        let makeGroups = Dictionary(grouping: pairs, by: { $0.makeId })
+        uncuratedMakes = makeGroups.reduce(into: [:]) { result, pair in
+            let makeId = String(pair.key)
+            let totalCount = pair.value.reduce(0) { $0 + $1.recordCount }
+            result[makeId] = totalCount
         }
 
-        let curatedPlaceholders = curatedYearsList.map { _ in "?" }.joined(separator: ",")
-        let uncuratedPlaceholders = uncuratedYearsList.map { _ in "?" }.joined(separator: ",")
+        print("✅ Derived \(uncuratedMakes.count) uncurated Makes from \(pairs.count) pairs (no query needed)")
 
-        // Find Makes that exist ONLY in uncurated years (not in curated years)
-        // Use NOT EXISTS instead of NOT IN to handle NULL make_ids correctly
-        let sql = """
-        SELECT u.make_id, u.record_count
-        FROM (
-            SELECT v.make_id, COUNT(*) as record_count
-            FROM vehicles v
-            JOIN year_enum y ON v.year_id = y.id
-            WHERE y.year IN (\(uncuratedPlaceholders))
-            GROUP BY v.make_id
-        ) u
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM vehicles v2
-            JOIN year_enum y2 ON v2.year_id = y2.id
-            WHERE v2.make_id = u.make_id
-            AND y2.year IN (\(curatedPlaceholders))
-        );
-        """
-
-        uncuratedMakes = try await withCheckedThrowingContinuation { continuation in
-            var results: [String: Int] = [:]
-            var stmt: OpaquePointer?
-            defer { sqlite3_finalize(stmt) }
-
-            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
-                var bindIndex: Int32 = 1
-
-                // Bind uncurated years
-                for year in uncuratedYearsList {
-                    sqlite3_bind_int(stmt, bindIndex, Int32(year))
-                    bindIndex += 1
-                }
-
-                // Bind curated years
-                for year in curatedYearsList {
-                    sqlite3_bind_int(stmt, bindIndex, Int32(year))
-                    bindIndex += 1
-                }
-
-                while sqlite3_step(stmt) == SQLITE_ROW {
-                    let makeId = Int(sqlite3_column_int(stmt, 0))
-                    let recordCount = Int(sqlite3_column_int(stmt, 1))
-
-                    let key = String(makeId)
-                    results[key] = recordCount
-                }
-                continuation.resume(returning: results)
-            } else {
-                let error = String(cString: sqlite3_errmsg(db))
-                print("⚠️ Could not load uncurated Makes: \(error)")
-                continuation.resume(returning: [:])
-            }
-        }
-
-        if !uncuratedMakes.isEmpty {
-            print("✅ Loaded \(uncuratedMakes.count) uncurated Makes (only in uncurated years)")
-        }
+        // Clear cached data to free memory
+        cachedUncuratedPairsData = nil
     }
 
     private func loadYears() async throws {
@@ -722,6 +621,7 @@ class FilterCacheManager {
 
     func invalidateCache() {
         isInitialized = false
+        isInitializing = false  // Reset in-progress flag
         cachedYears.removeAll()
         cachedRegions.removeAll()
         cachedMRCs.removeAll()
@@ -741,6 +641,7 @@ class FilterCacheManager {
         uncuratedPairs.removeAll()
         makeRegularizationInfo.removeAll()
         uncuratedMakes.removeAll()
+        cachedUncuratedPairsData = nil
         modelToMakeMapping.removeAll()
     }
 }

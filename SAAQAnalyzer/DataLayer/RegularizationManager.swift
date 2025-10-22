@@ -648,21 +648,28 @@ class RegularizationManager {
         os_signpost(.end, log: AppLogger.regularizationLog, name: "Query Uncurated Pairs", signpostID: querySignpostID,
                     "%d pairs", pairs.count)
 
-        // Populate cache in background after query completes
-        Task.detached { [weak dbManager, logger] in
-            do {
-                try await dbManager?.populateUncuratedPairsCache(pairs: pairs)
-                try await dbManager?.saveCacheMetadata(
-                    cacheName: "uncurated_pairs",
-                    curatedYears: curatedYearsList,
-                    uncuratedYears: uncuratedYearsList,
-                    includeExactMatches: includeExactMatches,
-                    recordCount: pairs.count
-                )
-                logger.info("✅ Populated uncurated pairs cache with \(pairs.count) entries")
-            } catch {
-                logger.error("Failed to populate cache: \(error.localizedDescription)")
-            }
+        // Populate cache synchronously to ensure it completes (one-time cost on first launch)
+        // This adds ~2-3s to the first launch but subsequent launches will be < 500ms
+        let cacheSignpostID = OSSignpostID(log: AppLogger.regularizationLog)
+        os_signpost(.begin, log: AppLogger.regularizationLog, name: "Populate Cache", signpostID: cacheSignpostID)
+
+        do {
+            try await dbManager.populateUncuratedPairsCache(pairs: pairs)
+            try await dbManager.saveCacheMetadata(
+                cacheName: "uncurated_pairs",
+                curatedYears: curatedYearsList,
+                uncuratedYears: uncuratedYearsList,
+                includeExactMatches: includeExactMatches,
+                recordCount: pairs.count
+            )
+            logger.notice("✅ Populated uncurated pairs cache with \(pairs.count) entries")
+            os_signpost(.end, log: AppLogger.regularizationLog, name: "Populate Cache", signpostID: cacheSignpostID,
+                        "Success - %d entries", pairs.count)
+        } catch {
+            logger.error("❌ Failed to populate cache: \(error.localizedDescription)")
+            os_signpost(.end, log: AppLogger.regularizationLog, name: "Populate Cache", signpostID: cacheSignpostID,
+                        "Failed - %{public}s", error.localizedDescription)
+            // Continue despite cache population failure - app will work but slower on next launch
         }
 
         os_signpost(.end, log: AppLogger.regularizationLog, name: "Find Uncurated Pairs", signpostID: signpostID,
