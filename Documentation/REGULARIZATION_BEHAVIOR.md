@@ -510,6 +510,7 @@ You can enable/disable any combination of filters to focus on specific workflows
 This feature allows you to work exclusively with curated data by:
 - **Filtering dropdowns**: Removes uncurated Make/Model pairs (those with `[uncurated: X records]` badges) from filter dropdowns
 - **Restricting queries**: Prevents queries from executing against uncurated years (e.g., 2023-2024)
+- **Hiding regularization toggle**: Automatically hides the "Enable Query Regularization" toggle since regularization only applies to uncurated data
 - **Visual feedback**: Uncurated year checkboxes are greyed out (40% opacity) and disabled when toggle is active
 
 **Use Cases:**
@@ -521,9 +522,11 @@ This feature allows you to work exclusively with curated data by:
 
 **Behavior:**
 ```
-Toggle OFF (default): All Makes/Models visible, all years queryable
-Toggle ON:           Only curated Makes/Models in dropdowns, only curated years in queries
+Toggle OFF (default): All Makes/Models visible, all years queryable, regularization toggle visible
+Toggle ON:           Only curated Makes/Models in dropdowns, only curated years in queries, regularization toggle hidden
 ```
+
+**Note:** Regularization only applies to uncurated years (2023-2024), so the regularization toggle is automatically hidden when limiting to curated years to avoid confusion.
 
 ### "Hierarchical Make/Model Filtering" Toggle
 

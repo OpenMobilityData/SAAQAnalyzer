@@ -210,15 +210,61 @@ class FilterCacheManager {
             return
         }
 
-        // Group by makeId and sum record counts
-        let makeGroups = Dictionary(grouping: pairs, by: { $0.makeId })
-        uncuratedMakes = makeGroups.reduce(into: [:]) { result, pair in
-            let makeId = String(pair.key)
-            let totalCount = pair.value.reduce(0) { $0 + $1.recordCount }
-            result[makeId] = totalCount
+        guard let regManager = databaseManager?.regularizationManager else {
+            print("⚠️ RegularizationManager not available - cannot determine uncurated-only Makes")
+            uncuratedMakes = [:]
+            cachedUncuratedPairsData = nil
+            return
         }
 
-        print("✅ Derived \(uncuratedMakes.count) uncurated Makes from \(pairs.count) pairs (no query needed)")
+        // Get curated years from configuration
+        let yearConfig = regManager.getYearConfiguration()
+        let curatedYears = Array(yearConfig.curatedYears)
+
+        // Query database for makes that exist in curated years
+        guard let db = databaseManager?.db else {
+            print("⚠️ Database not available")
+            uncuratedMakes = [:]
+            cachedUncuratedPairsData = nil
+            return
+        }
+
+        var curatedMakeIds = Set<Int>()
+        let yearPlaceholders = curatedYears.map { _ in "?" }.joined(separator: ", ")
+        let sql = "SELECT DISTINCT make_id FROM vehicles WHERE year IN (\(yearPlaceholders));"
+
+        var statement: OpaquePointer?
+        if sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK {
+            // Bind year parameters
+            for (index, year) in curatedYears.enumerated() {
+                sqlite3_bind_int(statement, Int32(index + 1), Int32(year))
+            }
+
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let makeId = Int(sqlite3_column_int(statement, 0))
+                curatedMakeIds.insert(makeId)
+            }
+        }
+        sqlite3_finalize(statement)
+
+        print("✅ Found \(curatedMakeIds.count) makes in curated years (\(curatedYears.sorted().map(String.init).joined(separator: ", ")))")
+
+        // Group by makeId and sum record counts, excluding makes that exist in curated years
+        let makeGroups = Dictionary(grouping: pairs, by: { $0.makeId })
+        uncuratedMakes = makeGroups.reduce(into: [:]) { result, pair in
+            let makeId = pair.key
+
+            // Skip makes that also exist in curated years
+            if curatedMakeIds.contains(makeId) {
+                return
+            }
+
+            let makeIdString = String(makeId)
+            let totalCount = pair.value.reduce(0) { $0 + $1.recordCount }
+            result[makeIdString] = totalCount
+        }
+
+        print("✅ Derived \(uncuratedMakes.count) uncurated-only Makes (excluded \(makeGroups.count - uncuratedMakes.count) that also exist in curated years)")
 
         // Clear cached data to free memory
         cachedUncuratedPairsData = nil

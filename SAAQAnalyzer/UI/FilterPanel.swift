@@ -2506,46 +2506,49 @@ struct FilterOptionsSection: View {
                     .cornerRadius(4)
             }
 
-            Divider()
+            // Query Regularization toggle (only visible when NOT limiting to curated years)
+            // Regularization only applies to uncurated years (2023-2024)
+            if !limitToCuratedYears {
+                Divider()
 
-            // Query Regularization toggle
-            VStack(alignment: .leading, spacing: 4) {
-                Toggle(isOn: $regularizationEnabled) {
-                    Text("Enable Query Regularization")
-                        .font(.caption)
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-
-                Text(regularizationEnabled
-                    ? "Queries merge uncurated Make/Model variants into canonical values"
-                    : "Uncurated Make/Model variants remain separate")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(4)
-
-                // Coupling toggle (only visible when regularization is enabled)
-                if regularizationEnabled {
-                    Toggle(isOn: $regularizationCoupling) {
-                        Text("Couple Make/Model in Queries")
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(isOn: $regularizationEnabled) {
+                        Text("Enable Query Regularization")
                             .font(.caption)
                     }
                     .toggleStyle(.switch)
                     .controlSize(.small)
-                    .padding(.top, 4)
 
-                    Text(regularizationCoupling
-                        ? "Filtering by Model includes associated Make"
-                        : "Make and Model filters remain independent")
+                    Text(regularizationEnabled
+                        ? "Queries merge uncurated Make/Model variants into canonical values"
+                        : "Uncurated Make/Model variants remain separate")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(Color.gray.opacity(0.1))
                         .cornerRadius(4)
+
+                    // Coupling toggle (only visible when regularization is enabled)
+                    if regularizationEnabled {
+                        Toggle(isOn: $regularizationCoupling) {
+                            Text("Couple Make/Model in Queries")
+                                .font(.caption)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .padding(.top, 4)
+
+                        Text(regularizationCoupling
+                            ? "Filtering by Model includes associated Make"
+                            : "Make and Model filters remain independent")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(4)
+                    }
                 }
             }
         }

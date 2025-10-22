@@ -2634,6 +2634,11 @@ class DatabaseManager: ObservableObject {
                     metricLabel += " [Normalized]"
                 }
 
+                // Add regularization indicator if enabled (only for vehicle data)
+                if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true {
+                    metricLabel += " [Regularized]"
+                }
+
                 // Return in "metric field in [filters]" format
                 if !filterComponents.isEmpty {
                     return "\(metricLabel) in [\(filterComponents.joined(separator: " AND "))]"
@@ -2661,6 +2666,11 @@ class DatabaseManager: ObservableObject {
                 // Add normalization indicator if enabled
                 if filters.normalizeToFirstYear {
                     percentageLabel += " [Normalized]"
+                }
+
+                // Add regularization indicator if enabled (only for vehicle data)
+                if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true {
+                    percentageLabel += " [Regularized]"
                 }
 
                 return percentageLabel
@@ -2742,6 +2752,11 @@ class DatabaseManager: ObservableObject {
                         coverageLabel += " [Normalized]"
                     }
 
+                    // Add regularization indicator if enabled (only for vehicle data)
+                    if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true {
+                        coverageLabel += " [Regularized]"
+                    }
+
                     return coverageLabel
                 } else {
                     return "Coverage (No Field Selected)"
@@ -2766,6 +2781,11 @@ class DatabaseManager: ObservableObject {
                 // Add normalization indicator if enabled
                 if filters.normalizeToFirstYear {
                     modePrefix += " [Normalized]"
+                }
+
+                // Add regularization indicator if enabled (only for vehicle data)
+                if optimizedQueryManager?.regularizationEnabled == true {
+                    modePrefix += " [Regularized]"
                 }
 
                 // Build filter context
@@ -2977,6 +2997,12 @@ class DatabaseManager: ObservableObject {
         // Add normalization indicator if enabled (for count metric)
         if filters.normalizeToFirstYear && filters.metricType == .count {
             result += " [Normalized]"
+        }
+
+        // Add regularization indicator if enabled (only for vehicle data)
+        // Note: Regularization is automatically disabled when limiting to curated years
+        if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true {
+            result += " [Regularized]"
         }
 
         return result
@@ -5824,7 +5850,7 @@ class DatabaseManager: ObservableObject {
                         // Parse stored configuration
                         let storedUncuratedYears: String? = sqlite3_column_type(stmt, 1) != SQLITE_NULL
                             ? String(cString: sqlite3_column_text(stmt, 1)) : nil
-                        let storedIncludeExactMatches = sqlite3_column_int(stmt, 2) != 0
+                        _ = sqlite3_column_int(stmt, 2) != 0  // storedIncludeExactMatches - intentionally unused (see comment below)
 
                         // Compare configuration
                         if let storedYears = storedUncuratedYears,
