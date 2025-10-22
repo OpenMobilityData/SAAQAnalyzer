@@ -928,6 +928,7 @@ class DatabaseManager: ObservableObject {
                 percentage_of_total REAL NOT NULL,
                 earliest_year INTEGER NOT NULL,
                 latest_year INTEGER NOT NULL,
+                is_exact_match INTEGER NOT NULL DEFAULT 0,
                 regularization_status INTEGER NOT NULL,
                 vehicle_type_id INTEGER,
                 PRIMARY KEY (make_id, model_id),
@@ -5829,13 +5830,17 @@ class DatabaseManager: ObservableObject {
                         if let storedYears = storedUncuratedYears,
                            let yearsData = storedYears.data(using: .utf8),
                            let parsedYears = try? JSONDecoder().decode([Int].self, from: yearsData) {
-                            let isValid = Set(parsedYears) == Set(uncuratedYears) &&
-                                          storedIncludeExactMatches == includeExactMatches
+
+                            // IMPORTANT: Only validate based on years, NOT includeExactMatches flag
+                            // Reason: The flag only filters results, it doesn't change the underlying data
+                            // Cache always contains ALL pairs (includeExactMatches=true), we filter in-memory
+                            // This prevents ping-pong cache invalidation between FilterCacheManager and RegularizationManager
+                            let isValid = Set(parsedYears) == Set(uncuratedYears)
 
                             if isValid {
-                                AppLogger.database.info("✅ Uncurated pairs cache is VALID: years match, includeExactMatches=\(includeExactMatches)")
+                                AppLogger.database.info("✅ Uncurated pairs cache is VALID: years=\(uncuratedYears) (ignoring includeExactMatches flag, will filter in-memory)")
                             } else {
-                                AppLogger.database.warning("❌ Uncurated pairs cache is INVALID: stored=\(parsedYears), requested=\(uncuratedYears), storedFlag=\(storedIncludeExactMatches), requestedFlag=\(includeExactMatches)")
+                                AppLogger.database.warning("❌ Uncurated pairs cache is INVALID: stored=\(parsedYears), requested=\(uncuratedYears)")
                             }
                             continuation.resume(returning: isValid)
                         } else {
@@ -5949,8 +5954,8 @@ class DatabaseManager: ObservableObject {
                 let sql = """
                 INSERT INTO uncurated_pairs_cache
                     (make_id, model_id, make_name, model_name, record_count, percentage_of_total,
-                     earliest_year, latest_year, regularization_status, vehicle_type_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                     earliest_year, latest_year, is_exact_match, regularization_status, vehicle_type_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """
 
                 var stmt: OpaquePointer?
@@ -5968,13 +5973,14 @@ class DatabaseManager: ObservableObject {
                         sqlite3_bind_double(stmt, 6, pair.percentageOfTotal)
                         sqlite3_bind_int(stmt, 7, Int32(pair.earliestYear))
                         sqlite3_bind_int(stmt, 8, Int32(pair.latestYear))
-                        sqlite3_bind_int(stmt, 9, Int32(pair.regularizationStatus.rawValue))
+                        sqlite3_bind_int(stmt, 9, pair.isExactMatch ? 1 : 0)
+                        sqlite3_bind_int(stmt, 10, Int32(pair.regularizationStatus.rawValue))
 
                         // Bind vehicle_type_id (nullable integer)
                         if let vehicleTypeId = pair.vehicleTypeId {
-                            sqlite3_bind_int(stmt, 10, Int32(vehicleTypeId))
+                            sqlite3_bind_int(stmt, 11, Int32(vehicleTypeId))
                         } else {
-                            sqlite3_bind_null(stmt, 10)
+                            sqlite3_bind_null(stmt, 11)
                         }
 
                         if sqlite3_step(stmt) == SQLITE_DONE {
@@ -6007,9 +6013,40 @@ class DatabaseManager: ObservableObject {
     func loadUncuratedPairsFromCache() async throws -> [UnverifiedMakeModelPair] {
         guard let db = db else { throw DatabaseError.notConnected }
 
+        // Check if is_exact_match column exists (schema v2)
+        // If not, cache needs to be recreated
+        let schemaCheckSQL = "PRAGMA table_info(uncurated_pairs_cache);"
+        var hasExactMatchColumn = false
+
+        var checkStmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, schemaCheckSQL, -1, &checkStmt, nil) == SQLITE_OK {
+            while sqlite3_step(checkStmt) == SQLITE_ROW {
+                if let columnName = sqlite3_column_text(checkStmt, 1) {
+                    let name = String(cString: columnName)
+                    if name == "is_exact_match" {
+                        hasExactMatchColumn = true
+                        break
+                    }
+                }
+            }
+        }
+        sqlite3_finalize(checkStmt)
+
+        if !hasExactMatchColumn {
+            AppLogger.database.warning("⚠️ Cache table has old schema (missing is_exact_match column), will drop and recreate")
+            // Drop old cache table to force recreation
+            var errorMsg: UnsafeMutablePointer<CChar>?
+            sqlite3_exec(db, "DROP TABLE IF EXISTS uncurated_pairs_cache;", nil, nil, &errorMsg)
+            if let msg = errorMsg {
+                AppLogger.database.error("Failed to drop old cache table: \(String(cString: msg))")
+                sqlite3_free(msg)
+            }
+            throw DatabaseError.queryFailed("Cache schema outdated, dropped table for recreation")
+        }
+
         let sql = """
         SELECT make_id, model_id, make_name, model_name, record_count, percentage_of_total,
-               earliest_year, latest_year, regularization_status, vehicle_type_id
+               earliest_year, latest_year, is_exact_match, regularization_status, vehicle_type_id
         FROM uncurated_pairs_cache
         ORDER BY record_count DESC;
         """
@@ -6030,9 +6067,10 @@ class DatabaseManager: ObservableObject {
                     let percentage = sqlite3_column_double(stmt, 5)
                     let earliestYear = Int(sqlite3_column_int(stmt, 6))
                     let latestYear = Int(sqlite3_column_int(stmt, 7))
-                    let statusRawValue = Int(sqlite3_column_int(stmt, 8))
-                    let vehicleTypeId: Int? = sqlite3_column_type(stmt, 9) != SQLITE_NULL
-                        ? Int(sqlite3_column_int(stmt, 9)) : nil
+                    let isExactMatch = sqlite3_column_int(stmt, 8) != 0
+                    let statusRawValue = Int(sqlite3_column_int(stmt, 9))
+                    let vehicleTypeId: Int? = sqlite3_column_type(stmt, 10) != SQLITE_NULL
+                        ? Int(sqlite3_column_int(stmt, 10)) : nil
 
                     let status = RegularizationStatus(rawValue: statusRawValue) ?? .unassigned
 
@@ -6046,14 +6084,20 @@ class DatabaseManager: ObservableObject {
                         percentageOfTotal: percentage,
                         earliestYear: earliestYear,
                         latestYear: latestYear,
+                        isExactMatch: isExactMatch,
                         regularizationStatus: status,
                         vehicleTypeId: vehicleTypeId
                     )
                     pairs.append(pair)
                 }
 
-                AppLogger.database.info("Loaded \(pairs.count) uncurated pairs from cache")
-                continuation.resume(returning: pairs)
+                if pairs.isEmpty {
+                    AppLogger.database.warning("⚠️ Cache table exists but is empty (0 rows), cache needs repopulation")
+                    continuation.resume(throwing: DatabaseError.queryFailed("Cache is empty, needs repopulation"))
+                } else {
+                    AppLogger.database.info("Loaded \(pairs.count) uncurated pairs from cache")
+                    continuation.resume(returning: pairs)
+                }
             } else {
                 let error = String(cString: sqlite3_errmsg(db))
                 continuation.resume(throwing: DatabaseError.queryFailed("Failed to load cached pairs: \(error)"))

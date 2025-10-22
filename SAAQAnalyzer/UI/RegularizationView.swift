@@ -1142,25 +1142,20 @@ class RegularizationViewModel: ObservableObject {
             await self.loadVehicleTypesAsync()
         }
 
-        // 2. Load existing mappings (78K mappings can be slow) - load in background
-        Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self else { return }
-            await self.loadExistingMappingsAsync()
-        }
-
-        // 3. Load uncurated pairs (SLOW: 29s) - don't await, let it run in background
-        Task.detached(priority: .userInitiated) { [weak self] in
-            guard let self else { return }
-            await self.loadUncuratedPairsAsync()
-        }
-
-        // 4. Pre-generate canonical hierarchy (0.5s via cache) - ready when user selects a pair
+        // 2. Pre-generate canonical hierarchy (0.5s via cache) - ready when user selects a pair
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             await self.loadHierarchyAsync()
         }
 
-        // 5. Auto-regularize exact matches (VERY SLOW) - lowest priority background task
+        // 3. Coordinated loading: mappings + model years + uncurated pairs
+        // This task sequences the dependencies to enable performance optimizations
+        Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return }
+            await self.loadUncuratedPairsOptimizedAsync()
+        }
+
+        // 4. Auto-regularize exact matches (VERY SLOW) - lowest priority background task
         Task.detached(priority: .background) { [weak self] in
             guard let self else { return }
             await self.autoRegularizeExactMatchesAsync()
@@ -1263,6 +1258,82 @@ class RegularizationViewModel: ObservableObject {
     func loadUncuratedPairs() async {
         Task {
             await loadUncuratedPairsAsync()
+        }
+    }
+
+    /// Optimized coordinated loading of mappings, model years, and uncurated pairs
+    /// This function sequences the dependencies to avoid duplicate database queries
+    /// Performance improvement: Eliminates 2x 78K mapping loads and 500+ model year queries
+    nonisolated func loadUncuratedPairsOptimizedAsync() async {
+        guard let manager = regularizationManager else {
+            logger.error("RegularizationManager not available")
+            return
+        }
+
+        await MainActor.run {
+            self.isLoading = true
+        }
+
+        let overallStartTime = CFAbsoluteTimeGetCurrent()
+
+        do {
+            // Step 1: Load mappings ONCE (78K mappings)
+            logger.info("Step 1/3: Loading mappings...")
+            let mappingsStartTime = CFAbsoluteTimeGetCurrent()
+            let mappings = try await manager.getAllMappings()
+            let mappingsDuration = CFAbsoluteTimeGetCurrent() - mappingsStartTime
+            logger.notice("⚡ Step 1 complete: Loaded \(mappings.count) mappings in \(String(format: "%.3f", mappingsDuration))s")
+
+            // Build mappingsDict in background
+            let mappingsDict = await Task.detached {
+                var dict: [String: [RegularizationMapping]] = [:]
+                for mapping in mappings {
+                    let key = "\(mapping.uncuratedMakeId)_\(mapping.uncuratedModelId)"
+                    if dict[key] == nil {
+                        dict[key] = []
+                    }
+                    dict[key]?.append(mapping)
+                }
+                return dict
+            }.value
+
+            await MainActor.run {
+                self.existingMappings = mappingsDict
+            }
+
+            // Step 2: Batch-load model years for ALL pairs in ONE query (new optimization!)
+            logger.info("Step 2/3: Batch-loading model years...")
+            let modelYearsStartTime = CFAbsoluteTimeGetCurrent()
+            let modelYearsDict = try await manager.getAllModelYearsForUncuratedPairs()
+            let modelYearsDuration = CFAbsoluteTimeGetCurrent() - modelYearsStartTime
+            logger.notice("⚡ Step 2 complete: Batch-loaded model years for \(modelYearsDict.count) pairs in \(String(format: "%.3f", modelYearsDuration))s")
+
+            // Step 3: Load uncurated pairs WITH preloaded data (no duplicate queries!)
+            logger.info("Step 3/3: Loading uncurated pairs with preloaded data...")
+            let pairsStartTime = CFAbsoluteTimeGetCurrent()
+            let pairs = try await manager.findUncuratedPairs(
+                includeExactMatches: true,
+                preloadedMappings: mappings,
+                preloadedModelYears: modelYearsDict
+            )
+            let pairsDuration = CFAbsoluteTimeGetCurrent() - pairsStartTime
+            logger.notice("⚡ Step 3 complete: Loaded \(pairs.count) uncurated pairs in \(String(format: "%.3f", pairsDuration))s")
+
+            await MainActor.run {
+                self.uncuratedPairs = pairs
+                self.isLoading = false
+            }
+
+            let overallDuration = CFAbsoluteTimeGetCurrent() - overallStartTime
+            logger.notice("✅ Optimized loading complete in \(String(format: "%.3f", overallDuration))s (mappings: \(String(format: "%.2f", mappingsDuration))s, model years: \(String(format: "%.2f", modelYearsDuration))s, pairs: \(String(format: "%.2f", pairsDuration))s)")
+
+        } catch {
+            logger.error("❌ Error in optimized loading: \(error.localizedDescription)")
+            logger.error("Error type: \(type(of: error))")
+            logger.error("Full error: \(String(describing: error))")
+            await MainActor.run {
+                self.isLoading = false
+            }
         }
     }
 

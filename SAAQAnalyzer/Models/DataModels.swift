@@ -1857,6 +1857,11 @@ struct UnverifiedMakeModelPair: Identifiable, Sendable, Hashable {
     let earliestYear: Int
     let latestYear: Int
 
+    // Whether this pair also exists in curated years (exact match)
+    // Used for in-memory filtering when includeExactMatches: false
+    // Prevents cache invalidation ping-pong between FilterCacheManager and RegularizationManager
+    var isExactMatch: Bool
+
     // Regularization status (computed once at load time, updated when mappings change)
     var regularizationStatus: RegularizationStatus
 

@@ -159,6 +159,73 @@ class RegularizationManager {
         }
     }
 
+    /// Batch-load model years for ALL uncurated pairs in a single query (performance optimization)
+    /// Returns a dictionary: "makeId_modelId" → [years]
+    /// This eliminates N individual database queries when computing status for multiple pairs
+    func getAllModelYearsForUncuratedPairs() async throws -> [String: [Int]] {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        let uncuratedYearsList = Array(yearConfig.uncuratedYears).sorted()
+        guard !uncuratedYearsList.isEmpty else {
+            return [:]
+        }
+
+        let yearPlaceholders = uncuratedYearsList.map { _ in "?" }.joined(separator: ",")
+
+        let sql = """
+        SELECT DISTINCT
+            v.make_id,
+            v.model_id,
+            my.year
+        FROM vehicles v
+        JOIN year_enum y ON v.year_id = y.id
+        JOIN model_year_enum my ON v.model_year_id = my.id
+        WHERE y.year IN (\(yearPlaceholders))
+        AND my.year IS NOT NULL
+        ORDER BY v.make_id, v.model_id, my.year;
+        """
+
+        let startTime = CFAbsoluteTimeGetCurrent()
+
+        let result = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String: [Int]], Error>) in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                // Bind uncurated years
+                var bindIndex: Int32 = 1
+                for year in uncuratedYearsList {
+                    sqlite3_bind_int(stmt, bindIndex, Int32(year))
+                    bindIndex += 1
+                }
+
+                var modelYearsDict: [String: [Int]] = [:]
+
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let makeId = Int(sqlite3_column_int(stmt, 0))
+                    let modelId = Int(sqlite3_column_int(stmt, 1))
+                    let year = Int(sqlite3_column_int(stmt, 2))
+
+                    let key = "\(makeId)_\(modelId)"
+                    if modelYearsDict[key] == nil {
+                        modelYearsDict[key] = []
+                    }
+                    modelYearsDict[key]?.append(year)
+                }
+
+                let duration = CFAbsoluteTimeGetCurrent() - startTime
+                logger.notice("Batch-loaded model years for \(modelYearsDict.count) pairs in \(String(format: "%.3f", duration))s")
+
+                continuation.resume(returning: modelYearsDict)
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to batch-load model years: \(error)"))
+            }
+        }
+
+        return result
+    }
+
     /// Get record counts per model year for a specific Make/Model pair in uncurated years
     /// Returns a dictionary mapping model year → record count
     /// This helps users prioritize which model years to regularize based on impact
@@ -417,7 +484,15 @@ class RegularizationManager {
     // MARK: - Uncurated Pair Discovery
 
     /// Identifies Make/Model pairs in uncurated years that don't have exact matches in curated years
-    func findUncuratedPairs(includeExactMatches: Bool = false) async throws -> [UnverifiedMakeModelPair] {
+    /// - Parameters:
+    ///   - includeExactMatches: Whether to include pairs that exist in curated years
+    ///   - preloadedMappings: Optional pre-loaded mappings to avoid duplicate database query (performance optimization)
+    ///   - preloadedModelYears: Optional pre-loaded model years dictionary (key: "makeId_modelId", value: [years]) to avoid N queries
+    func findUncuratedPairs(
+        includeExactMatches: Bool = false,
+        preloadedMappings: [RegularizationMapping]? = nil,
+        preloadedModelYears: [String: [Int]]? = nil
+    ) async throws -> [UnverifiedMakeModelPair] {
         let signpostID = OSSignpostID(log: AppLogger.regularizationLog)
         os_signpost(.begin, log: AppLogger.regularizationLog, name: "Find Uncurated Pairs", signpostID: signpostID,
                     "includeExactMatches: %{public}d", includeExactMatches ? 1 : 0)
@@ -451,14 +526,24 @@ class RegularizationManager {
 
             if let cachedPairs = try? await dbManager.loadUncuratedPairsFromCache() {
                 let duration = CFAbsoluteTimeGetCurrent() - startTime
-                logger.notice("✅ Loaded \(cachedPairs.count) uncurated pairs from cache in \(String(format: "%.3f", duration))s")
+                logger.notice("✅ Loaded \(cachedPairs.count) pairs from cache in \(String(format: "%.3f", duration))s")
+
+                // Filter in-memory based on requested flag (instant, no DB query needed)
+                let finalPairs: [UnverifiedMakeModelPair]
+                if includeExactMatches {
+                    finalPairs = cachedPairs
+                    logger.info("Cache: Returning all \(cachedPairs.count) pairs")
+                } else {
+                    finalPairs = cachedPairs.filter { !$0.isExactMatch }
+                    logger.info("Cache: Filtered to \(finalPairs.count) non-exact-match pairs (excluded \(cachedPairs.count - finalPairs.count) exact matches)")
+                }
 
                 os_signpost(.end, log: AppLogger.regularizationLog, name: "Load From Cache", signpostID: cacheSignpostID,
-                            "%d pairs", cachedPairs.count)
+                            "%d pairs", finalPairs.count)
                 os_signpost(.end, log: AppLogger.regularizationLog, name: "Find Uncurated Pairs", signpostID: signpostID,
-                            "%d pairs (from cache)", cachedPairs.count)
+                            "%d pairs (from cache)", finalPairs.count)
 
-                return cachedPairs
+                return finalPairs
             } else {
                 logger.warning("Failed to load from cache, will recompute")
                 os_signpost(.end, log: AppLogger.regularizationLog, name: "Load From Cache", signpostID: cacheSignpostID,
@@ -478,8 +563,8 @@ class RegularizationManager {
         let curatedPlaceholders = curatedYearsList.map { _ in "?" }.joined(separator: ",")
 
         // Query to find Make/Model pairs in uncurated years
-        // If includeExactMatches is false, exclude pairs that exist in curated years
-        let whereClause = includeExactMatches ? "" : "WHERE c.make_id IS NULL"
+        // IMPORTANT: Always query ALL pairs (no WHERE clause) to avoid cache invalidation ping-pong
+        // Filter in-memory based on isExactMatch field when includeExactMatches: false
 
         let sql = """
         WITH uncurated_pairs AS (
@@ -520,16 +605,24 @@ class RegularizationManager {
             u.earliest_year,
             u.latest_year,
             u.record_count,
-            CAST(u.record_count AS REAL) / CAST(t.total AS REAL) * 100.0 as percentage
+            CAST(u.record_count AS REAL) / CAST(t.total AS REAL) * 100.0 as percentage,
+            CASE WHEN c.make_id IS NOT NULL THEN 1 ELSE 0 END as is_exact_match
         FROM uncurated_pairs u
         LEFT JOIN curated_pairs c ON u.make_id = c.make_id AND u.model_id = c.model_id
         CROSS JOIN total_records t
-        \(whereClause)
         ORDER BY u.record_count DESC;
         """
 
-        // Load existing mappings BEFORE the continuation (must be async)
-        let existingMappings = (try? await self.getAllMappings()) ?? []
+        // Use preloaded mappings if provided, otherwise load from database
+        let existingMappings: [RegularizationMapping]
+        if let preloaded = preloadedMappings {
+            existingMappings = preloaded
+            logger.debug("Using preloaded mappings (\(preloaded.count) total)")
+        } else {
+            existingMappings = (try? await self.getAllMappings()) ?? []
+            logger.debug("Loaded mappings from database (\(existingMappings.count) total)")
+        }
+
         var mappingsDict: [String: [RegularizationMapping]] = [:]
         for mapping in existingMappings {
             let key = "\(mapping.uncuratedMakeId)_\(mapping.uncuratedModelId)"
@@ -575,6 +668,7 @@ class RegularizationManager {
                     let latestYear = Int(sqlite3_column_int(stmt, 5))
                     let recordCount = Int(sqlite3_column_int(stmt, 6))
                     let percentage = sqlite3_column_double(stmt, 7)
+                    let isExactMatch = sqlite3_column_int(stmt, 8) != 0
 
                     // Create pair with placeholders (vehicleTypeId and status will be computed after query completes)
                     let pair = UnverifiedMakeModelPair(
@@ -587,6 +681,7 @@ class RegularizationManager {
                         percentageOfTotal: percentage,
                         earliestYear: earliestYear,
                         latestYear: latestYear,
+                        isExactMatch: isExactMatch,
                         regularizationStatus: .unassigned,  // Placeholder - will be computed
                         vehicleTypeId: nil  // Placeholder - will be computed
                     )
@@ -619,16 +714,25 @@ class RegularizationManager {
         // mappingsDict already loaded above before the continuation
         let statusStartTime = CFAbsoluteTimeGetCurrent()
 
+        // Log whether we're using preloaded model years (performance optimization)
+        if let modelYears = preloadedModelYears {
+            logger.info("Using preloaded model years for \(modelYears.count) pairs (batch optimization)")
+        }
+
         for i in 0..<pairs.count {
             let pair = pairs[i]
             let key = "\(pair.makeId)_\(pair.modelId)"
             let yearRange = pair.earliestYear...pair.latestYear
 
-            // Compute status
+            // Get preloaded model years for this pair (if available)
+            let modelYears = preloadedModelYears?[key]
+
+            // Compute status (with optional preloaded model years to avoid database query)
             let status = await computeRegularizationStatus(
                 forKey: key,
                 mappings: mappingsDict,
-                yearRange: yearRange
+                yearRange: yearRange,
+                preloadedModelYears: modelYears
             )
 
             // Extract vehicle type ID from wildcard mapping
@@ -650,19 +754,21 @@ class RegularizationManager {
 
         // Populate cache synchronously to ensure it completes (one-time cost on first launch)
         // This adds ~2-3s to the first launch but subsequent launches will be < 500ms
+        // IMPORTANT: Always cache ALL pairs (includeExactMatches: true) to avoid ping-pong invalidation
         let cacheSignpostID = OSSignpostID(log: AppLogger.regularizationLog)
         os_signpost(.begin, log: AppLogger.regularizationLog, name: "Populate Cache", signpostID: cacheSignpostID)
 
         do {
+            // Always cache ALL pairs (no filtering)
             try await dbManager.populateUncuratedPairsCache(pairs: pairs)
             try await dbManager.saveCacheMetadata(
                 cacheName: "uncurated_pairs",
                 curatedYears: curatedYearsList,
                 uncuratedYears: uncuratedYearsList,
-                includeExactMatches: includeExactMatches,
+                includeExactMatches: true,  // Always store as TRUE to mark cache as containing all pairs
                 recordCount: pairs.count
             )
-            logger.notice("✅ Populated uncurated pairs cache with \(pairs.count) entries")
+            logger.notice("✅ Populated uncurated pairs cache with \(pairs.count) entries (marked as includeExactMatches: true)")
             os_signpost(.end, log: AppLogger.regularizationLog, name: "Populate Cache", signpostID: cacheSignpostID,
                         "Success - %d entries", pairs.count)
         } catch {
@@ -672,10 +778,20 @@ class RegularizationManager {
             // Continue despite cache population failure - app will work but slower on next launch
         }
 
-        os_signpost(.end, log: AppLogger.regularizationLog, name: "Find Uncurated Pairs", signpostID: signpostID,
-                    "%d pairs (computed)", pairs.count)
+        // Filter in-memory if includeExactMatches: false (fast operation, avoids cache invalidation)
+        let finalPairs: [UnverifiedMakeModelPair]
+        if includeExactMatches {
+            finalPairs = pairs
+            logger.info("Returning all \(pairs.count) pairs (includeExactMatches: true)")
+        } else {
+            finalPairs = pairs.filter { !$0.isExactMatch }
+            logger.info("Filtered to \(finalPairs.count) non-exact-match pairs (excluded \(pairs.count - finalPairs.count) exact matches)")
+        }
 
-        return pairs
+        os_signpost(.end, log: AppLogger.regularizationLog, name: "Find Uncurated Pairs", signpostID: signpostID,
+                    "%d pairs (computed)", finalPairs.count)
+
+        return finalPairs
     }
 
     /// Compute regularization status for a make/model pair
@@ -684,10 +800,16 @@ class RegularizationManager {
     /// - .unassigned: No mappings exist
     ///
     /// NOTE: Queries distinct model years from uncurated dataset (not from triplets!)
+    /// - Parameters:
+    ///   - key: Make/model key in format "makeId_modelId"
+    ///   - mappings: Dictionary of all mappings
+    ///   - yearRange: Deprecated parameter - unused, kept for compatibility
+    ///   - preloadedModelYears: Optional pre-loaded model years to avoid database query (performance optimization)
     func computeRegularizationStatus(
         forKey key: String,
         mappings: [String: [RegularizationMapping]],
-        yearRange: ClosedRange<Int>  // Deprecated parameter - unused, kept for compatibility
+        yearRange: ClosedRange<Int>,  // Deprecated parameter - unused, kept for compatibility
+        preloadedModelYears: [Int]? = nil
     ) async -> RegularizationStatus {
         guard let pairMappings = mappings[key], !pairMappings.isEmpty else {
             return .unassigned
@@ -715,16 +837,22 @@ class RegularizationManager {
         //    - "Unknown" is a valid non-null fuel type
         //    - "Not Assigned" means NULL in database
         if hasVehicleType && !triplets.isEmpty {
-            // CRITICAL: Query database for ALL model years in uncurated data
+            // CRITICAL: Get ALL model years in uncurated data
             // (not just years that have triplets, since some years might not be assigned yet)
             var uncuratedModelYears: [Int] = []
-            do {
-                // Use async context to query database
-                uncuratedModelYears = try await getModelYearsForUncuratedPair(makeId: makeId, modelId: modelId)
-            } catch {
-                logger.error("Failed to get uncurated model years for status check: \(error.localizedDescription)")
-                // Fallback: Use triplet years (will be incorrect for incomplete assignments)
-                uncuratedModelYears = Set(triplets.compactMap { $0.modelYear }).sorted()
+
+            // Use preloaded model years if available (performance optimization to avoid N database queries)
+            if let preloaded = preloadedModelYears {
+                uncuratedModelYears = preloaded
+            } else {
+                // Fallback: Query database (slower path)
+                do {
+                    uncuratedModelYears = try await getModelYearsForUncuratedPair(makeId: makeId, modelId: modelId)
+                } catch {
+                    logger.error("Failed to get uncurated model years for status check: \(error.localizedDescription)")
+                    // Fallback: Use triplet years (will be incorrect for incomplete assignments)
+                    uncuratedModelYears = Set(triplets.compactMap { $0.modelYear }).sorted()
+                }
             }
 
             logger.debug("📊 Status check for \(key): uncuratedModelYears=\(uncuratedModelYears), triplets=\(triplets.count), hasVehicleType=\(hasVehicleType)")
