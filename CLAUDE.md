@@ -185,6 +185,50 @@ sqlite3_exec(db, "ANALYZE")  // Analyzes entire 35GB+ database!
 **Why**: Without table name, analyzes entire database (can take minutes).
 **Lesson**: October 15, 2025 - License imports hung until fixed.
 
+### 11. Parent-Scope ViewModels for Expensive Sheet Data
+
+**Sheet-scoped @StateObject loses all cached data on every close/open cycle.**
+
+```swift
+// ❌ WRONG - ViewModel destroyed on sheet close
+struct ParentView: View {
+    @State private var showingSheet = false
+
+    .sheet(isPresented: $showingSheet) {
+        ChildView(databaseManager: dbManager)  // Creates new ViewModel every time!
+    }
+}
+
+struct ChildView: View {
+    @StateObject private var viewModel: ExpensiveViewModel  // Destroyed on dismiss
+}
+
+// ✅ CORRECT - Persistent ViewModel survives sheet cycles
+struct ParentView: View {
+    @State private var showingSheet = false
+    @State private var childViewModel: ExpensiveViewModel?  // Persists in parent
+
+    .sheet(isPresented: $showingSheet) {
+        if let viewModel = childViewModel {
+            ChildView(viewModel: viewModel)  // Reuses existing ViewModel
+        }
+    }
+}
+
+struct ChildView: View {
+    @ObservedObject var viewModel: ExpensiveViewModel  // Doesn't own lifecycle
+}
+```
+
+**Why**: Sheet-scoped ViewModels lose all cached data (database queries, computed hierarchies) on every close, forcing expensive reloads.
+
+**When to use parent-scoped**:
+- ViewModel loads expensive data (>1s database queries)
+- Data doesn't change between sheet opens
+- User frequently opens/closes the sheet
+
+**Lesson**: October 21, 2025 - Regularization Manager had >60s beachball on every reopen until ViewModel moved to parent scope.
+
 ---
 
 ## Pre-Development Checklist
@@ -201,6 +245,7 @@ Before writing ANY code, verify:
 - [ ] Am I using **os.Logger** for production code?
 - [ ] Will this **onChange** trigger during rendering?
 - [ ] Am I passing a **database PATH** to concurrent tasks?
+- [ ] Does this sheet ViewModel load **expensive data**? (Use parent scope!)
 
 ---
 

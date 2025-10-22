@@ -831,6 +831,52 @@ func afterImport(dataType: DataEntityType) {
 
 **Prevention**: Pass `dataType` parameter through entire import/cache refresh chain.
 
+### 9. Sheet-Scoped ViewModel Losing Cache
+
+**Symptom**: Sheet has loading delay (>1s) on every open, even when no data changed.
+
+**Root Cause**: ViewModel scoped to sheet lifecycle, destroyed on dismiss.
+
+**Example**:
+```swift
+// ❌ WRONG: New ViewModel created on every sheet open
+.sheet(isPresented: $showing) {
+    DataEditorView(database: db)  // Passes dependencies, creates new ViewModel inside
+}
+
+struct DataEditorView: View {
+    @StateObject private var viewModel: DataViewModel  // Destroyed on sheet dismiss!
+
+    init(database: Database) {
+        _viewModel = StateObject(wrappedValue: DataViewModel(database: database))
+    }
+}
+```
+
+**Impact**:
+- User closes/reopens sheet → 60+ second reload
+- Database cache exists but ViewModel discarded it
+- Violates "aggressive caching" principle
+
+**Fix**:
+```swift
+// ✅ CORRECT: Parent-scoped ViewModel
+@State private var dataViewModel: DataViewModel?
+
+.sheet(isPresented: $showing) {
+    if dataViewModel == nil {
+        dataViewModel = DataViewModel(database: db)
+    }
+    if let vm = dataViewModel {
+        DataEditorView(viewModel: vm)
+    }
+}
+```
+
+**Prevention**: Ask "Will this ViewModel cache expensive data?" If yes, scope to parent.
+
+**Real Example**: `RegularizationView` (Oct 21, 2025) - Moving ViewModel to parent scope reduced reopen time from >60s to <1s.
+
 ---
 
 ## Critical Code Patterns
@@ -982,6 +1028,67 @@ func importFile(at url: URL) async throws {
 }
 ```
 
+### Pattern 6: Persistent Sheet ViewModel
+
+**Problem**: Sheet contains expensive data that takes >1s to load, user opens/closes frequently.
+
+**Solution**: Scope ViewModel to parent, pass as dependency to sheet.
+
+```swift
+// Parent view manages ViewModel lifecycle
+struct SettingsView: View {
+    @State private var showingExpensiveSheet = false
+    @State private var expensiveViewModel: ExpensiveViewModel?
+
+    var body: some View {
+        Button("Open") { showingExpensiveSheet = true }
+            .sheet(isPresented: $showingExpensiveSheet) {
+                sheetContent()
+            }
+    }
+
+    @ViewBuilder
+    private func sheetContent() -> some View {
+        // Lazy initialization on first open
+        if expensiveViewModel == nil {
+            expensiveViewModel = ExpensiveViewModel(dependencies...)
+        }
+
+        if let viewModel = expensiveViewModel {
+            ExpensiveSheet(viewModel: viewModel)
+        }
+    }
+}
+
+// Sheet view observes but doesn't own
+struct ExpensiveSheet: View {
+    @ObservedObject var viewModel: ExpensiveViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    init(viewModel: ExpensiveViewModel) {
+        self.viewModel = viewModel
+    }
+
+    var body: some View {
+        ContentView()
+            .onAppear {
+                // Only load if data not already cached
+                if viewModel.cachedData.isEmpty && !viewModel.isLoading {
+                    Task { await viewModel.loadData() }
+                }
+            }
+    }
+}
+```
+
+**Key Points**:
+- Parent owns ViewModel with `@State`
+- Sheet receives ViewModel via `@ObservedObject`
+- Conditional loading checks if data already cached
+- ViewModel survives sheet dismiss → instant reopen
+
+**Example**: `RegularizationSettingsView` owns `RegularizationViewModel`, passes to `RegularizationView` sheet. Reopen time: 60s → <1s.
+
 ---
 
 ## Decision Log
@@ -1045,6 +1152,13 @@ func importFile(at url: URL) async throws {
 - **Rationale**: Useful for all metrics (trend analysis, comparison)
 - **Impact**: Applies to Count, Sum, Average, RWI, Percentage, Coverage
 - **Status**: Production feature
+
+**Oct 21, 2025: Persistent Sheet ViewModels**
+- **Decision**: Scope ViewModels with expensive data to parent, not sheet
+- **Rationale**: Sheet-scoped ViewModels destroyed on dismiss, lose all cached data
+- **Impact**: Regularization Manager reopen went from >60s to <1s
+- **Pattern**: Parent owns with `@State`, sheet observes with `@ObservedObject`
+- **Status**: Production pattern for all expensive sheets
 
 ### Import System Decisions
 

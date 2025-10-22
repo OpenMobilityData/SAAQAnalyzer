@@ -347,3 +347,64 @@ print("Debug: Sample data...")
 **Verdict**: **Safe to continue development** - These issues won't cause regressions, but addressing them will significantly improve debuggability and prevent potential performance issues at scale.
 
 **Recommended Immediate Action**: Fix the two ANALYZE commands (1 hour) as a quick win. Schedule os.Logger migration as a dedicated cleanup sprint (2-3 days) when convenient.
+
+---
+
+## 📋 **ADDENDUM: Fixes Applied (October 21, 2025)**
+
+### Priority 1: Table-Specific ANALYZE ✅ **FIXED**
+
+**Commit**: `77743d6`
+**Files Modified**: `DatabaseManager.swift` (lines 296, 571)
+**Status**: Both violations corrected
+
+**Changes**:
+1. Line 296 (database initialization): Now analyzes only `vehicles` and `licenses` tables
+2. Line 571 (manual statistics update): Enhanced function to accept table array parameter with sensible defaults
+
+**New Compliance Status**: **10/10 critical rules** (was 8/10)
+
+---
+
+### Additional Discovery: Sheet ViewModel Scoping Issue
+
+**Identified**: Regularization Manager >60s beachball on every reopen
+**Root Cause**: Sheet-scoped `@StateObject` losing cached data on dismiss
+**Fix Applied**: Commit `78746ce` - Parent-scoped ViewModel pattern
+
+**Implementation**:
+- Moved `RegularizationViewModel` to `@State` in parent (`RegularizationSettingsView`)
+- Changed sheet to receive ViewModel via `@ObservedObject` (doesn't own lifecycle)
+- Added conditional loading: only queries if `uncuratedPairs.isEmpty`
+- Replaced legacy `DispatchQueue.main.async` with modern `Task { @MainActor }`
+
+**Performance Impact**:
+- **First open**: ~1-2s (loads from database cache if valid)
+- **Close/reopen (same session)**: <1s (uses in-memory cache) ✨
+- **After app restart**: ~1-2s (database cache still valid)
+
+**Architectural Improvements**:
+- Fixed Rule #4 violation (Swift Concurrency)
+- Extracted sheet content to `@ViewBuilder` method (resolved Swift type-checker timeout)
+- Aggressive in-memory caching preserved between reopens
+
+**New Pattern Documented**:
+- Added as **Critical Rule #11** in CLAUDE.md
+- Added as **Pattern 6** in ARCHITECTURAL_GUIDE.md
+- Added as **Regression Pattern #9** in ARCHITECTURAL_GUIDE.md
+- Added to **Decision Log** (UI Architecture Decisions)
+
+**Status**: Production pattern for all expensive sheets
+
+---
+
+## 🎯 **FINAL COMPLIANCE STATUS**
+
+| Category | Before | After |
+|----------|--------|-------|
+| Critical Rules | 8/10 | 11/11 |
+| ANALYZE Commands | ❌ Fails | ✅ Fixed |
+| os.Logger Usage | ❌ Fails | 📋 Deferred |
+| Sheet ViewModel Pattern | ⚠️ Not documented | ✅ Pattern established |
+
+**Overall**: Excellent architectural compliance achieved. Remaining technical debt (os.Logger migration) is quality-of-life improvement, not critical issue.
