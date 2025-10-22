@@ -16,6 +16,12 @@ import OSLog
 /// AppLogger.database.info("Database opened successfully")
 /// AppLogger.performance.notice("Import completed in \(time)s")
 /// AppLogger.regularization.debug("Processing mapping ID \(id)")
+///
+/// // Performance profiling with signposts (visible in Instruments)
+/// let signpostID = OSSignpostID(log: AppLogger.performanceLog)
+/// os_signpost(.begin, log: AppLogger.performanceLog, name: "Load Data", signpostID: signpostID)
+/// // ... expensive operation ...
+/// os_signpost(.end, log: AppLogger.performanceLog, name: "Load Data", signpostID: signpostID)
 /// ```
 ///
 /// Log Levels (in order of severity):
@@ -63,6 +69,20 @@ struct AppLogger {
 
     /// Application lifecycle (launch, shutdown, version info)
     static let app = Logger(subsystem: subsystem, category: "app")
+
+    // MARK: - Signpost Logs (for Instruments profiling)
+
+    /// OSLog for performance signposts (visible in Instruments Time Profiler and Points of Interest)
+    static let performanceLog = OSLog(subsystem: subsystem, category: "Performance")
+
+    /// OSLog for cache operation signposts
+    static let cacheLog = OSLog(subsystem: subsystem, category: "Cache")
+
+    /// OSLog for database operation signposts
+    static let databaseLog = OSLog(subsystem: subsystem, category: "Database")
+
+    /// OSLog for regularization operation signposts
+    static let regularizationLog = OSLog(subsystem: subsystem, category: "Regularization")
 
     // MARK: - Performance Measurement
 

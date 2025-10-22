@@ -418,6 +418,10 @@ class RegularizationManager {
 
     /// Identifies Make/Model pairs in uncurated years that don't have exact matches in curated years
     func findUncuratedPairs(includeExactMatches: Bool = false) async throws -> [UnverifiedMakeModelPair] {
+        let signpostID = OSSignpostID(log: AppLogger.regularizationLog)
+        os_signpost(.begin, log: AppLogger.regularizationLog, name: "Find Uncurated Pairs", signpostID: signpostID,
+                    "includeExactMatches: %{public}d", includeExactMatches ? 1 : 0)
+
         guard let db = db else { throw DatabaseError.notConnected }
         guard let dbManager = databaseManager else { throw DatabaseError.notConnected }
 
@@ -439,19 +443,33 @@ class RegularizationManager {
 
         if cacheValid {
             // Load from cache (fast!)
+            let cacheSignpostID = OSSignpostID(log: AppLogger.regularizationLog)
+            os_signpost(.begin, log: AppLogger.regularizationLog, name: "Load From Cache", signpostID: cacheSignpostID)
+
             let startTime = CFAbsoluteTimeGetCurrent()
             logger.info("Loading uncurated pairs from cache")
 
             if let cachedPairs = try? await dbManager.loadUncuratedPairsFromCache() {
                 let duration = CFAbsoluteTimeGetCurrent() - startTime
                 logger.notice("✅ Loaded \(cachedPairs.count) uncurated pairs from cache in \(String(format: "%.3f", duration))s")
+
+                os_signpost(.end, log: AppLogger.regularizationLog, name: "Load From Cache", signpostID: cacheSignpostID,
+                            "%d pairs", cachedPairs.count)
+                os_signpost(.end, log: AppLogger.regularizationLog, name: "Find Uncurated Pairs", signpostID: signpostID,
+                            "%d pairs (from cache)", cachedPairs.count)
+
                 return cachedPairs
             } else {
                 logger.warning("Failed to load from cache, will recompute")
+                os_signpost(.end, log: AppLogger.regularizationLog, name: "Load From Cache", signpostID: cacheSignpostID,
+                            "Failed")
             }
         }
 
         // Cache invalid or load failed - compute fresh data
+        let querySignpostID = OSSignpostID(log: AppLogger.regularizationLog)
+        os_signpost(.begin, log: AppLogger.regularizationLog, name: "Query Uncurated Pairs", signpostID: querySignpostID)
+
         let startTime = CFAbsoluteTimeGetCurrent()
         logger.info("Computing uncurated Make/Model pairs in \(uncuratedYearsList.count) uncurated years: \(uncuratedYearsList), includeExactMatches=\(includeExactMatches)")
 
@@ -627,6 +645,9 @@ class RegularizationManager {
         let statusDuration = CFAbsoluteTimeGetCurrent() - statusStartTime
         logger.notice("Computed status for \(pairs.count) pairs in \(String(format: "%.3f", statusDuration))s")
 
+        os_signpost(.end, log: AppLogger.regularizationLog, name: "Query Uncurated Pairs", signpostID: querySignpostID,
+                    "%d pairs", pairs.count)
+
         // Populate cache in background after query completes
         Task.detached { [weak dbManager, logger] in
             do {
@@ -643,6 +664,9 @@ class RegularizationManager {
                 logger.error("Failed to populate cache: \(error.localizedDescription)")
             }
         }
+
+        os_signpost(.end, log: AppLogger.regularizationLog, name: "Find Uncurated Pairs", signpostID: signpostID,
+                    "%d pairs (computed)", pairs.count)
 
         return pairs
     }

@@ -1,5 +1,6 @@
 import Foundation
 import SQLite3
+import OSLog
 
 /// Manages caching of filter options with integer IDs and display names
 /// Loads data from enumeration tables instead of raw string columns
@@ -56,6 +57,11 @@ class FilterCacheManager {
     func initializeCache(for dataType: DataEntityType?) async throws {
         guard !isInitialized else { return }
 
+        // Create signpost for overall cache initialization (visible in Instruments)
+        let signpostID = OSSignpostID(log: AppLogger.cacheLog)
+        os_signpost(.begin, log: AppLogger.cacheLog, name: "Load Filter Cache", signpostID: signpostID,
+                    "Data type: %{public}s", dataType?.rawValue ?? "all")
+
         print("🔄 Loading filter cache from enumeration tables...")
 
         // Shared enum tables loaded for all types
@@ -92,14 +98,20 @@ class FilterCacheManager {
 
         isInitialized = true
         print("✅ Filter cache initialized with enumeration data")
+
+        os_signpost(.end, log: AppLogger.cacheLog, name: "Load Filter Cache", signpostID: signpostID)
     }
 
     // MARK: - Individual Cache Loaders
 
     private func loadRegularizationInfo() async throws {
+        let signpostID = OSSignpostID(log: AppLogger.cacheLog)
+        os_signpost(.begin, log: AppLogger.cacheLog, name: "Load Regularization Info", signpostID: signpostID)
+
         guard let regularizationManager = databaseManager?.regularizationManager else {
             print("⚠️ RegularizationManager not available - skipping regularization info")
             regularizationInfo = [:]
+            os_signpost(.end, log: AppLogger.cacheLog, name: "Load Regularization Info", signpostID: signpostID)
             return
         }
 
@@ -110,13 +122,20 @@ class FilterCacheManager {
             print("⚠️ Could not load regularization info: \(error)")
             regularizationInfo = [:]
         }
+
+        os_signpost(.end, log: AppLogger.cacheLog, name: "Load Regularization Info", signpostID: signpostID,
+                    "%d pairs", regularizationInfo.count)
     }
 
     private func loadUncuratedPairs() async throws {
+        let signpostID = OSSignpostID(log: AppLogger.cacheLog)
+        os_signpost(.begin, log: AppLogger.cacheLog, name: "Load Uncurated Pairs", signpostID: signpostID)
+
         guard let db = self.db,
               let regularizationManager = databaseManager?.regularizationManager else {
             print("⚠️ Cannot load uncurated pairs - database or RegularizationManager not available")
             uncuratedPairs = [:]
+            os_signpost(.end, log: AppLogger.cacheLog, name: "Load Uncurated Pairs", signpostID: signpostID)
             return
         }
 
@@ -127,6 +146,7 @@ class FilterCacheManager {
         guard !uncuratedYearsList.isEmpty else {
             print("⚠️ No uncurated years configured")
             uncuratedPairs = [:]
+            os_signpost(.end, log: AppLogger.cacheLog, name: "Load Uncurated Pairs", signpostID: signpostID)
             return
         }
 
@@ -201,6 +221,9 @@ class FilterCacheManager {
                 print("   \(index + 1). Key: \(key), Count: \(uncuratedPairs[key] ?? 0)")
             }
         }
+
+        os_signpost(.end, log: AppLogger.cacheLog, name: "Load Uncurated Pairs", signpostID: signpostID,
+                    "%d pairs", uncuratedPairs.count)
     }
 
     private func loadMakeRegularizationInfo() async throws {
@@ -340,6 +363,9 @@ class FilterCacheManager {
     }
 
     private func loadMakes() async throws {
+        let signpostID = OSSignpostID(log: AppLogger.cacheLog)
+        os_signpost(.begin, log: AppLogger.cacheLog, name: "Load Makes", signpostID: signpostID)
+
         guard let db = self.db else { throw DatabaseError.notConnected }
 
         let sql = "SELECT id, name FROM make_enum ORDER BY name;"
@@ -392,9 +418,15 @@ class FilterCacheManager {
                 continuation.resume(throwing: DatabaseError.queryFailed("Failed to load makes: \(error)"))
             }
         }
+
+        os_signpost(.end, log: AppLogger.cacheLog, name: "Load Makes", signpostID: signpostID,
+                    "%d makes", cachedMakes.count)
     }
 
     private func loadModels() async throws {
+        let signpostID = OSSignpostID(log: AppLogger.cacheLog)
+        os_signpost(.begin, log: AppLogger.cacheLog, name: "Load Models", signpostID: signpostID)
+
         guard let db = self.db else { throw DatabaseError.notConnected }
 
         let sql = """
@@ -458,6 +490,9 @@ class FilterCacheManager {
                 continuation.resume(throwing: DatabaseError.queryFailed("Failed to load models: \(error)"))
             }
         }
+
+        os_signpost(.end, log: AppLogger.cacheLog, name: "Load Models", signpostID: signpostID,
+                    "%d models", cachedModels.count)
     }
 
     private func loadColors() async throws {
