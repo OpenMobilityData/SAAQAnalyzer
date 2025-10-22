@@ -8,13 +8,10 @@ struct RegularizationView: View {
     // Use centralized logging
     private let logger = AppLogger.regularization
     @Environment(\.dismiss) private var dismiss
-    @StateObject private var viewModel: RegularizationViewModel
+    @ObservedObject var viewModel: RegularizationViewModel
 
-    init(databaseManager: DatabaseManager, yearConfig: RegularizationYearConfiguration) {
-        _viewModel = StateObject(wrappedValue: RegularizationViewModel(
-            databaseManager: databaseManager,
-            yearConfig: yearConfig
-        ))
+    init(viewModel: RegularizationViewModel) {
+        self.viewModel = viewModel
     }
 
     var body: some View {
@@ -52,10 +49,11 @@ struct RegularizationView: View {
             }
         }
         .onAppear {
-            // CRITICAL: Defer all work to allow view to appear first
-            // Use DispatchQueue.main.async to push work to AFTER current render cycle
-            DispatchQueue.main.async {
-                viewModel.loadInitialData()
+            // Only load initial data if not already loaded (preserves cached data on reopen)
+            if viewModel.uncuratedPairs.isEmpty && !viewModel.isLoading {
+                Task { @MainActor in
+                    viewModel.loadInitialData()
+                }
             }
         }
         .onChange(of: viewModel.selectedPair) { oldValue, newValue in
@@ -1018,6 +1016,14 @@ class RegularizationViewModel: ObservableObject {
         self.databaseManager = databaseManager
         self.regularizationManager = databaseManager.regularizationManager
         self.yearConfig = yearConfig
+    }
+
+    /// Updates the year configuration in the regularization manager
+    func updateYearConfiguration(_ newConfig: RegularizationYearConfiguration) {
+        self.yearConfig = newConfig
+        if let manager = regularizationManager {
+            manager.setYearConfiguration(newConfig)
+        }
     }
 
     @MainActor

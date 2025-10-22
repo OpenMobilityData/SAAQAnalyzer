@@ -1921,6 +1921,9 @@ struct RegularizationSettingsView: View {
     @State private var lastCachedYearConfig: RegularizationYearConfiguration?
     @State private var statisticsNeedRefresh = false
 
+    // Persistent ViewModel - survives sheet close/open cycles to preserve cached data
+    @State private var regularizationViewModel: RegularizationViewModel?
+
     var body: some View {
         Form {
             Section("Year Curation Configuration") {
@@ -2232,7 +2235,7 @@ struct RegularizationSettingsView: View {
             }
         }
         .sheet(isPresented: $showingRegularizationView) {
-            RegularizationView(databaseManager: databaseManager, yearConfig: yearConfig)
+            regularizationSheet()
         }
         .onChange(of: showingRegularizationView) { oldValue, newValue in
             // When RegularizationView closes, automatically reload filter cache and mark stats as stale
@@ -2331,6 +2334,29 @@ struct RegularizationSettingsView: View {
             print("✅ Filter cache invalidated - will reload on next filter access")
             print("💡 Open the Filter panel to trigger cache reload with latest Make/Model values")
         }
+    }
+
+    @ViewBuilder
+    private func regularizationSheet() -> some View {
+        // Initialize viewModel lazily on first open, reuse on subsequent opens
+        let viewModel: RegularizationViewModel = {
+            if let existing = regularizationViewModel {
+                // Update year config if it changed while view was closed
+                existing.updateYearConfiguration(yearConfig)
+                return existing
+            } else {
+                let newViewModel = RegularizationViewModel(
+                    databaseManager: databaseManager,
+                    yearConfig: yearConfig
+                )
+                DispatchQueue.main.async {
+                    regularizationViewModel = newViewModel
+                }
+                return newViewModel
+            }
+        }()
+
+        RegularizationView(viewModel: viewModel)
     }
 
     // Note: checkCacheStaleness() function removed - cache invalidation now happens automatically
