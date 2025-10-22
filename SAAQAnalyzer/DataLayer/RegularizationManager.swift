@@ -1429,11 +1429,26 @@ class RegularizationManager {
         var expandedModelIds = Set(modelIds)
 
         // STEP 1: If any input IDs are UNCURATED, find their CANONICAL equivalents
+        // CRITICAL: When BOTH Make and Model are filtered, use AND (not OR) to find matching PAIRS
+        var uncuratedWhereClause = ""
+        if !makeIds.isEmpty && !modelIds.isEmpty {
+            // Both filters active: Find uncurated pairs where BOTH Make AND Model match
+            uncuratedWhereClause = """
+            WHERE uncurated_make_id IN (\(makeIds.map { String($0) }.joined(separator: ",")))
+              AND uncurated_model_id IN (\(modelIds.map { String($0) }.joined(separator: ",")))
+            """
+        } else if !makeIds.isEmpty {
+            // Only Make filter active
+            uncuratedWhereClause = "WHERE uncurated_make_id IN (\(makeIds.map { String($0) }.joined(separator: ",")))"
+        } else if !modelIds.isEmpty {
+            // Only Model filter active
+            uncuratedWhereClause = "WHERE uncurated_model_id IN (\(modelIds.map { String($0) }.joined(separator: ",")))"
+        }
+
         let uncuratedToCanonicalSql = """
         SELECT DISTINCT uncurated_make_id, uncurated_model_id, canonical_make_id, canonical_model_id
         FROM make_model_regularization
-        WHERE uncurated_make_id IN (\(makeIds.map { String($0) }.joined(separator: ",")))
-           OR uncurated_model_id IN (\(modelIds.map { String($0) }.joined(separator: ",")));
+        \(uncuratedWhereClause);
         """
 
         var stmt1: OpaquePointer?
@@ -1462,11 +1477,27 @@ class RegularizationManager {
         let currentMakeIds = Array(expandedMakeIds)
         let currentModelIds = Array(expandedModelIds)
 
+        // Build WHERE clause based on which filters are active
+        // CRITICAL: When BOTH Make and Model are filtered, use AND (not OR) to find matching PAIRS
+        var whereClause = ""
+        if !currentMakeIds.isEmpty && !currentModelIds.isEmpty {
+            // Both filters active: Find uncurated pairs where BOTH Make AND Model match
+            whereClause = """
+            WHERE canonical_make_id IN (\(currentMakeIds.map { String($0) }.joined(separator: ",")))
+              AND canonical_model_id IN (\(currentModelIds.map { String($0) }.joined(separator: ",")))
+            """
+        } else if !currentMakeIds.isEmpty {
+            // Only Make filter active
+            whereClause = "WHERE canonical_make_id IN (\(currentMakeIds.map { String($0) }.joined(separator: ",")))"
+        } else if !currentModelIds.isEmpty {
+            // Only Model filter active
+            whereClause = "WHERE canonical_model_id IN (\(currentModelIds.map { String($0) }.joined(separator: ",")))"
+        }
+
         let canonicalToUncuratedSql = """
         SELECT DISTINCT uncurated_make_id, uncurated_model_id
         FROM make_model_regularization
-        WHERE canonical_make_id IN (\(currentMakeIds.map { String($0) }.joined(separator: ",")))
-           OR canonical_model_id IN (\(currentModelIds.map { String($0) }.joined(separator: ",")));
+        \(whereClause);
         """
 
         return try await withCheckedThrowingContinuation { continuation in
