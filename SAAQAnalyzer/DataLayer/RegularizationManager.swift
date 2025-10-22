@@ -159,6 +159,64 @@ class RegularizationManager {
         }
     }
 
+    /// Get record counts per model year for a specific Make/Model pair in uncurated years
+    /// Returns a dictionary mapping model year → record count
+    /// This helps users prioritize which model years to regularize based on impact
+    func getModelYearCountsForUncuratedPair(makeId: Int, modelId: Int) async throws -> [Int: Int] {
+        guard let db = db else { throw DatabaseError.notConnected }
+
+        let uncuratedYearsList = Array(yearConfig.uncuratedYears).sorted()
+        guard !uncuratedYearsList.isEmpty else {
+            return [:]
+        }
+
+        let yearPlaceholders = uncuratedYearsList.map { _ in "?" }.joined(separator: ",")
+
+        let sql = """
+        SELECT my.year, COUNT(*) as count
+        FROM vehicles v
+        JOIN year_enum y ON v.year_id = y.id
+        JOIN model_year_enum my ON v.model_year_id = my.id
+        WHERE v.make_id = ?
+        AND v.model_id = ?
+        AND y.year IN (\(yearPlaceholders))
+        AND my.year IS NOT NULL
+        GROUP BY my.year
+        ORDER BY my.year;
+        """
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            if sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK {
+                // Bind make_id and model_id
+                sqlite3_bind_int(stmt, 1, Int32(makeId))
+                sqlite3_bind_int(stmt, 2, Int32(modelId))
+
+                // Bind uncurated years
+                var bindIndex: Int32 = 3
+                for year in uncuratedYearsList {
+                    sqlite3_bind_int(stmt, bindIndex, Int32(year))
+                    bindIndex += 1
+                }
+
+                var modelYearCounts: [Int: Int] = [:]
+                while sqlite3_step(stmt) == SQLITE_ROW {
+                    let year = Int(sqlite3_column_int(stmt, 0))
+                    let count = Int(sqlite3_column_int(stmt, 1))
+                    modelYearCounts[year] = count
+                }
+
+                logger.debug("Found counts for \(modelYearCounts.count) model years (makeId=\(makeId), modelId=\(modelId))")
+                continuation.resume(returning: modelYearCounts)
+            } else {
+                let error = String(cString: sqlite3_errmsg(db))
+                continuation.resume(throwing: DatabaseError.queryFailed("Failed to get model year counts: \(error)"))
+            }
+        }
+    }
+
     // MARK: - Canonical Hierarchy Generation
 
     /// Generates the hierarchical structure of canonical Make/Model/FuelType/VehicleClass combinations

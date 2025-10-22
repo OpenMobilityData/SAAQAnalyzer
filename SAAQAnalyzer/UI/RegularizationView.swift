@@ -39,11 +39,12 @@ struct RegularizationView: View {
                             .scaleEffect(0.8)
                     }
 
-                    Button("Refresh") {
+                    Button("Reload Pairs List") {
                         Task {
                             await viewModel.loadUncuratedPairs()
                         }
                     }
+                    .help("Reload the uncurated pairs list from the database to pick up any changes made by auto-regularization or external updates")
                     .disabled(viewModel.isLoading)
                 }
             }
@@ -57,9 +58,10 @@ struct RegularizationView: View {
             }
         }
         .onChange(of: viewModel.selectedPair) { oldValue, newValue in
-            // Load mapping when selection changes (avoids SwiftUI publishing warning)
+            // Load mapping when selection changes
+            // Use Task.detached to break out of view update cycle and avoid publishing warnings
             if newValue != oldValue, newValue != nil {
-                Task {
+                Task.detached { @MainActor in
                     await viewModel.loadMappingForSelectedPair()
                 }
             }
@@ -445,6 +447,20 @@ struct UncuratedPairRow: View {
     let pair: UnverifiedMakeModelPair
     let regularizationStatus: RegularizationStatus
 
+    // Pre-compute field status using cached data on pair (avoid accessing @Published during view updates)
+    private var fieldStatus: (makeModel: Bool, vehicleType: Bool, fuelTypes: Bool) {
+        // Make/Model assigned if any mapping exists (status != unassigned)
+        let hasMakeModel = pair.regularizationStatus != .unassigned
+
+        // Vehicle type is already cached on the pair from wildcard mapping
+        let hasVehicleType = pair.vehicleTypeId != nil
+
+        // Fuel types complete only when overall status is .complete (all model years assigned)
+        let hasFuelTypes = pair.regularizationStatus == .complete
+
+        return (makeModel: hasMakeModel, vehicleType: hasVehicleType, fuelTypes: hasFuelTypes)
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             // Status indicator
@@ -473,8 +489,10 @@ struct UncuratedPairRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    // Regularization status badge
-                    statusBadge
+                    Spacer()
+
+                    // Regularization status badges (right-justified)
+                    statusBadges
                 }
             }
         }
@@ -497,7 +515,7 @@ struct UncuratedPairRow: View {
     }
 
     @ViewBuilder
-    private var statusBadge: some View {
+    private var statusBadges: some View {
         switch regularizationStatus {
         case .unassigned:
             Text("Unassigned")
@@ -507,22 +525,55 @@ struct UncuratedPairRow: View {
                 .background(Color.red.opacity(0.2))
                 .foregroundColor(.red)
                 .cornerRadius(4)
-        case .partial:
-            Text("Partial")
-                .font(.caption2)
+        case .partial, .complete:
+            // Show field-specific badges for both partial and complete status
+            // Note: Overall status already indicated by colored circle on left
+            HStack(spacing: 4) {
+                // Make/Model badge (always shown)
+                FieldBadge(
+                    icon: "checkmark",
+                    tooltip: "Make/Model assigned",
+                    isAssigned: fieldStatus.makeModel,
+                    color: .blue
+                )
+
+                // Vehicle Type badge
+                FieldBadge(
+                    icon: "car.fill",
+                    tooltip: "Vehicle Type assigned",
+                    isAssigned: fieldStatus.vehicleType,
+                    color: .orange
+                )
+
+                // Fuel Types badge (shown when ALL model years assigned)
+                FieldBadge(
+                    icon: "fuelpump.fill",
+                    tooltip: "Fuel Types assigned (all model years)",
+                    isAssigned: fieldStatus.fuelTypes,
+                    color: .purple
+                )
+            }
+        }
+    }
+}
+
+/// Field-specific assignment badge with solid colored background
+struct FieldBadge: View {
+    let icon: String
+    let tooltip: String
+    let isAssigned: Bool
+    let color: Color
+
+    var body: some View {
+        if isAssigned {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.primary)
                 .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.orange.opacity(0.2))
-                .foregroundColor(.orange)
+                .padding(.vertical, 3)
+                .background(color.opacity(0.25))
                 .cornerRadius(4)
-        case .complete:
-            Text("Complete")
-                .font(.caption2)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.green.opacity(0.2))
-                .foregroundColor(.green)
-                .cornerRadius(4)
+                .help(tooltip)
         }
     }
 }
@@ -604,8 +655,13 @@ struct MappingFormView: View {
                         .font(.headline)
                     Spacer()
                     if viewModel.selectedCanonicalMake != nil {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.blue.opacity(0.25))
+                            .cornerRadius(4)
                     }
                 }
 
@@ -644,8 +700,13 @@ struct MappingFormView: View {
                         .font(.headline)
                     Spacer()
                     if viewModel.selectedCanonicalModel != nil {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.blue.opacity(0.25))
+                            .cornerRadius(4)
                     }
                 }
 
@@ -674,8 +735,13 @@ struct MappingFormView: View {
                         .font(.headline)
                     Spacer()
                     if viewModel.selectedVehicleTypeId != nil {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                        Image(systemName: "car.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.orange.opacity(0.25))
+                            .cornerRadius(4)
                     }
                 }
 
@@ -721,8 +787,13 @@ struct MappingFormView: View {
                     Spacer()
                     if let model = viewModel.selectedCanonicalModel,
                        viewModel.allFuelTypesAssigned(for: model) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                        Image(systemName: "fuelpump.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.purple.opacity(0.25))
+                            .cornerRadius(4)
                     }
                 }
 
@@ -876,11 +947,35 @@ struct ModelYearFuelTypeRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Year header
-            Text("Model Year \(String(modelYear))")
-                .font(.system(.body, design: .monospaced))
-                .fontWeight(.semibold)
-                .foregroundColor(.primary)
+            // Year header with badges
+            HStack(spacing: 8) {
+                Text("Model Year \(String(modelYear))")
+                    .font(.system(.body, design: .monospaced))
+                    .fontWeight(.semibold)
+                    .foregroundColor(.primary)
+
+                // Badge for uncurated-only years (not in canonical hierarchy)
+                if yearId == nil {
+                    Text("Uncurated Only")
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.purple.opacity(0.2))
+                        .foregroundColor(.purple)
+                        .cornerRadius(4)
+                        .help("This model year only appears in uncurated data (not in curated years)")
+                }
+
+                Spacer()
+
+                // Record count from uncurated data
+                if let count = viewModel.uncuratedModelYearCounts[modelYear] {
+                    Text("\(count.formatted()) records")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .help("Number of vehicles with this model year in uncurated data")
+                }
+            }
 
             // Radio button options
             VStack(alignment: .leading, spacing: 4) {
@@ -980,6 +1075,10 @@ class RegularizationViewModel: ObservableObject {
     // Model years that actually exist in uncurated data for selected pair
     // Used to filter fuel type UI (show only years needing assignment)
     @Published var uncuratedModelYears: [Int] = []
+
+    // Record counts per model year for prioritizing regularization effort
+    // Dictionary: modelYear → record count in uncurated data
+    @Published var uncuratedModelYearCounts: [Int: Int] = [:]
 
     // Loading states
     @Published var isLoading = false
@@ -1406,6 +1505,7 @@ class RegularizationViewModel: ObservableObject {
         selectedVehicleTypeId = nil
         selectedFuelTypesByModelYear = [:]
         uncuratedModelYears = []
+        uncuratedModelYearCounts = [:]
     }
 
     // MARK: - Year-Based Fuel Type Selection Methods
@@ -1645,6 +1745,32 @@ class RegularizationViewModel: ObservableObject {
         return nil
     }
 
+    /// Helper: Get field assignment status for a pair
+    /// Returns tuple: (hasMakeModel, hasVehicleType, hasFuelTypes)
+    /// Note: hasFuelTypes only true if status is .complete (ALL model years assigned)
+    @MainActor
+    func getFieldAssignmentStatus(for pair: UnverifiedMakeModelPair) -> (makeModel: Bool, vehicleType: Bool, fuelTypes: Bool) {
+        let mappings = getMappingsForPair(pair.makeId, pair.modelId)
+
+        // If no mappings, nothing is assigned
+        guard !mappings.isEmpty else {
+            return (makeModel: false, vehicleType: false, fuelTypes: false)
+        }
+
+        // Make/Model always assigned if any mapping exists
+        let hasMakeModel = true
+
+        // Check vehicle type (from wildcard mapping)
+        let wildcardMapping = mappings.first { $0.modelYearId == nil }
+        let hasVehicleType = wildcardMapping?.vehicleTypeId != nil
+
+        // Fuel types only considered complete if status is .complete
+        // (meaning ALL model years have assigned fuel types, not just some)
+        let hasFuelTypes = pair.regularizationStatus == .complete
+
+        return (makeModel: hasMakeModel, vehicleType: hasVehicleType, fuelTypes: hasFuelTypes)
+    }
+
     /// Auto-populate Vehicle Type and Fuel Types when user selects a canonical Make/Model
     /// This enhances UX for 'Unassigned' pairs by suggesting values from the canonical hierarchy
     @MainActor
@@ -1731,6 +1857,19 @@ class RegularizationViewModel: ObservableObject {
         } catch {
             logger.error("Failed to load uncurated model years: \(error.localizedDescription)")
             self.uncuratedModelYears = []
+        }
+
+        // Load record counts per model year for prioritization
+        do {
+            self.uncuratedModelYearCounts = try await manager.getModelYearCountsForUncuratedPair(
+                makeId: pair.makeId,
+                modelId: pair.modelId
+            )
+            let totalRecords = self.uncuratedModelYearCounts.values.reduce(0, +)
+            logger.debug("Loaded model year counts: \(totalRecords) total records across \(self.uncuratedModelYearCounts.count) model years")
+        } catch {
+            logger.error("Failed to load model year counts: \(error.localizedDescription)")
+            self.uncuratedModelYearCounts = [:]
         }
 
         // Ensure hierarchy is loaded (wait if it's still loading in background)
