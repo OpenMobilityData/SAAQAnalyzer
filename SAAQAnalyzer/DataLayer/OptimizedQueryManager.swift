@@ -179,8 +179,8 @@ class OptimizedQueryManager {
             // (similar to models - though Make names are typically unique)
             for make in filters.vehicleMakes {
                 if let filterCache = databaseManager?.filterCacheManager {
-                    // Get all makes from cache
-                    let allMakes = try await filterCache.getAvailableMakes(limitToCuratedYears: false)
+                    // Get all makes from cache (respect limitToCuratedYears flag)
+                    let allMakes = try await filterCache.getAvailableMakes(limitToCuratedYears: filters.limitToCuratedYears)
 
                     // Find the FilterItem whose displayName matches our filter string
                     if let matchingMake = allMakes.first(where: { $0.displayName == make }) {
@@ -199,8 +199,8 @@ class OptimizedQueryManager {
             // The FilterItem already has the correct model_id for the Make+Model combination
             for model in filters.vehicleModels {
                 if let filterCache = databaseManager?.filterCacheManager {
-                    // Get all models from cache
-                    let allModels = try await filterCache.getAvailableModels(limitToCuratedYears: false, forMakeIds: nil)
+                    // Get all models from cache (respect limitToCuratedYears flag)
+                    let allModels = try await filterCache.getAvailableModels(limitToCuratedYears: filters.limitToCuratedYears, forMakeIds: nil)
 
                     // Find the FilterItem whose displayName matches our filter string
                     if let matchingModel = allModels.first(where: { $0.displayName == model }) {
@@ -214,25 +214,24 @@ class OptimizedQueryManager {
                 }
             }
 
-            // Apply regularization expansion if enabled
-            // IMPORTANT: Only apply regularization when NOT limiting to curated years
-            // Regularization is for uncurated data only (2023-2024)
+            // Apply Make/Model regularization expansion if enabled
+            // IMPORTANT: Only expand when regularization is ON and NOT limiting to curated years
+            // This allows uncurated variants to match their canonical equivalents in queries
             if regularizationEnabled && !filters.limitToCuratedYears {
                 if let regManager = databaseManager?.regularizationManager {
-                    // NOTE: We do NOT expand Make/Model IDs based on vehicle type filtering
-                    // The EXISTS subquery in the WHERE clause handles NULL vehicle_type_id correctly
-                    // Expanding IDs here causes over-matching (pulls in ALL makes with that vehicle type)
-
-                    // Only expand Make/Model IDs when the user explicitly filters by Make or Model
-                    // This ensures regularization only affects the specific makes/models selected
-
                     // Expand Make IDs (only if Make filter is active)
+                    // Converts uncurated Make IDs → include canonical Make IDs (bidirectional)
                     if !makeIds.isEmpty {
+                        let originalCount = makeIds.count
                         makeIds = try await regManager.expandMakeIDs(makeIds: makeIds)
+                        print("🔄 Make regularization expanded \(originalCount) → \(makeIds.count) IDs")
                     }
 
                     // Expand Make/Model IDs together (only if Model filter is active)
+                    // Converts uncurated Make/Model pairs → include canonical pairs (bidirectional)
                     if !modelIds.isEmpty {
+                        let originalMakeCount = makeIds.count
+                        let originalModelCount = modelIds.count
                         let (expandedMakeIds, expandedModelIds) = try await regManager.expandMakeModelIDs(
                             makeIds: makeIds,
                             modelIds: modelIds,
@@ -240,6 +239,7 @@ class OptimizedQueryManager {
                         )
                         makeIds = expandedMakeIds
                         modelIds = expandedModelIds
+                        print("🔄 Model regularization expanded: Makes \(originalMakeCount) → \(makeIds.count), Models \(originalModelCount) → \(modelIds.count)")
                     }
                 }
             }

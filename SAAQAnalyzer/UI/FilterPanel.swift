@@ -50,6 +50,9 @@ struct FilterPanel: View {
     // Hierarchical filtering state
     @State private var isModelListFiltered: Bool = false
 
+    // Regularization state (from AppStorage to match FilterOptionsSection)
+    @AppStorage("regularizationEnabled") private var regularizationEnabled = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Analytics Section Header
@@ -202,33 +205,7 @@ struct FilterPanel: View {
                     // Data type specific sections
                     if configuration.dataEntityType == .vehicle {
                         // Vehicle characteristics section
-                        DisclosureGroup(isExpanded: $vehicleSectionExpanded) {
-                            VehicleFilterSection(
-                                selectedVehicleClasses: $configuration.vehicleClasses,
-                                selectedVehicleTypes: $configuration.vehicleTypes,
-                                selectedVehicleMakes: $configuration.vehicleMakes,
-                                selectedVehicleModels: $configuration.vehicleModels,
-                                selectedVehicleColors: $configuration.vehicleColors,
-                                selectedModelYears: $configuration.modelYears,
-                                selectedFuelTypes: $configuration.fuelTypes,
-                                selectedAxleCounts: $configuration.axleCounts,
-                                availableYears: availableYears,
-                                availableVehicleClasses: availableClassifications,
-                                availableVehicleTypes: availableVehicleTypes,
-                                availableVehicleMakes: availableVehicleMakes,
-                                availableVehicleModels: availableVehicleModels,
-                                availableVehicleColors: availableVehicleColors,
-                                availableModelYears: availableModelYears,
-                                availableAxleCounts: availableAxleCounts,
-                                isModelListFiltered: $isModelListFiltered,
-                                selectedMakesCount: configuration.vehicleMakes.count,
-                                onFilterByMakes: { Task { await filterModelsBySelectedMakes() } }
-                            )
-                        } label: {
-                            Label("Vehicle Characteristics", systemImage: "car")
-                                .font(.subheadline)
-                                .symbolRenderingMode(.hierarchical)
-                        }
+                        vehicleCharacteristicsDisclosureGroup
 
                         Divider()
 
@@ -635,6 +612,42 @@ struct FilterPanel: View {
         }
     }
 
+    // MARK: - Helper Views
+
+    /// Extract vehicle characteristics section to avoid type checker complexity
+    private var vehicleCharacteristicsDisclosureGroup: some View {
+        DisclosureGroup(isExpanded: $vehicleSectionExpanded) {
+            VehicleFilterSection(
+                selectedVehicleClasses: $configuration.vehicleClasses,
+                selectedVehicleTypes: $configuration.vehicleTypes,
+                selectedVehicleMakes: $configuration.vehicleMakes,
+                selectedVehicleModels: $configuration.vehicleModels,
+                selectedVehicleColors: $configuration.vehicleColors,
+                selectedModelYears: $configuration.modelYears,
+                selectedFuelTypes: $configuration.fuelTypes,
+                selectedAxleCounts: $configuration.axleCounts,
+                availableYears: availableYears,
+                availableVehicleClasses: availableClassifications,
+                availableVehicleTypes: availableVehicleTypes,
+                availableVehicleMakes: availableVehicleMakes,
+                availableVehicleModels: availableVehicleModels,
+                availableVehicleColors: availableVehicleColors,
+                availableModelYears: availableModelYears,
+                availableAxleCounts: availableAxleCounts,
+                isModelListFiltered: $isModelListFiltered,
+                selectedMakesCount: configuration.vehicleMakes.count,
+                onFilterByMakes: { Task { await filterModelsBySelectedMakes() } },
+                enableQueryRegularization: regularizationEnabled
+            )
+        } label: {
+            Label("Vehicle Characteristics", systemImage: "car")
+                .font(.subheadline)
+                .symbolRenderingMode(.hierarchical)
+        }
+    }
+
+    // MARK: - Helper Functions
+
     /// Filter models by selected makes (manual button action)
     /// This is a minimal function that ONLY updates the model list - nothing else.
     /// Avoids AttributeGraph crashes by not triggering cascading binding updates.
@@ -879,6 +892,9 @@ struct VehicleFilterSection: View {
     let selectedMakesCount: Int
     let onFilterByMakes: () -> Void
 
+    // Regularization state (for dimming inactive mappings)
+    let enableQueryRegularization: Bool
+
     // Check if any year from 2017+ is selected (for fuel type filter)
     private var hasFuelTypeYears: Bool {
         availableYears.contains { $0 >= 2017 }
@@ -923,7 +939,8 @@ struct VehicleFilterSection: View {
                 SearchableFilterList(
                     items: availableVehicleMakes,
                     selectedItems: $selectedVehicleMakes,
-                    searchPrompt: "Search vehicle makes..."
+                    searchPrompt: "Search vehicle makes...",
+                    dimRegularizationMappings: !enableQueryRegularization
                 )
             }
 
@@ -969,7 +986,8 @@ struct VehicleFilterSection: View {
                 SearchableFilterList(
                     items: availableVehicleModels,
                     selectedItems: $selectedVehicleModels,
-                    searchPrompt: "Search vehicle models..."
+                    searchPrompt: "Search vehicle models...",
+                    dimRegularizationMappings: !enableQueryRegularization
                 )
             }
 
@@ -1235,7 +1253,8 @@ struct SearchableFilterList: View {
     let items: [String]
     @Binding var selectedItems: Set<String>
     let searchPrompt: String
-    
+    var dimRegularizationMappings: Bool = false  // Simpler: just a bool flag
+
     @State private var searchText = ""
     @State private var isExpanded = false
     
@@ -1258,8 +1277,15 @@ struct SearchableFilterList: View {
     }
 
     private var displayedItems: [String] {
-        // No additional sorting needed - filteredItems already has correct order
-        return isExpanded ? filteredItems : Array(filteredItems.prefix(5))
+        // Auto-expand if:
+        // 1. User explicitly expanded the list, OR
+        // 2. Search is active and results are small enough (≤20 items), OR
+        // 3. Search is active and narrowed results significantly (≤30% of original)
+        let shouldAutoExpand = isExpanded ||
+                              (!searchText.isEmpty && filteredItems.count <= 20) ||
+                              (!searchText.isEmpty && items.count > 0 && Double(filteredItems.count) / Double(items.count) <= 0.3)
+
+        return shouldAutoExpand ? filteredItems : Array(filteredItems.prefix(5))
     }
     
     var body: some View {
@@ -1310,8 +1336,15 @@ struct SearchableFilterList: View {
                 .controlSize(.mini)
                 
                 Spacer()
-                
-                if items.count > 5 && searchText.isEmpty {
+
+                // Only show expand/collapse button when:
+                // 1. List is large enough (>5 items)
+                // 2. No active search (search auto-expands)
+                // 3. OR search is active but didn't auto-expand (still many results)
+                let hasActiveSearch = !searchText.isEmpty
+                let autoExpandedBySearch = hasActiveSearch && (filteredItems.count <= 20 || (items.count > 0 && Double(filteredItems.count) / Double(items.count) <= 0.3))
+
+                if items.count > 5 && !autoExpandedBySearch {
                     Button(isExpanded ? "Show Less" : "Show All (\(items.count))") {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isExpanded.toggle()
@@ -1326,6 +1359,9 @@ struct SearchableFilterList: View {
             // Filter items
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(displayedItems, id: \.self) { item in
+                    let isRegularizationMapping = item.contains(" → ")
+                    let shouldDim = dimRegularizationMappings && isRegularizationMapping
+
                     HStack(alignment: .top, spacing: 8) {
                         Toggle(isOn: Binding(
                             get: { selectedItems.contains(item) },
@@ -1341,12 +1377,13 @@ struct SearchableFilterList: View {
                         }
                         .toggleStyle(.checkbox)
                         .controlSize(.mini)
-                        
+
                         Text(item)
                             .font(.caption)
                             .multilineTextAlignment(.leading)
                             .typesettingLanguage(.init(languageCode: .french))
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .opacity(shouldDim ? 0.5 : 1.0)
                     }
                     .padding(.vertical, 1)
                 }

@@ -540,24 +540,37 @@ class FilterCacheManager {
         var filteredModels = cachedModels
 
         // FIRST: Apply hierarchical filtering if requested
-        // This filters from the full model set before curated years filtering
-        // (October 18 fix: order matters - hierarchical filtering must come first)
+        // Design principle (October 18): Hierarchical filtering BYPASSES "Limit to Curated Years"
+        // When user clicks "Filter by Selected Makes", they want ALL models for that make
         if let makeIds = forMakeIds, !makeIds.isEmpty {
             filteredModels = try await filterModelsByMakes(filteredModels, makeIds: makeIds)
+            // Skip curated years filtering when hierarchical filtering is active
+            return filteredModels
         }
 
-        // SECOND: Apply curated years filter if requested
-        // This applies to ALL models, including hierarchically-filtered results
-        // When "Limit to Curated Years" is ON, no uncurated data should appear anywhere
+        // SECOND: Apply curated years filter if requested (ONLY when NOT hierarchically filtering)
+        // This applies when browsing the full model list (no make selection)
         if limitToCuratedYears {
             filteredModels = filteredModels.filter { model in
-                let displayName = model.displayName
+                // Get the make ID for this model
+                guard let makeId = modelToMakeMapping[model.id] else {
+                    return true  // Keep models without make mapping (defensive - shouldn't happen)
+                }
 
-                // Filter out models with uncurated badges
-                if displayName.contains("[uncurated:") {
+                let key = "\(makeId)_\(model.id)"
+
+                // Filter out uncurated-only pairs (exist only in uncurated years)
+                if uncuratedPairs[key] != nil {
                     return false
                 }
 
+                // Filter out regularization mappings (uncurated variants with arrows)
+                // These are irrelevant when limiting to curated years
+                if model.displayName.contains(" → ") {
+                    return false
+                }
+
+                // Keep canonical models from curated years
                 return true
             }
         }
