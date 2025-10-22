@@ -50,9 +50,6 @@ struct FilterPanel: View {
     // Hierarchical filtering state
     @State private var isModelListFiltered: Bool = false
 
-    // Regularization state (from AppStorage to match FilterOptionsSection)
-    @AppStorage("regularizationEnabled") private var regularizationEnabled = false
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Analytics Section Header
@@ -636,8 +633,7 @@ struct FilterPanel: View {
                 availableAxleCounts: availableAxleCounts,
                 isModelListFiltered: $isModelListFiltered,
                 selectedMakesCount: configuration.vehicleMakes.count,
-                onFilterByMakes: { Task { await filterModelsBySelectedMakes() } },
-                enableQueryRegularization: regularizationEnabled
+                onFilterByMakes: { Task { await filterModelsBySelectedMakes() } }
             )
         } label: {
             Label("Vehicle Characteristics", systemImage: "car")
@@ -892,9 +888,6 @@ struct VehicleFilterSection: View {
     let selectedMakesCount: Int
     let onFilterByMakes: () -> Void
 
-    // Regularization state (for dimming inactive mappings)
-    let enableQueryRegularization: Bool
-
     // Check if any year from 2017+ is selected (for fuel type filter)
     private var hasFuelTypeYears: Bool {
         availableYears.contains { $0 >= 2017 }
@@ -939,8 +932,7 @@ struct VehicleFilterSection: View {
                 SearchableFilterList(
                     items: availableVehicleMakes,
                     selectedItems: $selectedVehicleMakes,
-                    searchPrompt: "Search vehicle makes...",
-                    dimRegularizationMappings: !enableQueryRegularization
+                    searchPrompt: "Search vehicle makes..."
                 )
             }
 
@@ -986,8 +978,7 @@ struct VehicleFilterSection: View {
                 SearchableFilterList(
                     items: availableVehicleModels,
                     selectedItems: $selectedVehicleModels,
-                    searchPrompt: "Search vehicle models...",
-                    dimRegularizationMappings: !enableQueryRegularization
+                    searchPrompt: "Search vehicle models..."
                 )
             }
 
@@ -1253,7 +1244,6 @@ struct SearchableFilterList: View {
     let items: [String]
     @Binding var selectedItems: Set<String>
     let searchPrompt: String
-    var dimRegularizationMappings: Bool = false  // Simpler: just a bool flag
 
     @State private var searchText = ""
     @State private var isExpanded = false
@@ -1360,7 +1350,8 @@ struct SearchableFilterList: View {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(displayedItems, id: \.self) { item in
                     let isRegularizationMapping = item.contains(" → ")
-                    let shouldDim = dimRegularizationMappings && isRegularizationMapping
+                    let isUnmappedUncurated = item.contains("[uncurated:")
+                    let shouldDim = isRegularizationMapping || isUnmappedUncurated
 
                     HStack(alignment: .top, spacing: 8) {
                         Toggle(isOn: Binding(
@@ -1383,6 +1374,7 @@ struct SearchableFilterList: View {
                             .multilineTextAlignment(.leading)
                             .typesettingLanguage(.init(languageCode: .french))
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .foregroundColor(isUnmappedUncurated ? .red : .primary)
                             .opacity(shouldDim ? 0.5 : 1.0)
                     }
                     .padding(.vertical, 1)
@@ -2555,6 +2547,10 @@ struct FilterOptionsSection: View {
                     }
                     .toggleStyle(.switch)
                     .controlSize(.small)
+                    .onAppear {
+                        // Initialize query manager with stored values on appear
+                        updateRegularizationInQueryManager(enabled: regularizationEnabled, coupling: regularizationCoupling)
+                    }
 
                     Text(regularizationEnabled
                         ? "Queries merge uncurated Make/Model variants into canonical values"
