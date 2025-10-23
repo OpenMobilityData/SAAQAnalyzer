@@ -52,10 +52,8 @@ jobs:
           fi
 
           MERGE_COUNT=${{ steps.count.outputs.merge_count }}
-          git commit -m "chore: Update build number to $MERGE_COUNT [skip ci]
-
-Automatic build number increment based on merge commits to main.
-
-This commit was created automatically by GitHub Actions."
+          git commit -m "chore: Update build number to $MERGE_COUNT [skip ci]" \
+                     -m "Automatic build number increment based on merge commits to main." \
+                     -m "This commit was created automatically by GitHub Actions."
 
           git push origin main
