@@ -39,6 +39,11 @@ class OptimizedQueryManager {
     init(databaseManager: DatabaseManager) {
         self.databaseManager = databaseManager
         self.enumManager = CategoricalEnumManager(databaseManager: databaseManager)
+
+        // Initialize from UserDefaults to match persisted user settings
+        // This ensures query previews are correct from app launch
+        self.regularizationEnabled = UserDefaults.standard.bool(forKey: "regularizationEnabled")
+        self.regularizationCoupling = UserDefaults.standard.object(forKey: "regularizationCoupling") as? Bool ?? true
     }
 
     // MARK: - Optimized Vehicle Query Using Integer Enumerations
