@@ -2635,7 +2635,8 @@ class DatabaseManager: ObservableObject {
                 }
 
                 // Add regularization indicator if enabled (only for vehicle data)
-                if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true {
+                // Only show tag when regularization is actually applied (not when limiting to curated years)
+                if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true && !filters.limitToCuratedYears {
                     metricLabel += " [Regularized]"
                 }
 
@@ -2669,7 +2670,8 @@ class DatabaseManager: ObservableObject {
                 }
 
                 // Add regularization indicator if enabled (only for vehicle data)
-                if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true {
+                // Only show tag when regularization is actually applied (not when limiting to curated years)
+                if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true && !filters.limitToCuratedYears {
                     percentageLabel += " [Regularized]"
                 }
 
@@ -2753,7 +2755,8 @@ class DatabaseManager: ObservableObject {
                     }
 
                     // Add regularization indicator if enabled (only for vehicle data)
-                    if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true {
+                    // Only show tag when regularization is actually applied (not when limiting to curated years)
+                    if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true && !filters.limitToCuratedYears {
                         coverageLabel += " [Regularized]"
                     }
 
@@ -2784,7 +2787,8 @@ class DatabaseManager: ObservableObject {
                 }
 
                 // Add regularization indicator if enabled (only for vehicle data)
-                if optimizedQueryManager?.regularizationEnabled == true {
+                // Only show tag when regularization is actually applied (not when limiting to curated years)
+                if optimizedQueryManager?.regularizationEnabled == true && !filters.limitToCuratedYears {
                     modePrefix += " [Regularized]"
                 }
 
@@ -3000,8 +3004,8 @@ class DatabaseManager: ObservableObject {
         }
 
         // Add regularization indicator if enabled (only for vehicle data)
-        // Note: Regularization is automatically disabled when limiting to curated years
-        if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true {
+        // Only show tag when regularization is actually applied (not when limiting to curated years)
+        if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true && !filters.limitToCuratedYears {
             result += " [Regularized]"
         }
 

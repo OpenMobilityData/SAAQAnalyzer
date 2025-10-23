@@ -17,20 +17,24 @@ The regularization system allows you to map typos and variants in uncurated data
 - Consistent with how uncurated badges work (always shown)
 
 **Visual Dimming (October 22, 2025):**
-- **Make** and **Model** regularization mappings (with arrows `→`) are **dimmed to 50% opacity** when regularization is OFF
+- **All uncurated entries** and **regularization mappings** (with arrows `→`) are **always dimmed to 50% opacity**
+- **Uncurated entries** additionally shown in **red color** for visibility
 - Applies to both filter dropdowns (Vehicle Make and Vehicle Model sections)
-- Reminds users these options are not canonical and won't be regularized in queries
-- Full opacity when regularization is ON (active state)
+- Reminds users these options are not canonical and may have data quality issues
+- Dimming is unconditional (not tied to regularization toggle state)
 
-**When are badges shown?**
-- Regularization badges shown when "Limit to Curated Years" is OFF
-- Regularization badges HIDDEN when "Limit to Curated Years" is ON (not relevant in that context)
-- Uncurated badges shown when "Limit to Curated Years" is OFF
-- Uncurated badges HIDDEN when "Limit to Curated Years" is ON
+**When are uncurated/regularization entries shown in dropdowns? (October 23, 2025 bug fixes):**
+- Uncurated entries and regularization mappings shown when "Limit to Curated Years" is OFF
+- **All uncurated/regularization entries FILTERED OUT** when "Limit to Curated Years" is ON
+  - This applies even when hierarchical filtering (filter by selected makes) is active
+  - Only canonical options from curated years (2011-2022) appear in dropdowns
+- This ensures dropdown options match the data that queries will actually return
 
-**When are badges active in queries?**
-- Regularization badges affect queries ONLY when "Query Regularization" toggle is ON
-- Uncurated badges are informational only (never affect queries)
+**When are regularization mappings active in queries?**
+- Regularization mappings affect queries ONLY when "Query Regularization" toggle is ON **AND** "Limit to Curated Years" is OFF
+- The `[Regularized]` tag in query descriptions only appears when regularization is actually applied
+- When "Limit to Curated Years" is ON, regularization is never applied (queries already limited to canonical data)
+- Uncurated badges are informational only (never affect query logic)
 
 ### Model Filter Dropdown
 - `"CR-V (HONDA)"` - Canonical model (exists in curated years 2011-2022, no badge)
