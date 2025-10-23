@@ -2,15 +2,25 @@
 
 This directory contains version-controlled git hooks for the SAAQAnalyzer project.
 
-## Installation
+## Installation (Recommended)
 
-After cloning the repository or pulling changes that reset `.git/hooks/`, run:
+**Best method** - Use Git's `core.hooksPath` configuration to point directly to this version-controlled directory:
+
+```bash
+git config core.hooksPath hooks/
+```
+
+This eliminates the need to copy files and works immediately after cloning. **This is the preferred approach.**
+
+## Alternative Installation
+
+If you prefer the traditional approach, copy hooks to `.git/hooks/`:
 
 ```bash
 ./hooks/install-hooks.sh
 ```
 
-This will copy the hooks from this directory to `.git/hooks/` and make them executable.
+**Note**: This method requires re-running after operations that reset `.git/hooks/`.
 
 ## Available Hooks
 
@@ -43,17 +53,24 @@ Git hooks normally live in `.git/hooks/` which is **not version controlled**. Th
 - Hooks are lost after git operations that reset `.git/`
 - Each developer must manually set up hooks
 
-By storing hooks in `hooks/` (version controlled) with an install script, we ensure:
-- Hooks survive repo clones
-- Easy setup for new developers
-- Consistent behavior across team
+By storing hooks in `hooks/` (version controlled) and using `core.hooksPath`, we ensure:
+- ✅ Hooks survive repo clones (just need one `git config` command)
+- ✅ Easy setup for new developers (documented in README)
+- ✅ Consistent behavior across team
+- ✅ No copying required - hooks run directly from version control
 
 ## Troubleshooting
 
 **Hook not running?**
-- Run `./hooks/install-hooks.sh` again
-- Verify `.git/hooks/pre-commit` exists and is executable: `ls -la .git/hooks/pre-commit`
+- **If using core.hooksPath**: Verify configuration: `git config core.hooksPath` (should output `hooks/`)
+- **If using install script**: Run `./hooks/install-hooks.sh` again and verify `.git/hooks/pre-commit` exists
+- Check hook is executable: `ls -la hooks/pre-commit` (should show `rwxr-xr-x`)
 
 **Build number out of sync?**
-- Manually update: `xcrun agvtool new-version -all $(git rev-list --count HEAD)`
-- Next commit will continue from corrected value
+- Check current commit count: `git rev-list --count HEAD`
+- Manually sync: `xcrun agvtool new-version -all $(git rev-list --count HEAD)`
+- Next commit will auto-increment from corrected value
+
+**After fresh clone, build number not incrementing?**
+- Run: `git config core.hooksPath hooks/`
+- This is required once per clone and persists for that repository
