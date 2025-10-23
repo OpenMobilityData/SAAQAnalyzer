@@ -1,6 +1,10 @@
-# Git Hooks
+# Git Hooks (Deprecated)
 
-This directory contains version-controlled git hooks for the SAAQAnalyzer project.
+⚠️ **This approach is deprecated.** Build numbers are now managed automatically via GitHub Actions (`.github/workflows/increment-build-number.yml`) which increments on merges to `main`. No local setup required.
+
+---
+
+This directory contains legacy git hooks that are no longer actively used.
 
 ## Installation (Recommended)
 

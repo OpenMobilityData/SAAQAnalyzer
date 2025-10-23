@@ -150,21 +150,13 @@ See [Regularization User Guide](Documentation/REGULARIZATION_BEHAVIOR.md) for de
 git clone https://github.com/OpenMobilityData/SAAQAnalyzer.git
 cd SAAQAnalyzer
 
-# Configure Git hooks (REQUIRED - enables automatic build numbering)
-git config core.hooksPath hooks/
-
 # Open in Xcode
 open SAAQAnalyzer.xcodeproj
 
 # Build and run (⌘+R)
 ```
 
-**Important**: The `git config core.hooksPath hooks/` command tells Git to use the version-controlled hooks directory. This enables:
-- ✅ Automatic build number increments on every commit
-- ✅ Build numbers match Git commit count
-- ✅ App Store compatible monotonically increasing build numbers
-
-**Note**: This configuration is local to your repository clone and needs to be run once after cloning.
+**Automatic Build Numbering**: Build numbers are managed automatically via GitHub Actions. When pull requests are merged to `main`, the build number increments to match the count of merge commits. No setup required! See `.github/workflows/README.md` for details.
 
 ### Build Commands
 

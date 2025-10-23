@@ -1,0 +1,61 @@
+name: Increment Build Number
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  increment-build:
+    runs-on: macos-latest
+
+    # Skip if the last commit was made by this workflow (prevent infinite loops)
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history to count merge commits
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Count merge commits to main
+        id: count
+        run: |
+          MERGE_COUNT=$(git rev-list --count --merges origin/main)
+          echo "merge_count=$MERGE_COUNT" >> $GITHUB_OUTPUT
+          echo "📊 Total merge commits to main: $MERGE_COUNT"
+
+      - name: Update build number
+        run: |
+          MERGE_COUNT=${{ steps.count.outputs.merge_count }}
+          echo "🔢 Setting build number to: $MERGE_COUNT"
+          xcrun agvtool new-version -all "$MERGE_COUNT"
+
+          # Verify the update
+          NEW_BUILD=$(xcrun agvtool what-version -terse)
+          echo "✅ Build number updated to: $NEW_BUILD"
+
+      - name: Commit and push build number change
+        run: |
+          git add SAAQAnalyzer.xcodeproj/project.pbxproj
+
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "ℹ️ Build number already up to date, no changes to commit"
+            exit 0
+          fi
+
+          MERGE_COUNT=${{ steps.count.outputs.merge_count }}
+          git commit -m "chore: Update build number to $MERGE_COUNT [skip ci]
+
+Automatic build number increment based on merge commits to main.
+
+This commit was created automatically by GitHub Actions."
+
+          git push origin main
