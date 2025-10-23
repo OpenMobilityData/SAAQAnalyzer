@@ -147,7 +147,7 @@ See [Regularization User Guide](Documentation/REGULARIZATION_BEHAVIOR.md) for de
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/SAAQAnalyzer.git
+git clone https://github.com/OpenMobilityData/SAAQAnalyzer.git
 cd SAAQAnalyzer
 
 # Open in Xcode
@@ -155,6 +155,8 @@ open SAAQAnalyzer.xcodeproj
 
 # Build and run (⌘+R)
 ```
+
+**Automatic Build Numbering**: Build numbers are managed automatically via GitHub Actions. When pull requests are merged to `main`, the build number increments to match the count of merge commits. No setup required! See `.github/workflows/README.md` for details.
 
 ### Build Commands
 
