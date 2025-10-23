@@ -205,6 +205,7 @@ final class FilterCacheTests: XCTestCase {
             municipalities: 0,
             regions: 0,
             fileSizeBytes: 0,
+            pageSizeBytes: 4096,
             lastUpdated: Date()
         )
 

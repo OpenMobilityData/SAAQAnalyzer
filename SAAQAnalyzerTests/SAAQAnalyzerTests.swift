@@ -73,7 +73,7 @@ final class SAAQAnalyzerTests: XCTestCase {
 
         XCTAssertNotNil(settings, "AppSettings should be accessible")
         XCTAssertGreaterThanOrEqual(settings.systemProcessorCount, 1, "Should detect at least 1 processor")
-        XCTAssertGreaterThanOrEqual(settings.estimatedPerformanceCores, 1, "Should estimate at least 1 performance core")
+        XCTAssertGreaterThanOrEqual(settings.performanceCoreCount, 1, "Should detect at least 1 performance core")
 
         // Test performance settings bounds
         let threadCount = settings.getOptimalThreadCount(for: 100000)
