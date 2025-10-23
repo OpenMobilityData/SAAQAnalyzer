@@ -1,0 +1,17 @@
+#!/bin/bash
+# Pre-commit hook to update build number to git commit count
+
+# Get the commit count (after this commit, so +1)
+COMMIT_COUNT=$(git rev-list --count HEAD)
+NEXT_BUILD_NUMBER=$((COMMIT_COUNT + 1))
+
+# Update the build number in the Xcode project
+cd "$(git rev-parse --show-toplevel)"
+xcrun agvtool new-version -all "$NEXT_BUILD_NUMBER" > /dev/null 2>&1
+
+# Stage the modified project file
+git add SAAQAnalyzer.xcodeproj/project.pbxproj
+
+echo "✅ Build number updated to: $NEXT_BUILD_NUMBER"
+
+exit 0

@@ -598,8 +598,8 @@ The application includes user-configurable preferences accessed via Settings (Cm
    - **Console Logging**: Version info logged at app launch
      ```
      🚀 SAAQAnalyzer launched
-     📦 Version 1.0 (196) - Built Oct 15, 2025 at 12:30 AM
-     Build date: 2025-10-15T00:30:45Z
+     📦 Version 1.0 (256) - Built Oct 22, 2025 at 7:30 PM
+     Build date: 2025-10-22T19:30:45Z
      ```
    - **Build Timestamp**: Extracted from app bundle/executable filesystem metadata
    - **Automatic Build Numbering**: Git pre-commit hook sets build number to commit count
@@ -607,9 +607,12 @@ The application includes user-configurable preferences accessed via Settings (Cm
    - **Files**:
      - `Utilities/AppVersion.swift`: Build info utility
      - `Utilities/AppLogger.swift`: Added `app` logger category
-     - `.git/hooks/pre-commit`: Git hook for build numbering
+     - `hooks/pre-commit`: Version-controlled hook script
+     - `hooks/install-hooks.sh`: Hook installation script
+     - `hooks/README.md`: Hook documentation
+   - **Setup**: Run `./hooks/install-hooks.sh` after cloning repository
    - **About Panel**: Shows version, build number, and copyright
-   - **Implementation Note**: Pre-commit hook approach avoids build interruptions
+   - **Implementation Note**: Hooks stored in version control to survive repo clones
 
 ## Current Implementation Status
 

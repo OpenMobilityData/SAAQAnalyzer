@@ -202,33 +202,7 @@ struct FilterPanel: View {
                     // Data type specific sections
                     if configuration.dataEntityType == .vehicle {
                         // Vehicle characteristics section
-                        DisclosureGroup(isExpanded: $vehicleSectionExpanded) {
-                            VehicleFilterSection(
-                                selectedVehicleClasses: $configuration.vehicleClasses,
-                                selectedVehicleTypes: $configuration.vehicleTypes,
-                                selectedVehicleMakes: $configuration.vehicleMakes,
-                                selectedVehicleModels: $configuration.vehicleModels,
-                                selectedVehicleColors: $configuration.vehicleColors,
-                                selectedModelYears: $configuration.modelYears,
-                                selectedFuelTypes: $configuration.fuelTypes,
-                                selectedAxleCounts: $configuration.axleCounts,
-                                availableYears: availableYears,
-                                availableVehicleClasses: availableClassifications,
-                                availableVehicleTypes: availableVehicleTypes,
-                                availableVehicleMakes: availableVehicleMakes,
-                                availableVehicleModels: availableVehicleModels,
-                                availableVehicleColors: availableVehicleColors,
-                                availableModelYears: availableModelYears,
-                                availableAxleCounts: availableAxleCounts,
-                                isModelListFiltered: $isModelListFiltered,
-                                selectedMakesCount: configuration.vehicleMakes.count,
-                                onFilterByMakes: { Task { await filterModelsBySelectedMakes() } }
-                            )
-                        } label: {
-                            Label("Vehicle Characteristics", systemImage: "car")
-                                .font(.subheadline)
-                                .symbolRenderingMode(.hierarchical)
-                        }
+                        vehicleCharacteristicsDisclosureGroup
 
                         Divider()
 
@@ -634,6 +608,41 @@ struct FilterPanel: View {
             }
         }
     }
+
+    // MARK: - Helper Views
+
+    /// Extract vehicle characteristics section to avoid type checker complexity
+    private var vehicleCharacteristicsDisclosureGroup: some View {
+        DisclosureGroup(isExpanded: $vehicleSectionExpanded) {
+            VehicleFilterSection(
+                selectedVehicleClasses: $configuration.vehicleClasses,
+                selectedVehicleTypes: $configuration.vehicleTypes,
+                selectedVehicleMakes: $configuration.vehicleMakes,
+                selectedVehicleModels: $configuration.vehicleModels,
+                selectedVehicleColors: $configuration.vehicleColors,
+                selectedModelYears: $configuration.modelYears,
+                selectedFuelTypes: $configuration.fuelTypes,
+                selectedAxleCounts: $configuration.axleCounts,
+                availableYears: availableYears,
+                availableVehicleClasses: availableClassifications,
+                availableVehicleTypes: availableVehicleTypes,
+                availableVehicleMakes: availableVehicleMakes,
+                availableVehicleModels: availableVehicleModels,
+                availableVehicleColors: availableVehicleColors,
+                availableModelYears: availableModelYears,
+                availableAxleCounts: availableAxleCounts,
+                isModelListFiltered: $isModelListFiltered,
+                selectedMakesCount: configuration.vehicleMakes.count,
+                onFilterByMakes: { Task { await filterModelsBySelectedMakes() } }
+            )
+        } label: {
+            Label("Vehicle Characteristics", systemImage: "car")
+                .font(.subheadline)
+                .symbolRenderingMode(.hierarchical)
+        }
+    }
+
+    // MARK: - Helper Functions
 
     /// Filter models by selected makes (manual button action)
     /// This is a minimal function that ONLY updates the model list - nothing else.
@@ -1235,7 +1244,7 @@ struct SearchableFilterList: View {
     let items: [String]
     @Binding var selectedItems: Set<String>
     let searchPrompt: String
-    
+
     @State private var searchText = ""
     @State private var isExpanded = false
     
@@ -1258,8 +1267,15 @@ struct SearchableFilterList: View {
     }
 
     private var displayedItems: [String] {
-        // No additional sorting needed - filteredItems already has correct order
-        return isExpanded ? filteredItems : Array(filteredItems.prefix(5))
+        // Auto-expand if:
+        // 1. User explicitly expanded the list, OR
+        // 2. Search is active and results are small enough (≤20 items), OR
+        // 3. Search is active and narrowed results significantly (≤30% of original)
+        let shouldAutoExpand = isExpanded ||
+                              (!searchText.isEmpty && filteredItems.count <= 20) ||
+                              (!searchText.isEmpty && items.count > 0 && Double(filteredItems.count) / Double(items.count) <= 0.3)
+
+        return shouldAutoExpand ? filteredItems : Array(filteredItems.prefix(5))
     }
     
     var body: some View {
@@ -1310,8 +1326,15 @@ struct SearchableFilterList: View {
                 .controlSize(.mini)
                 
                 Spacer()
-                
-                if items.count > 5 && searchText.isEmpty {
+
+                // Only show expand/collapse button when:
+                // 1. List is large enough (>5 items)
+                // 2. No active search (search auto-expands)
+                // 3. OR search is active but didn't auto-expand (still many results)
+                let hasActiveSearch = !searchText.isEmpty
+                let autoExpandedBySearch = hasActiveSearch && (filteredItems.count <= 20 || (items.count > 0 && Double(filteredItems.count) / Double(items.count) <= 0.3))
+
+                if items.count > 5 && !autoExpandedBySearch {
                     Button(isExpanded ? "Show Less" : "Show All (\(items.count))") {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             isExpanded.toggle()
@@ -1326,6 +1349,10 @@ struct SearchableFilterList: View {
             // Filter items
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(displayedItems, id: \.self) { item in
+                    let isRegularizationMapping = item.contains(" → ")
+                    let isUnmappedUncurated = item.contains("[uncurated:")
+                    let shouldDim = isRegularizationMapping || isUnmappedUncurated
+
                     HStack(alignment: .top, spacing: 8) {
                         Toggle(isOn: Binding(
                             get: { selectedItems.contains(item) },
@@ -1341,12 +1368,14 @@ struct SearchableFilterList: View {
                         }
                         .toggleStyle(.checkbox)
                         .controlSize(.mini)
-                        
+
                         Text(item)
                             .font(.caption)
                             .multilineTextAlignment(.leading)
                             .typesettingLanguage(.init(languageCode: .french))
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .foregroundColor(isUnmappedUncurated ? .red : .primary)
+                            .opacity(shouldDim ? 0.5 : 1.0)
                     }
                     .padding(.vertical, 1)
                 }
@@ -2506,46 +2535,53 @@ struct FilterOptionsSection: View {
                     .cornerRadius(4)
             }
 
-            Divider()
+            // Query Regularization toggle (only visible when NOT limiting to curated years)
+            // Regularization only applies to uncurated years (2023-2024)
+            if !limitToCuratedYears {
+                Divider()
 
-            // Query Regularization toggle
-            VStack(alignment: .leading, spacing: 4) {
-                Toggle(isOn: $regularizationEnabled) {
-                    Text("Enable Query Regularization")
-                        .font(.caption)
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-
-                Text(regularizationEnabled
-                    ? "Queries merge uncurated Make/Model variants into canonical values"
-                    : "Uncurated Make/Model variants remain separate")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(4)
-
-                // Coupling toggle (only visible when regularization is enabled)
-                if regularizationEnabled {
-                    Toggle(isOn: $regularizationCoupling) {
-                        Text("Couple Make/Model in Queries")
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(isOn: $regularizationEnabled) {
+                        Text("Enable Query Regularization")
                             .font(.caption)
                     }
                     .toggleStyle(.switch)
                     .controlSize(.small)
-                    .padding(.top, 4)
+                    .onAppear {
+                        // Initialize query manager with stored values on appear
+                        updateRegularizationInQueryManager(enabled: regularizationEnabled, coupling: regularizationCoupling)
+                    }
 
-                    Text(regularizationCoupling
-                        ? "Filtering by Model includes associated Make"
-                        : "Make and Model filters remain independent")
+                    Text(regularizationEnabled
+                        ? "Queries merge uncurated Make/Model variants into canonical values"
+                        : "Uncurated Make/Model variants remain separate")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(Color.gray.opacity(0.1))
                         .cornerRadius(4)
+
+                    // Coupling toggle (only visible when regularization is enabled)
+                    if regularizationEnabled {
+                        Toggle(isOn: $regularizationCoupling) {
+                            Text("Couple Make/Model in Queries")
+                                .font(.caption)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .padding(.top, 4)
+
+                        Text(regularizationCoupling
+                            ? "Filtering by Model includes associated Make"
+                            : "Make and Model filters remain independent")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(4)
+                    }
                 }
             }
         }

@@ -1546,13 +1546,20 @@ class RegularizationViewModel: ObservableObject {
                 logger.debug("Updated status for \(pair.makeModelDisplay): \(statusString)")
             }
 
-            // Invalidate cache ONCE after all saves (wildcard + all triplets)
+            // Invalidate caches ONCE after all saves (wildcard + all triplets)
             Task {
                 do {
                     try await databaseManager.invalidateUncuratedPairsCache()
                     logger.info("Invalidated uncurated pairs cache after batch save")
                 } catch {
-                    logger.error("Failed to invalidate cache: \(error.localizedDescription)")
+                    logger.error("Failed to invalidate uncurated pairs cache: \(error.localizedDescription)")
+                }
+
+                // Invalidate filter cache to refresh badge displays immediately
+                // This ensures regularization arrows update without requiring app restart
+                await MainActor.run {
+                    databaseManager.filterCacheManager?.invalidateCache()
+                    logger.info("Invalidated filter cache for badge updates")
                 }
             }
 
@@ -1777,6 +1784,22 @@ class RegularizationViewModel: ObservableObject {
             // The UI will update naturally when users interact with the list
             await loadExistingMappingsAsync()
             logger.info("Background auto-regularization complete - status indicators will update on next refresh")
+
+            // Invalidate caches to refresh badge displays immediately
+            Task {
+                do {
+                    try await databaseManager.invalidateUncuratedPairsCache()
+                    logger.info("Invalidated uncurated pairs cache after auto-regularization")
+                } catch {
+                    logger.error("Failed to invalidate uncurated pairs cache: \(error.localizedDescription)")
+                }
+
+                // Invalidate filter cache to refresh badge displays immediately
+                await MainActor.run {
+                    databaseManager.filterCacheManager?.invalidateCache()
+                    logger.info("Invalidated filter cache for badge updates")
+                }
+            }
         } else {
             logger.debug("No exact matches found for auto-regularization")
         }

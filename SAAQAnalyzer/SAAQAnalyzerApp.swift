@@ -101,6 +101,10 @@ struct ContentView: View {
     @State private var queryPreviewText: String = ""
     @State private var isLoadingQueryPreview: Bool = false
 
+    // Watch regularization settings to update preview when they change
+    @AppStorage("regularizationEnabled") private var regularizationEnabled = false
+    @AppStorage("limitToCuratedYears") private var limitToCuratedYears = true
+
     // SwiftUI file dialog states - consolidated to avoid SwiftUI fileImporter bug
     enum FileImporterMode {
         case vehicle, license, dataPackage, geographic
@@ -508,6 +512,15 @@ struct ContentView: View {
         }
         .onAppear {
             // Generate initial preview on appear
+            // OptimizedQueryManager now initializes from UserDefaults, so no delay needed
+            updateQueryPreview()
+        }
+        .onChange(of: regularizationEnabled) { _, _ in
+            // Update preview when regularization toggle changes
+            updateQueryPreview()
+        }
+        .onChange(of: limitToCuratedYears) { _, _ in
+            // Update preview when curated years toggle changes
             updateQueryPreview()
         }
         .onChange(of: progressManager.isImporting) { _, isImporting in

@@ -39,6 +39,11 @@ class OptimizedQueryManager {
     init(databaseManager: DatabaseManager) {
         self.databaseManager = databaseManager
         self.enumManager = CategoricalEnumManager(databaseManager: databaseManager)
+
+        // Initialize from UserDefaults to match persisted user settings
+        // This ensures query previews are correct from app launch
+        self.regularizationEnabled = UserDefaults.standard.bool(forKey: "regularizationEnabled")
+        self.regularizationCoupling = UserDefaults.standard.object(forKey: "regularizationCoupling") as? Bool ?? true
     }
 
     // MARK: - Optimized Vehicle Query Using Integer Enumerations
@@ -179,8 +184,8 @@ class OptimizedQueryManager {
             // (similar to models - though Make names are typically unique)
             for make in filters.vehicleMakes {
                 if let filterCache = databaseManager?.filterCacheManager {
-                    // Get all makes from cache
-                    let allMakes = try await filterCache.getAvailableMakes(limitToCuratedYears: false)
+                    // Get all makes from cache (respect limitToCuratedYears flag)
+                    let allMakes = try await filterCache.getAvailableMakes(limitToCuratedYears: filters.limitToCuratedYears)
 
                     // Find the FilterItem whose displayName matches our filter string
                     if let matchingMake = allMakes.first(where: { $0.displayName == make }) {
@@ -199,8 +204,8 @@ class OptimizedQueryManager {
             // The FilterItem already has the correct model_id for the Make+Model combination
             for model in filters.vehicleModels {
                 if let filterCache = databaseManager?.filterCacheManager {
-                    // Get all models from cache
-                    let allModels = try await filterCache.getAvailableModels(limitToCuratedYears: false, forMakeIds: nil)
+                    // Get all models from cache (respect limitToCuratedYears flag)
+                    let allModels = try await filterCache.getAvailableModels(limitToCuratedYears: filters.limitToCuratedYears, forMakeIds: nil)
 
                     // Find the FilterItem whose displayName matches our filter string
                     if let matchingModel = allModels.first(where: { $0.displayName == model }) {
@@ -214,32 +219,24 @@ class OptimizedQueryManager {
                 }
             }
 
-            // Apply regularization expansion if enabled
-            if regularizationEnabled {
+            // Apply Make/Model regularization expansion if enabled
+            // IMPORTANT: Only expand when regularization is ON and NOT limiting to curated years
+            // This allows uncurated variants to match their canonical equivalents in queries
+            if regularizationEnabled && !filters.limitToCuratedYears {
                 if let regManager = databaseManager?.regularizationManager {
-                    // Vehicle Type regularization: Find uncurated Make/Model pairs for selected vehicle types
-                    // This allows uncurated records (with NULL vehicle_type_id) to match vehicle type filters
-                    if !vehicleTypeIds.isEmpty {
-                        var regularizedMakeIds: Set<Int> = Set(makeIds)
-                        var regularizedModelIds: Set<Int> = Set(modelIds)
-
-                        for vehicleTypeId in vehicleTypeIds {
-                            let (typeMakeIds, typeModelIds) = try await regManager.getUncuratedMakeModelIDsForVehicleType(vehicleTypeId: vehicleTypeId)
-                            regularizedMakeIds.formUnion(typeMakeIds)
-                            regularizedModelIds.formUnion(typeModelIds)
-                        }
-
-                        makeIds = Array(regularizedMakeIds).sorted()
-                        modelIds = Array(regularizedModelIds).sorted()
-                    }
-
-                    // Expand Make IDs (derived from Make/Model mappings)
+                    // Expand Make IDs (only if Make filter is active)
+                    // Converts uncurated Make IDs → include canonical Make IDs (bidirectional)
                     if !makeIds.isEmpty {
+                        let originalCount = makeIds.count
                         makeIds = try await regManager.expandMakeIDs(makeIds: makeIds)
+                        print("🔄 Make regularization expanded \(originalCount) → \(makeIds.count) IDs")
                     }
 
-                    // Expand Make/Model IDs together (only if Models are being filtered)
+                    // Expand Make/Model IDs together (only if Model filter is active)
+                    // Converts uncurated Make/Model pairs → include canonical pairs (bidirectional)
                     if !modelIds.isEmpty {
+                        let originalMakeCount = makeIds.count
+                        let originalModelCount = modelIds.count
                         let (expandedMakeIds, expandedModelIds) = try await regManager.expandMakeModelIDs(
                             makeIds: makeIds,
                             modelIds: modelIds,
@@ -247,6 +244,7 @@ class OptimizedQueryManager {
                         )
                         makeIds = expandedMakeIds
                         modelIds = expandedModelIds
+                        print("🔄 Model regularization expanded: Makes \(originalMakeCount) → \(makeIds.count), Models \(originalModelCount) → \(modelIds.count)")
                     }
                 }
             }
@@ -358,8 +356,9 @@ class OptimizedQueryManager {
     private func queryVehicleDataWithIntegers(filters: FilterConfiguration, filterIds: OptimizedFilterIds) async throws -> FilteredDataSeries {
         let startTime = Date()
 
-        // Capture MainActor-isolated properties before entering the closure
+        // Capture MainActor-isolated properties and filter flags before entering the closure
         let allowPre2017FuelType = await MainActor.run { AppSettings.shared.regularizePre2017FuelType }
+        let limitToCuratedYears = filters.limitToCuratedYears
 
         return try await withCheckedThrowingContinuation { continuation in
             databaseManager?.dbQueue.async {
@@ -404,19 +403,22 @@ class OptimizedQueryManager {
                 }
 
                 // Vehicle Type filter using vehicle_type_id
-                // Special handling when regularization is enabled:
-                // - Without regularization: Filter by vehicle_type_id (excludes NULL)
-                // - With regularization: Include both vehicle_type_id matches AND NULL vehicle_type_id that have regularization mappings
+                // Special handling when regularization is enabled AND NOT limiting to curated years:
+                // - Without regularization OR limiting to curated years: Filter by vehicle_type_id (excludes NULL)
+                // - With regularization AND uncurated years: Include both vehicle_type_id matches AND NULL vehicle_type_id that have regularization mappings
                 if !filterIds.vehicleTypeIds.isEmpty {
                     let vtPlaceholders = Array(repeating: "?", count: filterIds.vehicleTypeIds.count).joined(separator: ",")
 
-                    if self.regularizationEnabled {
-                        // With regularization: Include records that either:
+                    if self.regularizationEnabled && !limitToCuratedYears {
+                        // With regularization (uncurated years only): Include records that either:
                         // 1. Have matching vehicle_type_id (curated records), OR
                         // 2. Have NULL vehicle_type_id AND exist in regularization table for this vehicle type (uncurated records)
+                        //    CRITICAL: Only match records from uncurated years (2023-2024)
                         whereClause += " AND ("
                         whereClause += "vehicle_type_id IN (\(vtPlaceholders))"
-                        whereClause += " OR (vehicle_type_id IS NULL AND EXISTS ("
+                        whereClause += " OR (vehicle_type_id IS NULL "
+                        whereClause += "AND v.year_id IN (SELECT id FROM year_enum WHERE year IN (2023, 2024)) "
+                        whereClause += "AND EXISTS ("
                         whereClause += "SELECT 1 FROM make_model_regularization r "
                         whereClause += "WHERE r.uncurated_make_id = v.make_id "
                         whereClause += "AND r.uncurated_model_id = v.model_id "
@@ -437,7 +439,7 @@ class OptimizedQueryManager {
 
                         print("🔄 Vehicle Type filter with regularization: Using EXISTS subquery to match regularization mappings")
                     } else {
-                        // Without regularization: Standard vehicle_type_id filter
+                        // Without regularization OR limiting to curated years: Standard vehicle_type_id filter
                         whereClause += " AND vehicle_type_id IN (\(vtPlaceholders))"
                         for id in filterIds.vehicleTypeIds {
                             bindValues.append((bindIndex, id))
@@ -507,19 +509,19 @@ class OptimizedQueryManager {
                 }
 
                 // Fuel type filter using fuel_type_id
-                // Special handling when regularization is enabled:
-                // - Without regularization: Filter by fuel_type_id (excludes NULL)
-                // - With regularization: Include both fuel_type_id matches AND NULL fuel_type_id that have regularization mappings
+                // Special handling when regularization is enabled AND NOT limiting to curated years:
+                // - Without regularization OR limiting to curated years: Filter by fuel_type_id (excludes NULL)
+                // - With regularization AND uncurated years: Include both fuel_type_id matches AND NULL fuel_type_id that have regularization mappings
                 //   IMPORTANT: Fuel type mappings are TRIPLET-BASED (Make/Model/ModelYear → FuelType)
                 //   Unlike vehicle type (wildcard mapping), fuel types require year-specific matching
                 if !filterIds.fuelTypeIds.isEmpty {
                     let ftPlaceholders = Array(repeating: "?", count: filterIds.fuelTypeIds.count).joined(separator: ",")
 
-                    if self.regularizationEnabled {
+                    if self.regularizationEnabled && !limitToCuratedYears {
                         // Check if pre-2017 regularization is enabled
                         let allowPre2017 = allowPre2017FuelType
 
-                        // With regularization: Include records that either:
+                        // With regularization (uncurated years only): Include records that either:
                         // 1. Have matching fuel_type_id (curated records), OR
                         // 2. Have NULL fuel_type_id AND exist in regularization table with matching triplet (uncurated records)
                         //    Must match Make ID, Model ID, AND Model Year ID (triplet-based filtering)
@@ -554,7 +556,7 @@ class OptimizedQueryManager {
                         let pre2017Status = allowPre2017 ? "including pre-2017" : "2017+ only"
                         print("🔄 Fuel Type filter with regularization: Using EXISTS subquery with triplet matching (Make/Model/ModelYear, \(pre2017Status))")
                     } else {
-                        // Without regularization: Standard fuel_type_id filter
+                        // Without regularization OR limiting to curated years: Standard fuel_type_id filter
                         whereClause += " AND fuel_type_id IN (\(ftPlaceholders))"
                         for id in filterIds.fuelTypeIds {
                             bindValues.append((bindIndex, id))

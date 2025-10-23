@@ -6,22 +6,59 @@ The regularization system allows you to map typos and variants in uncurated data
 
 ## Badge System
 
+### Badge Display Philosophy
+
+**Badges are informational, not operational.** They show what regularization mappings EXIST in the database, not whether those mappings are currently ACTIVE in queries.
+
+**Why show badges when regularization is OFF?**
+- Users can see which models have mappings available
+- Users know what will happen if they turn regularization ON
+- Provides transparency about data quality issues in uncurated years
+- Consistent with how uncurated badges work (always shown)
+
+**Visual Dimming (October 22, 2025):**
+- **Make** and **Model** regularization mappings (with arrows `→`) are **dimmed to 50% opacity** when regularization is OFF
+- Applies to both filter dropdowns (Vehicle Make and Vehicle Model sections)
+- Reminds users these options are not canonical and won't be regularized in queries
+- Full opacity when regularization is ON (active state)
+
+**When are badges shown?**
+- Regularization badges shown when "Limit to Curated Years" is OFF
+- Regularization badges HIDDEN when "Limit to Curated Years" is ON (not relevant in that context)
+- Uncurated badges shown when "Limit to Curated Years" is OFF
+- Uncurated badges HIDDEN when "Limit to Curated Years" is ON
+
+**When are badges active in queries?**
+- Regularization badges affect queries ONLY when "Query Regularization" toggle is ON
+- Uncurated badges are informational only (never affect queries)
+
 ### Model Filter Dropdown
 - `"CR-V (HONDA)"` - Canonical model (exists in curated years 2011-2022, no badge)
 - `"CRV (HONDA) [uncurated: 14 records]"` - Uncurated variant, not yet regularized
-- `"CRV (HONDA) → HONDA CR-V (14 records)"` - Uncurated variant regularized to canonical HONDA CR-V
+- `"CRV (HONDA) → HONDA CR-V (14 records)"` - Uncurated variant regularized to canonical HONDA CR-V *(dimmed when regularization OFF)*
 
 **Note:** The badge shows the full canonical Make Model pair, making it clear when either Make or Model (or both) have been corrected. For example:
 - `"XC90 (VOLV0) → VOLVO XC90 (5 records)"` - Make typo corrected (VOLV0 → VOLVO), Model unchanged
 - `"CRV (HONDA) → HONDA CR-V (14 records)"` - Make unchanged, Model typo corrected (CRV → CR-V)
 - `"JHOND 6330 (JHOND) → JOHND 6300 (8 records)"` - Both Make and Model corrected
 
+**Visual Feedback:** Regularization mappings (with arrows) are dimmed to 50% opacity when "Query Regularization" is OFF, and full opacity when ON.
+
+**Search Auto-Expand (October 22, 2025):**
+When searching in Make or Model dropdowns, the list automatically expands to show all matching results when:
+- Search returns ≤20 items (small enough to display without lag), OR
+- Search narrows results to ≤30% of original list size
+
+This ensures canonical options remain visible when searching, even if many uncurated variants exist. For example, searching "nova" in the Make filter will auto-expand to show both canonical "NOVA" and all variants, without requiring manual "Show All" click.
+
 ### Make Filter Dropdown
 - `"VOLVO"` - Canonical Make (no badge)
 - `"VOLV0 [uncurated: 123 records]"` - Uncurated Make, not yet regularized
-- `"VOLV0 → VOLVO (123 records)"` - Uncurated Make regularized to canonical VOLVO
+- `"VOLV0 → VOLVO (123 records)"` - Uncurated Make regularized to canonical VOLVO *(dimmed when regularization OFF)*
 
 **Note:** Badges are hidden when the uncurated name matches the canonical name (e.g., "HONDA → HONDA" is shown as just "HONDA").
+
+**Visual Feedback:** Regularization mappings (with arrows) are dimmed to 50% opacity when "Query Regularization" is OFF, and full opacity when ON.
 
 ### Regularization Status Badges (in RegularizationView)
 
@@ -510,6 +547,7 @@ You can enable/disable any combination of filters to focus on specific workflows
 This feature allows you to work exclusively with curated data by:
 - **Filtering dropdowns**: Removes uncurated Make/Model pairs (those with `[uncurated: X records]` badges) from filter dropdowns
 - **Restricting queries**: Prevents queries from executing against uncurated years (e.g., 2023-2024)
+- **Hiding regularization toggle**: Automatically hides the "Enable Query Regularization" toggle since regularization only applies to uncurated data
 - **Visual feedback**: Uncurated year checkboxes are greyed out (40% opacity) and disabled when toggle is active
 
 **Use Cases:**
@@ -521,9 +559,11 @@ This feature allows you to work exclusively with curated data by:
 
 **Behavior:**
 ```
-Toggle OFF (default): All Makes/Models visible, all years queryable
-Toggle ON:           Only curated Makes/Models in dropdowns, only curated years in queries
+Toggle OFF (default): All Makes/Models visible, all years queryable, regularization toggle visible
+Toggle ON:           Only curated Makes/Models in dropdowns, only curated years in queries, regularization toggle hidden
 ```
+
+**Note:** Regularization only applies to uncurated years (2023-2024), so the regularization toggle is automatically hidden when limiting to curated years to avoid confusion.
 
 ### "Hierarchical Make/Model Filtering" Toggle
 
@@ -595,6 +635,89 @@ When statistics need refreshing, the "Refresh Statistics" button shows:
 - **Vehicle Type coverage** depends on wildcard mappings (one per Make/Model pair)
 - Each field can have different coverage percentages based on mapping completeness
 
+### Cache Invalidation After Mapping Updates (October 22, 2025)
+
+**Immediate Badge Updates:**
+When you save or auto-regularize mappings during a session, the system automatically invalidates filter caches to ensure badge displays update immediately without requiring an app restart.
+
+**What Gets Invalidated:**
+- `uncurated_pairs_cache` table - Used for finding uncurated Make/Model pairs
+- `FilterCacheManager` in-memory cache - Used for displaying badges in dropdowns
+
+**When Invalidation Occurs:**
+- **Manual Mapping Save**: After clicking "Save Mapping" in RegularizationView
+- **Auto-Regularization**: After "Auto-Regularize Exact Matches" completes
+
+**Impact on Performance:**
+- ✅ **Query performance NOT affected** - Queries read `make_model_regularization` table directly (no cache)
+- ✅ **Badge updates immediately** - Next time you open a filter dropdown, badges reflect latest mappings
+- ✅ **No app restart required** - Changes visible immediately in current session
+
+**Console Messages:**
+```
+✅ Invalidated uncurated pairs cache after batch save
+✅ Invalidated filter cache for badge updates
+```
+
+## Important Behavior Changes (October 2025)
+
+### Make/Model Filtering Respects "Limit to Curated Years"
+
+**Fixed:** Previously, when "Limit to Curated Years Only" was enabled, the query system would still search across ALL models (curated + uncurated) to find matching model IDs. This caused inconsistent behavior where uncurated models would appear in dropdowns or queries would match the wrong model variant.
+
+**New Behavior (October 22, 2025):**
+- When "Limit to Curated Years" is ON:
+  - Make/Model dropdowns show ONLY canonical makes/models from curated years (2011-2022)
+  - Queries use ONLY IDs from the curated-years-filtered list
+  - Uncurated models like "ART (NOVA)" will NOT appear in dropdowns
+  - Queries for curated models return correct results (no cross-contamination with uncurated variants)
+
+**Files Modified:**
+- `OptimizedQueryManager.swift:183,203` - Now respects `limitToCuratedYears` flag when loading makes/models
+
+### Make/Model ID Expansion - Refined Logic
+
+**The Challenge:** Make and Model are required fields (NOT NULL in database), so we can't use EXISTS subqueries like we do for Vehicle Type and Fuel Type. We need ID expansion to make regularization work.
+
+**Previous Behavior (Caused Bug):**
+- Query system loaded model IDs using `limitToCuratedYears: false` (hardcoded)
+- When user had "Limit to Curated Years" ON and selected a model, the system searched the FULL model list
+- Uncurated model IDs would be found even when they shouldn't be visible
+- ID expansion then converted uncurated IDs to canonical IDs, matching records in curated years incorrectly
+
+**New Behavior (October 22, 2025):**
+
+**When "Limit to Curated Years" is ON:**
+- Dropdowns show ONLY models that exist in curated years (2011-2022)
+  - Filters out uncurated-only models (exist only in 2023-2024)
+  - Keeps canonical models even if they have regularization mappings
+  - Example: If "ART (NOVA)" has records in 2017-2019, it appears in dropdown
+- Query system searches ONLY curated model list for IDs
+- NO ID expansion (regularization disabled for curated-only queries)
+- User can only select models with curated data → Query uses exact IDs → Correct results
+- **Exception**: "Filter by Selected Makes" button bypasses this filter (shows ALL models for selected makes)
+
+**When "Limit to Curated Years" is OFF and "Query Regularization" is ON:**
+- Dropdowns show ALL models (canonical + uncurated + regularized)
+- Query system searches full model list for IDs
+- ID expansion ENABLED: Uncurated IDs → Include canonical IDs (bidirectional)
+- Example: User selects "ART (NOVA)" (uncurated) → Expansion includes canonical "ART" ID → Query matches both variants
+
+**When "Limit to Curated Years" is OFF and "Query Regularization" is OFF:**
+- Dropdowns show ALL models
+- Query uses exact IDs only (no expansion)
+- User selects "ART (NOVA)" → Query matches ONLY that specific variant
+
+**Files Modified:**
+- `OptimizedQueryManager.swift:183,203` - Now respects `limitToCuratedYears` flag when loading makes/models
+- `OptimizedQueryManager.swift:217-245` - Restored Make/Model ID expansion with proper conditionals
+- `FilterCacheManager.swift:552-574` - Enhanced filtering to exclude both uncurated and regularized pairs when limiting to curated years
+
+**Impact on Queries:**
+- Curated-only queries: Return correct counts (only canonical models visible and queried)
+- Uncurated year queries with regularization: Expansion works correctly (includes variants)
+- User expectations: Dropdown contents match query behavior (WYSIWYG)
+
 ## Console Messages to Watch
 
 **Regularization Loading:**
@@ -605,12 +728,14 @@ When statistics need refreshing, the "Refresh Statistics" button shows:
 🔗 Regularized: CRV (HONDA) → CR-V
 ```
 
-**Query Expansion:**
+**Make/Model ID Lookup and Expansion:**
 ```
-🔍 Make 'VOLV0 → VOLVO (123 records)' (cleaned: 'VOLV0') -> ID X
+🔍 Make 'NOVA' -> ID 60 (via FilterCacheManager)
+🔍 Model 'ART (NOVA)' -> ID 1234 (via FilterCacheManager)
 🔄 Make regularization expanded 1 → 2 IDs
-🔄 Regularization expanded IDs: Makes: 1 → 2, Models: 1 → 2
+🔄 Model regularization expanded: Makes 1 → 2, Models 1 → 3
 ```
+Note: Expansion only occurs when "Query Regularization" is ON and "Limit to Curated Years" is OFF.
 
 **Vehicle Type Filtering:**
 ```
@@ -623,4 +748,4 @@ When statistics need refreshing, the "Refresh Statistics" button shows:
 🔄 Fuel Type filter with regularization: Using EXISTS subquery with triplet matching (Make/Model/ModelYear, 2017+ only)
 ```
 
-These messages help you understand when regularization is active, how IDs are being expanded, and which records are being included in fuel type filtering based on the pre-2017 toggle setting.
+These messages help you understand when regularization is active and which records are being included via EXISTS subqueries for NULL-able fields (Vehicle Type, Fuel Type).
