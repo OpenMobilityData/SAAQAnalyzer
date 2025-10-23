@@ -234,11 +234,8 @@ struct ChartView: View {
                 AxisGridLine()
                     .foregroundStyle(.quaternary)
                 AxisTick()
-                AxisValueLabel {
-                    if let val = value.as(Double.self) {
-                        Text(formatYAxisValue(val))
-                    }
-                }
+                // Let Swift Charts handle formatting automatically with appropriate precision
+                AxisValueLabel()
             }
         }
         .chartXScale(domain: xAxisDomain())
@@ -330,23 +327,37 @@ struct ChartView: View {
         return symbols[index % symbols.count]
     }
 
-    /// Adaptive decimal precision based on value magnitude
-    /// Returns appropriate format string for floating-point values
-    private func adaptiveDecimalFormat(_ value: Double) -> String {
-        let absValue = abs(value)
-        if absValue < 0.1 {
-            // Very small values: show 3 decimal places (e.g., 0.043)
-            return "%.3f"
-        } else if absValue < 1.0 {
-            // Sub-unit values: show 2 decimal places (e.g., 0.43)
-            return "%.2f"
-        } else if absValue < 10.0 {
-            // Single-digit values: show 1 decimal place (e.g., 3.5)
-            return "%.1f"
-        } else {
-            // 10+: show whole numbers (e.g., 45)
-            return "%.0f"
+    /// Determine appropriate decimal places for Y-axis based on data range
+    /// Returns number of decimal places to show (0-3)
+    private var yAxisDecimalPlaces: Int {
+        let visibleSeries = dataSeries.filter { $0.isVisible }
+        guard !visibleSeries.isEmpty else { return 0 }
+
+        let allValues = visibleSeries.flatMap { $0.points.map { $0.value } }
+        guard !allValues.isEmpty else { return 0 }
+
+        let minVal = allValues.min() ?? 0
+        let maxVal = allValues.max() ?? 1
+        let range = abs(maxVal - minVal)
+
+        // Estimate step size: range divided by typical tick count (~5-8)
+        let step = range / 6.0
+
+        // If step is very small, use decimal places
+        if step < 1.0 && step > 0 {
+            let decimalPlaces = Int(min(3, max(0, ceil(-log10(step)))))
+            return decimalPlaces
         }
+        // Otherwise use integers
+        else {
+            return 0
+        }
+    }
+
+    /// Format a value with adaptive precision
+    private func formatWithAdaptivePrecision(_ value: Double) -> String {
+        let places = yAxisDecimalPlaces
+        return value.formatted(.number.precision(.fractionLength(places)))
     }
 
     /// Format Y-axis value based on the metric type of visible series
@@ -408,24 +419,24 @@ struct ChartView: View {
 
         case .average, .median, .minimum, .maximum:
             // Adaptive precision for averages/median/min/max with conditional units
-            let format = adaptiveDecimalFormat(value)
+            let formattedValue = formatWithAdaptivePrecision(value)
             if showUnits, let unit = firstSeries.metricField.unit {
-                return String(format: "\(format)%@", value, unit)
+                return "\(formattedValue)\(unit)"
             } else {
-                return String(format: format, value)
+                return formattedValue
             }
 
         case .percentage:
             // Adaptive percentage formatting based on value magnitude
-            let format = adaptiveDecimalFormat(value)
-            return String(format: "\(format)%%", value)
+            let formattedValue = formatWithAdaptivePrecision(value)
+            return "\(formattedValue)%"
 
         case .coverage:
             // Check if showing percentage or raw count
             if firstSeries.filters.coverageAsPercentage {
                 // Adaptive percentage formatting for coverage
-                let format = adaptiveDecimalFormat(value)
-                return String(format: "\(format)%%", value)
+                let formattedValue = formatWithAdaptivePrecision(value)
+                return "\(formattedValue)%"
             } else {
                 // Format as integer count
                 if value >= 1_000_000 {
