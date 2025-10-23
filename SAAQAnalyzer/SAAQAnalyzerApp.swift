@@ -746,11 +746,15 @@ struct ContentView: View {
         }
     }
 
-    /// Clears all filter selections while preserving the current data entity type
+    /// Clears all filter selections while preserving years, data type, and curated years setting
     private func clearAllFilters() {
         let currentDataType = selectedFilters.dataEntityType
+        let currentLimitToCuratedYears = selectedFilters.limitToCuratedYears
+        let currentYears = selectedFilters.years
         selectedFilters = FilterConfiguration()
         selectedFilters.dataEntityType = currentDataType
+        selectedFilters.limitToCuratedYears = currentLimitToCuratedYears
+        selectedFilters.years = currentYears
     }
 
     private func generateQueryPattern(from filters: FilterConfiguration) -> String {

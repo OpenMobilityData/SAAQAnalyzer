@@ -716,7 +716,12 @@ struct YearFilterSection: View {
             // Quick select buttons
             HStack {
                 Button("All") {
-                    selectedYears = Set(availableYears)
+                    // Only select curated years if limitToCuratedYears is enabled
+                    if limitToCuratedYears {
+                        selectedYears = curatedYears.intersection(Set(availableYears))
+                    } else {
+                        selectedYears = Set(availableYears)
+                    }
                 }
                 .buttonStyle(.bordered)
                 .buttonBorderShape(.roundedRectangle)
@@ -724,7 +729,12 @@ struct YearFilterSection: View {
 
                 Button("Last 5") {
                     let lastFive = availableYears.suffix(5)
-                    selectedYears = Set(lastFive)
+                    // Filter out uncurated years if limitToCuratedYears is enabled
+                    if limitToCuratedYears {
+                        selectedYears = Set(lastFive).intersection(curatedYears)
+                    } else {
+                        selectedYears = Set(lastFive)
+                    }
                 }
                 .buttonStyle(.bordered)
                 .buttonBorderShape(.roundedRectangle)
