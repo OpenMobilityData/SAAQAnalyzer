@@ -36,6 +36,7 @@ xcodebuild test -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer -destinatio
 SAAQAnalyzerTests/
 ├── SAAQAnalyzerTests.swift               # Basic app initialization tests
 ├── OptimizedQueryManagerTests.swift      # Integer query system and RWI calculation tests ✨ NEW
+├── CategoricalEnumManagerTests.swift     # Enum table schema and index validation ✨ NEW
 ├── FilterCacheTests.swift                # Cache separation and consistency tests
 ├── DatabaseManagerTests.swift            # Database query and performance tests
 ├── CSVImporterTests.swift               # CSV import and encoding tests
@@ -44,7 +45,7 @@ SAAQAnalyzerTests/
 
 ## Test Categories
 
-### 1. OptimizedQueryManagerTests ✨ **NEW - January 2025**
+### 1. OptimizedQueryManagerTests ✨ **NEW - October 23, 2025**
 
 **Priority**: CRITICAL (Tier 1)
 **Coverage**: Highest-risk component with 0% prior coverage
@@ -132,7 +133,55 @@ SAAQAnalyzerTests/
 - Documentation-style tests that validate understanding without problematic instantiations
 - Precise RWI calculations with appropriate accuracy tolerances
 
-### 2. FilterCacheTests
+### 2. CategoricalEnumManagerTests ✨ **NEW - October 23, 2025**
+
+**Priority**: CRITICAL (Tier 1)
+**Coverage**: Schema creation and index validation for 16 enumeration tables
+**Purpose**: Prevents catastrophic performance regressions from missing enum ID indexes (165s → 10s queries = 16x slower)
+
+**Test Count**: 11 focused tests across 4 categories
+
+**Key Test Categories:**
+
+**Schema Creation (7 tests)** - Validates all 16 enumeration tables
+- `testCreateEnumerationTables`: All tables created (year, make, model, fuel_type, vehicle_type, etc.)
+- `testYearEnumTableStructure`: Column validation (id, year)
+- `testMakeEnumTableStructure`: Column validation (id, name)
+- `testModelEnumTableStructure`: Foreign key validation (id, name, make_id)
+- `testVehicleClassEnumTableStructure`: Code/description structure
+- `testVehicleTypeEnumTableStructure`: Code/description structure
+- `testFuelTypeEnumTableStructure`: Code/description structure
+
+**Index Creation (3 tests)** - ⚠️ **CRITICAL FOR PERFORMANCE**
+- `testEnumerationIndexesCreated`: Validates **all 9 performance indexes** exist
+  - **Historical Context**: Oct 11, 2025 - Missing these caused 165s queries instead of <10s
+  - Primary indexes: idx_year_enum_id, idx_make_enum_id, idx_model_enum_id, idx_model_year_enum_id, idx_fuel_type_enum_id, idx_vehicle_type_enum_id
+  - Secondary indexes: idx_year_enum_year, idx_vehicle_type_enum_code, idx_fuel_type_enum_code
+- `testIndexCreationIdempotent`: IF NOT EXISTS safety
+- `testIndexCreatedOnCorrectColumn`: Validates index targets correct columns
+
+**Schema Validation (1 test)**
+- `testModelEnumForeignKeyToMakeEnum`: Validates foreign key relationships
+
+**Tests Removed** (documented in code):
+- Enum population tests - Depend on vestigial migration code that queries old string columns
+- Enum lookup tests - Require populated data
+- Duplicate handling tests - Require populated data
+
+**Future Work**: Create test database with TestData CSV imports for population/lookup testing
+
+**Test Pattern Established:**
+- Local `createEnumManager()` instances to avoid SIGABRT from singleton cleanup
+- MainActor annotations on all helper methods accessing `databaseManager.db`
+- Integration tests using production database (idempotent operations with IF NOT EXISTS)
+- Clear documentation of removed tests and rationale
+
+**Why These Tests Matter:**
+- **Regression Prevention**: Missing indexes = 16x slower queries
+- **Critical Rule #6 (CLAUDE.md)**: ALL enum tables MUST have indexes on ID columns
+- **Fast, Reliable**: No dependencies on external data or vestigial code
+
+### 3. FilterCacheTests
 
 **Purpose**: Validates cache separation between vehicle and license modes, preventing cross-contamination bugs.
 
@@ -150,7 +199,7 @@ SAAQAnalyzerTests/
 - Prevents the "experience levels showing in vehicle mode" bug
 - Ensures proper cache key namespacing between modes
 
-### 3. DatabaseManagerTests
+### 4. DatabaseManagerTests
 
 **Purpose**: Tests database operations, query performance, and prevents the 66M record scan issue.
 
@@ -169,7 +218,7 @@ SAAQAnalyzerTests/
 - Cache refresh should complete within 3 seconds
 - Basic filter queries should complete within 1 second
 
-### 4. CSVImporterTests
+### 5. CSVImporterTests
 
 **Purpose**: Validates CSV import functionality, French character encoding, and data integrity.
 
@@ -188,7 +237,7 @@ SAAQAnalyzerTests/
 - Validates proper handling of all French diacritical marks
 - Ensures data integrity through import pipeline
 
-### 5. WorkflowIntegrationTests
+### 6. WorkflowIntegrationTests
 
 **Purpose**: Tests complete end-to-end workflows from CSV import through data analysis.
 
