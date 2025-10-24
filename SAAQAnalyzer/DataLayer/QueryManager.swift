@@ -1,7 +1,7 @@
 import Foundation
 import SQLite3
 
-/// Holds converted filter IDs for optimized queries
+/// Holds filter values converted to enumeration IDs
 struct FilterIds: Sendable {
     let yearIds: [Int]
     let regionIds: [Int]
@@ -46,11 +46,11 @@ class QueryManager {
         self.regularizationCoupling = UserDefaults.standard.object(forKey: "regularizationCoupling") as? Bool ?? true
     }
 
-    // MARK: - Optimized Vehicle Query Using Integer Enumerations
+    // MARK: - Vehicle Query Using Integer Enumerations
 
     /// High-performance vehicle data query using integer enumerations
     func queryVehicleData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
-        print("🚀 Starting OPTIMIZED vehicle query with integer enumerations...")
+        print("🚀 Starting vehicle query with integer enumerations...")
 
         // Debug: Log the filters we received
         print("🔍 Received filters:")
@@ -70,7 +70,7 @@ class QueryManager {
         // First, convert filter strings to integer IDs
         let filterIds = try await convertFiltersToIds(filters: filters, isVehicle: true)
 
-        // Run the optimized query using integer columns
+        // Run the query using integer columns
         return try await queryVehicleData(filters: filters, filterIds: filterIds)
     }
 
@@ -352,7 +352,7 @@ class QueryManager {
         )
     }
 
-    /// Optimized vehicle query using integer columns
+    /// Vehicle query using integer columns
     private func queryVehicleData(filters: FilterConfiguration, filterIds: FilterIds) async throws -> FilteredDataSeries {
         let startTime = Date()
 
@@ -367,7 +367,7 @@ class QueryManager {
                     return
                 }
 
-                // Build optimized query using integer columns
+                // Build query using integer columns
                 var whereClause = "WHERE 1=1"
                 var bindValues: [(Int32, Any)] = []
                 var bindIndex: Int32 = 1
@@ -813,7 +813,7 @@ class QueryManager {
                         """
                 }
 
-                print("🔍 Optimized query: \(query)")
+                print("🔍 Query: \(query)")
                 print("🔍 Bind values: \(bindValues.map { "(\($0.0), \($0.1))" }.joined(separator: ", "))")
 
                 var stmt: OpaquePointer?
@@ -836,7 +836,7 @@ class QueryManager {
                     }
 
                     let duration = Date().timeIntervalSince(startTime)
-                    print("✅ Optimized vehicle query completed in \(String(format: "%.3f", duration))s - \(dataPoints.count) data points")
+                    print("✅ Vehicle query completed in \(String(format: "%.3f", duration))s - \(dataPoints.count) data points")
 
                     // If we got empty results, this indicates an ID lookup issue
                     if dataPoints.isEmpty {
@@ -856,7 +856,7 @@ class QueryManager {
                     }
 
                     let series = FilteredDataSeries(
-                        name: "Vehicle Count by Year (Optimized)",
+                        name: "Vehicle Count by Year",
                         filters: filters,
                         points: transformedPoints
                     )
@@ -864,7 +864,7 @@ class QueryManager {
                     continuation.resume(returning: series)
                 } else {
                     let error = String(cString: sqlite3_errmsg(db))
-                    continuation.resume(throwing: DatabaseError.queryFailed("Optimized query failed: \(error)"))
+                    continuation.resume(throwing: DatabaseError.queryFailed("Query failed: \(error)"))
                 }
             }
         }
@@ -872,16 +872,16 @@ class QueryManager {
 
     /// High-performance license data query using integer enumerations
     func queryLicenseData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
-        print("🚀 Starting OPTIMIZED license query with integer enumerations...")
+        print("🚀 Starting license query with integer enumerations...")
 
         // First, convert filter strings to integer IDs
         let filterIds = try await convertFiltersToIds(filters: filters, isVehicle: false)
 
-        // Run the optimized query using integer columns
+        // Run the query using integer columns
         return try await queryLicenseData(filters: filters, filterIds: filterIds)
     }
 
-    /// Optimized license query using integer columns
+    /// License query using integer columns
     private func queryLicenseData(filters: FilterConfiguration, filterIds: FilterIds) async throws -> FilteredDataSeries {
         let startTime = Date()
 
@@ -892,7 +892,7 @@ class QueryManager {
                     return
                 }
 
-                // Build optimized query using integer columns
+                // Build query using integer columns
                 var whereClause = "WHERE 1=1"
                 var bindValues: [(Int32, Any)] = []
                 var bindIndex: Int32 = 1
@@ -999,7 +999,7 @@ class QueryManager {
                     ORDER BY y.year
                 """
 
-                print("🔍 Optimized license query: \(query)")
+                print("🔍 License query: \(query)")
                 print("🔍 Bind values: \(bindValues.map { "(\($0.0), \($0.1))" }.joined(separator: ", "))")
 
                 var stmt: OpaquePointer?
@@ -1022,7 +1022,7 @@ class QueryManager {
                     }
 
                     let duration = Date().timeIntervalSince(startTime)
-                    print("✅ Optimized license query completed in \(String(format: "%.3f", duration))s - \(dataPoints.count) data points")
+                    print("✅ License query completed in \(String(format: "%.3f", duration))s - \(dataPoints.count) data points")
 
                     // Apply normalization if enabled (works with all metrics)
                     var transformedPoints = if filters.normalizeToFirstYear {
@@ -1037,7 +1037,7 @@ class QueryManager {
                     }
 
                     let series = FilteredDataSeries(
-                        name: "License Count by Year (Optimized)",
+                        name: "License Count by Year",
                         filters: filters,
                         points: transformedPoints
                     )
@@ -1045,7 +1045,7 @@ class QueryManager {
                     continuation.resume(returning: series)
                 } else {
                     let error = String(cString: sqlite3_errmsg(db))
-                    continuation.resume(throwing: DatabaseError.queryFailed("Optimized license query failed: \(error)"))
+                    continuation.resume(throwing: DatabaseError.queryFailed("License query failed: \(error)"))
                 }
             }
         }
