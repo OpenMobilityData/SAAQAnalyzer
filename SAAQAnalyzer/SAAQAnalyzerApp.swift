@@ -669,23 +669,12 @@ struct ContentView: View {
     Task {
       let queryPattern = generateQueryPattern(from: selectedFilters)
       
-#if false // TODO: Delete after testing - vestigial dual-path index analysis
-      // Analyze actual index usage deterministically
-      let actualIndexUsage = await databaseManager.analyzeQueryIndexUsage(filters: selectedFilters)
-      
-      await MainActor.run {
-        currentQueryPattern = queryPattern
-        currentQueryIsIndexed = actualIndexUsage
-        isAddingSeries = true
-      }
-#else
       // New behavior: Integer-based queries always use indexes
       await MainActor.run {
         currentQueryPattern = queryPattern
         currentQueryIsIndexed = true  // Integer queries always use indexes
         isAddingSeries = true
       }
-#endif
       
       do {
         let newSeries = try await databaseManager.queryData(filters: selectedFilters)

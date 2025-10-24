@@ -29,17 +29,6 @@ class DatabaseManager: ObservableObject {
   /// Regularization manager
   private(set) var regularizationManager: RegularizationManager?
   
-#if false // TODO:  Remove these obsolete string-based/optimized references
-  /// Flag to enable optimized integer-based queries
-  private var useOptimizedQueries = true
-  
-  /// Toggle between optimized and traditional queries for testing
-  func setOptimizedQueriesEnabled(_ enabled: Bool) {
-    useOptimizedQueries = enabled
-    print(enabled ? "🚀 Optimized integer-based queries ENABLED" : "📊 Traditional string-based queries ENABLED")
-  }
-#endif
-  
   /// SQLite database handle
   internal var db: OpaquePointer?
   
@@ -465,43 +454,6 @@ class DatabaseManager: ObservableObject {
     
     print("   └─ Performance: \(performance.description)")
   }
-  
-#if false // TODO:  remove - obsolete
-  /// Analyzes if a query will use an index without executing it
-  func analyzeQueryIndexUsage(filters: FilterConfiguration) async -> Bool {
-    // When using optimized queries, indexes are always used (by design)
-    if useOptimizedQueries {
-      print("🔍 Index analysis - Using optimized integer-based queries (indexes guaranteed)")
-      return true
-    }
-    
-    return await withCheckedContinuation { continuation in
-      dbQueue.async { [weak self] in
-        guard let self = self, let _ = self.db else {
-          continuation.resume(returning: false)
-          return
-        }
-        
-        // Build the same query that would be executed
-        let (query, bindValues) = self.buildQueryForFilters(filters)
-        
-        print("🔍 Index analysis - Query: \(query)")
-        print("🔍 Index analysis - Bind values: \(bindValues)")
-        
-        // Analyze if it will use an index
-        let indexUsed = self.analyzeQueryPlan(for: query, bindValues: bindValues)
-        
-        if let index = indexUsed {
-          print("🔍 Index analysis - Found index: \(index)")
-        } else {
-          print("🔍 Index analysis - No index found (table scan)")
-        }
-        
-        continuation.resume(returning: indexUsed != nil)
-      }
-    }
-  }
-#endif
   
   /// Builds query and bind values for given filters (used for analysis)
   private func buildQueryForFilters(_ filters: FilterConfiguration) -> (String, [(Int32, Any)]) {
@@ -1193,22 +1145,9 @@ class DatabaseManager: ObservableObject {
     }
   }
   
-#if true // TODO:  Remove obsolete code
   /// Queries vehicle data based on filters
   func queryVehicleData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
-#if false // TODO:  remove obsolete code
-    // Use optimized query manager if available and enabled
-    if useOptimizedQueries, let optimizedManager = queryManager {
-      let optimizedManager = queryManager
-      print("🚀 Using optimized integer-based queries for vehicles")
-      
-      // Update the series name to match the expected format
-      let seriesName = await generateSeriesNameAsync(from: filters)
-      optimizedSeries.name = seriesName
-      
-      return optimizedSeries
-    }
-#else
+
     guard let queryManager = queryManager else {
       throw DatabaseError.queryFailed("Query manager not initialized")
     }
@@ -1221,419 +1160,12 @@ class DatabaseManager: ObservableObject {
     series.name = seriesName
     
     return series
-#endif
     
-#if false // TODO:  Remove obsolete fallback code
-    // Fall back to string-based queries
-    print("📊 Using traditional string-based queries for vehicles")
-    let startTime = Date()
-    
-    // First, generate the proper series name with municipality name resolution
-    let seriesName = await generateSeriesNameAsync(from: filters)
-    
-    return try await withCheckedThrowingContinuation { continuation in
-      dbQueue.async { [weak self] in
-        guard let db = self?.db else {
-          continuation.resume(throwing: DatabaseError.notConnected)
-          return
-        }
-        
-        // Build dynamic query based on filters and metric type
-        var query: String
-        
-        // Build SELECT clause based on metric type
-        switch filters.metricType {
-        case .count:
-          query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
-          
-        case .sum:
-          if filters.metricField == .vehicleAge {
-            // Special case: sum of computed age
-            query = "SELECT year, SUM(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
-          } else if let column = filters.metricField.databaseColumn {
-            query = "SELECT year, SUM(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
-          } else {
-            // Fallback to count if no valid field
-            query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
-          }
-          
-        case .average:
-          if filters.metricField == .vehicleAge {
-            // Special case: average of computed age
-            query = "SELECT year, AVG(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
-          } else if let column = filters.metricField.databaseColumn {
-            query = "SELECT year, AVG(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
-          } else {
-            // Fallback to count if no valid field
-            query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
-          }
-          
-        case .median:
-          if filters.metricField == .vehicleAge {
-            // Special case: median of computed age using window functions
-            query = """
-                            WITH ranked_values AS (
-                                SELECT year,
-                                       (year - model_year) as value,
-                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY (year - model_year)) as row_num,
-                                       COUNT(*) OVER (PARTITION BY year) as total_count
-                                FROM vehicles
-                                WHERE model_year IS NOT NULL AND 1=1
-                            )
-                            SELECT year,
-                                   AVG(value) as value
-                            FROM ranked_values
-                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
-                            GROUP BY year
-                            """
-          } else if let column = filters.metricField.databaseColumn {
-            // General median calculation using window functions
-            query = """
-                            WITH ranked_values AS (
-                                SELECT year,
-                                       \(column) as value,
-                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY \(column)) as row_num,
-                                       COUNT(*) OVER (PARTITION BY year) as total_count
-                                FROM vehicles
-                                WHERE \(column) IS NOT NULL AND 1=1
-                            )
-                            SELECT year,
-                                   AVG(value) as value
-                            FROM ranked_values
-                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
-                            GROUP BY year
-                            """
-          } else {
-            // Fallback to count if no valid field
-            query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
-          }
-          
-        case .minimum:
-          if filters.metricField == .vehicleAge {
-            query = "SELECT year, MIN(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
-          } else if let column = filters.metricField.databaseColumn {
-            query = "SELECT year, MIN(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
-          } else {
-            query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
-          }
-          
-        case .maximum:
-          if filters.metricField == .vehicleAge {
-            query = "SELECT year, MAX(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
-          } else if let column = filters.metricField.databaseColumn {
-            query = "SELECT year, MAX(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
-          } else {
-            query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
-          }
-          
-        case .percentage:
-          // For percentage, we need to do dual queries - this is handled separately
-          query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
-          
-        case .coverage:
-          // For coverage, show either percentage or raw NULL count
-          if let coverageField = filters.coverageField {
-            let column = coverageField.databaseColumn
-            if filters.coverageAsPercentage {
-              query = "SELECT year, (CAST(COUNT(\(column)) AS REAL) / CAST(COUNT(*) AS REAL) * 100.0) as value FROM vehicles WHERE 1=1"
-            } else {
-              query = "SELECT year, (COUNT(*) - COUNT(\(column))) as value FROM vehicles WHERE 1=1"
-            }
-          } else {
-            // Fallback to count if no field selected
-            query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
-          }
-          
-        case .roadWearIndex:
-          // Road Wear Index: 4th power law based on vehicle mass
-          // Uses actual axle count when available (max_axles), falls back to vehicle type
-          // Axle-based coefficients (Oct 2025):
-          // - 2 axles: 0.1325 (45/55 split)
-          // - 3 axles: 0.0234 (30/35/35 split)
-          // - 4 axles: 0.0156 (25/25/25/25 split)
-          // - 5 axles: 0.0080 (20% each)
-          // - 6+ axles: 0.0046 (16.67% each)
-          let rwiCalculation = """
-                        CASE
-                            -- Use actual axle data when available (BCA trucks)
-                            WHEN max_axles = 2 THEN 0.1325 * POWER(net_mass, 4)
-                            WHEN max_axles = 3 THEN 0.0234 * POWER(net_mass, 4)
-                            WHEN max_axles = 4 THEN 0.0156 * POWER(net_mass, 4)
-                            WHEN max_axles = 5 THEN 0.0080 * POWER(net_mass, 4)
-                            WHEN max_axles >= 6 THEN 0.0046 * POWER(net_mass, 4)
-                            -- Fallback: vehicle type assumptions when max_axles is NULL
-                            WHEN vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code IN ('CA', 'VO'))
-                            THEN 0.0234 * POWER(net_mass, 4)
-                            WHEN vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code = 'AB')
-                            THEN 0.1935 * POWER(net_mass, 4)
-                            ELSE 0.125 * POWER(net_mass, 4)
-                        END
-                        """
-          if filters.roadWearIndexMode == .average {
-            query = "SELECT year, AVG(\(rwiCalculation)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
-          } else if filters.roadWearIndexMode == .median {
-            // Median requires window functions with CTE
-            query = """
-                            WITH rwi_values AS (
-                                SELECT year,
-                                       \(rwiCalculation) as value,
-                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY \(rwiCalculation)) as row_num,
-                                       COUNT(*) OVER (PARTITION BY year) as total_count
-                                FROM vehicles
-                                WHERE net_mass IS NOT NULL AND 1=1
-                            )
-                            SELECT year,
-                                   AVG(value) as value
-                            FROM rwi_values
-                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
-                            GROUP BY year
-                            ORDER BY year
-                            """
-          } else {
-            query = "SELECT year, SUM(\(rwiCalculation)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
-          }
-        }
-        
-        var bindIndex = 1
-        var bindValues: [(Int32, Any)] = []
-        
-        // Add year filter
-        if !filters.years.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.years.count).joined(separator: ",")
-          query += " AND year IN (\(placeholders))"
-          for year in filters.years.sorted() {
-            bindValues.append((Int32(bindIndex), year))
-            bindIndex += 1
-          }
-        }
-        
-        // Add region filter
-        if !filters.regions.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.regions.count).joined(separator: ",")
-          query += " AND admin_region IN (\(placeholders))"
-          for region in filters.regions.sorted() {
-            bindValues.append((Int32(bindIndex), region))
-            bindIndex += 1
-          }
-        }
-        
-        // Add MRC filter
-        if !filters.mrcs.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.mrcs.count).joined(separator: ",")
-          query += " AND mrc IN (\(placeholders))"
-          for mrc in filters.mrcs.sorted() {
-            bindValues.append((Int32(bindIndex), mrc))
-            bindIndex += 1
-          }
-        }
-        
-        // Add municipality filter
-        if !filters.municipalities.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.municipalities.count).joined(separator: ",")
-          query += " AND geo_code IN (\(placeholders))"
-          for municipality in filters.municipalities.sorted() {
-            bindValues.append((Int32(bindIndex), municipality))
-            bindIndex += 1
-          }
-        }
-        
-        // Add vehicle class filter
-        if !filters.vehicleClasses.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.vehicleClasses.count).joined(separator: ",")
-          query += " AND vehicle_class IN (\(placeholders))"
-          for vehicle_class in filters.vehicleClasses.sorted() {
-            bindValues.append((Int32(bindIndex), vehicle_class))
-            bindIndex += 1
-          }
-        }
-        
-        // Add vehicle make filter
-        if !filters.vehicleMakes.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.vehicleMakes.count).joined(separator: ",")
-          query += " AND make IN (\(placeholders))"
-          for make in filters.vehicleMakes.sorted() {
-            bindValues.append((Int32(bindIndex), make))
-            bindIndex += 1
-          }
-        }
-        
-        // Add vehicle model filter
-        if !filters.vehicleModels.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.vehicleModels.count).joined(separator: ",")
-          query += " AND model IN (\(placeholders))"
-          for model in filters.vehicleModels.sorted() {
-            bindValues.append((Int32(bindIndex), model))
-            bindIndex += 1
-          }
-        }
-        
-        // Add vehicle color filter
-        if !filters.vehicleColors.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.vehicleColors.count).joined(separator: ",")
-          query += " AND original_color IN (\(placeholders))"
-          for color in filters.vehicleColors.sorted() {
-            bindValues.append((Int32(bindIndex), color))
-            bindIndex += 1
-          }
-        }
-        
-        // Add model year filter
-        if !filters.modelYears.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.modelYears.count).joined(separator: ",")
-          query += " AND model_year IN (\(placeholders))"
-          for modelYear in filters.modelYears.sorted() {
-            bindValues.append((Int32(bindIndex), modelYear))
-            bindIndex += 1
-          }
-        }
-        
-        // Add fuel type filter (only for years 2017+)
-        if !filters.fuelTypes.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.fuelTypes.count).joined(separator: ",")
-          query += " AND fuel_type IN (\(placeholders))"
-          
-          // Smart year filtering: Only apply year >= 2017 if no specific years selected
-          if filters.years.isEmpty {
-            query += " AND year >= 2017"
-          }
-          
-          for fuelType in filters.fuelTypes.sorted() {
-            bindValues.append((Int32(bindIndex), fuelType))
-            bindIndex += 1
-          }
-        }
-        
-        // Add age range filter
-        if !filters.ageRanges.isEmpty {
-          var ageConditions: [String] = []
-          for ageRange in filters.ageRanges {
-            if let maxAge = ageRange.maxAge {
-              // Age range with both min and max
-              ageConditions.append("(year - model_year >= ? AND year - model_year <= ?)")
-              bindValues.append((Int32(bindIndex), ageRange.minAge))
-              bindIndex += 1
-              bindValues.append((Int32(bindIndex), maxAge))
-              bindIndex += 1
-            } else {
-              // Age range with only minimum (no upper limit)
-              ageConditions.append("(year - model_year >= ?)")
-              bindValues.append((Int32(bindIndex), ageRange.minAge))
-              bindIndex += 1
-            }
-          }
-          
-          if !ageConditions.isEmpty {
-            // Only include vehicles where model_year is not null
-            query += " AND model_year IS NOT NULL AND (\(ageConditions.joined(separator: " OR ")))"
-          }
-        }
-        
-        // Group by year and order
-        query += " GROUP BY year ORDER BY year"
-        
-        // Debug output
-        print("Query: \(query)")
-        print("Bind values: \(bindValues)")
-        
-        var stmt: OpaquePointer?
-        defer {
-          if stmt != nil {
-            sqlite3_finalize(stmt)
-          }
-        }
-        
-        guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
-          if let errorMessage = sqlite3_errmsg(db) {
-            continuation.resume(throwing: DatabaseError.queryFailed(String(cString: errorMessage)))
-          } else {
-            continuation.resume(throwing: DatabaseError.queryFailed("Unknown error"))
-          }
-          return
-        }
-        
-        // Bind values
-        for (index, value) in bindValues {
-          switch value {
-          case let intValue as Int:
-            sqlite3_bind_int(stmt, index, Int32(intValue))
-          case let stringValue as String:
-            sqlite3_bind_text(stmt, index, stringValue, -1, SQLITE_TRANSIENT)
-          default:
-            break
-          }
-        }
-        
-        // Execute query and collect results
-        var points: [TimeSeriesPoint] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-          let year = Int(sqlite3_column_int(stmt, 0))
-          let value = sqlite3_column_double(stmt, 1)  // Use double for averages
-          points.append(TimeSeriesPoint(year: year, value: value, label: nil))
-        }
-        
-        // Handle percentage calculations with dual queries
-        if filters.metricType == .percentage {
-          // Points now contain the numerator counts, we need to get baseline counts
-          Task {
-            do {
-              let percentagePoints = try await self?.calculatePercentagePoints(
-                numeratorPoints: points,
-                baselineFilters: filters.percentageBaseFilters,
-                db: db
-              ) ?? []
-              
-              let series = await MainActor.run {
-                FilteredDataSeries(name: seriesName, filters: filters, points: percentagePoints)
-              }
-              continuation.resume(returning: series)
-            } catch {
-              continuation.resume(throwing: error)
-            }
-          }
-        } else {
-          // Apply normalization if enabled (works with all metrics)
-          var transformedPoints = if filters.normalizeToFirstYear {
-            self?.normalizeToFirstYear(points: points) ?? points
-          } else {
-            points
-          }
-          
-          // Apply cumulative sum if enabled (applied after normalization)
-          if filters.showCumulativeSum {
-            transformedPoints = self?.applyCumulativeSum(points: transformedPoints) ?? transformedPoints
-          }
-          
-          // Create series with the proper name (already resolved)
-          let series = FilteredDataSeries(name: seriesName, filters: filters, points: transformedPoints)
-          let duration = Date().timeIntervalSince(startTime)
-          
-          // Use simplified output for main query (raw query provides detailed info)
-          let performance = self?.getPerformanceClassification(time: duration) ?? ("📊", "Unknown")
-          print("\(performance.0) Vehicle query completed in \(String(format: "%.3f", duration))s - \(points.count) data points")
-          
-          continuation.resume(returning: series)
-        }
-      }
-    }
-#endif
   }
-#endif
   
   /// Queries license data based on filters
   func queryLicenseData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
-#if false // TODO:  Delete obsolete code
-    // Use optimized query manager if available and enabled
-    if useOptimizedQueries, let optimizedManager = queryManager {
-      print("🚀 Using optimized integer-based queries for licenses")
-      let optimizedSeries = try await optimizedManager.queryOptimizedLicenseData(filters: filters)
-      
-      // Update the series name to match the expected format
-      let seriesName = await generateSeriesNameAsync(from: filters)
-      optimizedSeries.name = seriesName
-      
-      return optimizedSeries
-    }
-#else
+
     guard let queryManager = queryManager else {
       throw DatabaseError.queryFailed("Query manager not initialized")
     }
@@ -1646,301 +1178,7 @@ class DatabaseManager: ObservableObject {
     series.name = seriesName
     
     return series
-#endif
     
-#if false // TODO:  Delete obsolete code
-    // Fall back to string-based queries
-    print("📊 Using traditional string-based queries for licenses")
-    let startTime = Date()
-    
-    // First, generate the proper series name
-    let seriesName = await generateSeriesNameAsync(from: filters)
-    
-    return try await withCheckedThrowingContinuation { continuation in
-      dbQueue.async { [weak self] in
-        guard let db = self?.db else {
-          continuation.resume(throwing: DatabaseError.notConnected)
-          return
-        }
-        
-        // Build dynamic query based on filters and metric type
-        var query: String
-        
-        // Build SELECT clause based on metric type
-        switch filters.metricType {
-        case .count:
-          query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
-          
-        case .sum:
-          // For licenses, sum operations are typically counts of license classes
-          if filters.metricField == .licenseClassCount {
-            // Count total license classes held by each person
-            query = """
-                            SELECT year, SUM(
-                                has_learner_permit_123 + has_learner_permit_5 + has_learner_permit_6a6r +
-                                has_driver_license_1234 + has_driver_license_5 + has_driver_license_6abce +
-                                has_driver_license_6d + has_driver_license_8
-                            ) as value FROM licenses WHERE 1=1
-                            """
-          } else {
-            // Fallback to count
-            query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
-          }
-          
-        case .average:
-          // For licenses, average operations are typically average license classes per person
-          if filters.metricField == .licenseClassCount {
-            query = """
-                            SELECT year, AVG(
-                                has_learner_permit_123 + has_learner_permit_5 + has_learner_permit_6a6r +
-                                has_driver_license_1234 + has_driver_license_5 + has_driver_license_6abce +
-                                has_driver_license_6d + has_driver_license_8
-                            ) as value FROM licenses WHERE 1=1
-                            """
-          } else {
-            // Fallback to count
-            query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
-          }
-          
-        case .median:
-          // For licenses, median operations for license classes per person
-          if filters.metricField == .licenseClassCount {
-            query = """
-                            WITH ranked_values AS (
-                                SELECT year,
-                                       (has_learner_permit_123 + has_learner_permit_5 + has_learner_permit_6a6r +
-                                        has_driver_license_1234 + has_driver_license_5 + has_driver_license_6abce +
-                                        has_driver_license_6d + has_driver_license_8) as value,
-                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY (
-                                           has_learner_permit_123 + has_learner_permit_5 + has_learner_permit_6a6r +
-                                           has_driver_license_1234 + has_driver_license_5 + has_driver_license_6abce +
-                                           has_driver_license_6d + has_driver_license_8
-                                       )) as row_num,
-                                       COUNT(*) OVER (PARTITION BY year) as total_count
-                                FROM licenses
-                                WHERE 1=1
-                            )
-                            SELECT year,
-                                   AVG(value) as value
-                            FROM ranked_values
-                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
-                            GROUP BY year
-                            """
-          } else {
-            // Fallback to count
-            query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
-          }
-          
-        case .minimum, .maximum:
-          // Min/Max not meaningful for license data - fallback to count
-          query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
-          
-        case .percentage:
-          // For percentage, we need to do dual queries - this is handled separately
-          query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
-          
-        case .coverage:
-          // Coverage not yet implemented for licenses (awaiting integer enumeration)
-          // Fallback to count
-          query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
-          
-        case .roadWearIndex:
-          // Road Wear Index not applicable to license data - fallback to count
-          query = "SELECT year, COUNT(*) as value FROM licenses WHERE 1=1"
-        }
-        
-        var bindIndex = 1
-        var bindValues: [(Int32, Any)] = []
-        
-        // Add year filter
-        if !filters.years.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.years.count).joined(separator: ",")
-          query += " AND year IN (\(placeholders))"
-          for year in filters.years.sorted() {
-            bindValues.append((Int32(bindIndex), year))
-            bindIndex += 1
-          }
-        }
-        
-        // Add region filter
-        if !filters.regions.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.regions.count).joined(separator: ",")
-          query += " AND admin_region IN (\(placeholders))"
-          for region in filters.regions.sorted() {
-            bindValues.append((Int32(bindIndex), region))
-            bindIndex += 1
-          }
-        }
-        
-        // Add MRC filter
-        if !filters.mrcs.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.mrcs.count).joined(separator: ",")
-          query += " AND mrc IN (\(placeholders))"
-          for mrc in filters.mrcs.sorted() {
-            bindValues.append((Int32(bindIndex), mrc))
-            bindIndex += 1
-          }
-        }
-        
-        // Add license type filter
-        if !filters.licenseTypes.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.licenseTypes.count).joined(separator: ",")
-          query += " AND license_type IN (\(placeholders))"
-          for licenseType in filters.licenseTypes.sorted() {
-            bindValues.append((Int32(bindIndex), licenseType))
-            bindIndex += 1
-          }
-        }
-        
-        // Add age group filter
-        if !filters.ageGroups.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.ageGroups.count).joined(separator: ",")
-          query += " AND age_group IN (\(placeholders))"
-          for ageGroup in filters.ageGroups.sorted() {
-            bindValues.append((Int32(bindIndex), ageGroup))
-            bindIndex += 1
-          }
-        }
-        
-        // Add gender filter
-        if !filters.genders.isEmpty {
-          let placeholders = Array(repeating: "?", count: filters.genders.count).joined(separator: ",")
-          query += " AND gender IN (\(placeholders))"
-          for gender in filters.genders.sorted() {
-            bindValues.append((Int32(bindIndex), gender))
-            bindIndex += 1
-          }
-        }
-        
-        // Add experience level filter
-        if !filters.experienceLevels.isEmpty {
-          var expConditions: [String] = []
-          for experience in filters.experienceLevels {
-            // Check all experience fields for the given level
-            expConditions.append("(experience_1234 = ? OR experience_5 = ? OR experience_6abce = ? OR experience_global = ?)")
-            for _ in 0..<4 {
-              bindValues.append((Int32(bindIndex), experience))
-              bindIndex += 1
-            }
-          }
-          if !expConditions.isEmpty {
-            query += " AND (\(expConditions.joined(separator: " OR ")))"
-          }
-        }
-        
-        // Add license class filter using centralized mapping
-        if !filters.licenseClasses.isEmpty {
-          var classConditions: [String] = []
-          let licenseMapping = self?.getLicenseClassMapping() ?? []
-          
-          for licenseClass in filters.licenseClasses {
-            if let column = self?.getDatabaseColumn(for: licenseClass) {
-              classConditions.append("\(column) = 1")
-            } else {
-              // Log unmapped filter values to help debug issues
-              print("⚠️ Warning: Unmapped license class filter '\(licenseClass)'. Available mappings:")
-              for (col, name) in licenseMapping {
-                print("   '\(name)' → \(col)")
-              }
-            }
-          }
-          
-          if !classConditions.isEmpty {
-            query += " AND (\(classConditions.joined(separator: " OR ")))"
-          } else if !filters.licenseClasses.isEmpty {
-            print("⚠️ Warning: No valid license class filters applied. All requested filters were unmapped.")
-          }
-        }
-        
-        // Group by year and order
-        query += " GROUP BY year ORDER BY year"
-        
-        // Debug output
-        print("License Query: \(query)")
-        print("Bind values: \(bindValues)")
-        
-        
-        var stmt: OpaquePointer?
-        defer {
-          if stmt != nil {
-            sqlite3_finalize(stmt)
-          }
-        }
-        
-        guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
-          if let errorMessage = sqlite3_errmsg(db) {
-            continuation.resume(throwing: DatabaseError.queryFailed(String(cString: errorMessage)))
-          } else {
-            continuation.resume(throwing: DatabaseError.queryFailed("Unknown error"))
-          }
-          return
-        }
-        
-        // Bind values
-        for (index, value) in bindValues {
-          switch value {
-          case let intValue as Int:
-            sqlite3_bind_int(stmt, index, Int32(intValue))
-          case let stringValue as String:
-            sqlite3_bind_text(stmt, index, stringValue, -1, SQLITE_TRANSIENT)
-          default:
-            break
-          }
-        }
-        
-        // Execute query and collect results
-        var points: [TimeSeriesPoint] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-          let year = Int(sqlite3_column_int(stmt, 0))
-          let value = sqlite3_column_double(stmt, 1)  // Use double for averages
-          points.append(TimeSeriesPoint(year: year, value: value, label: nil))
-        }
-        
-        // Handle percentage calculations with dual queries
-        if filters.metricType == .percentage {
-          // Points now contain the numerator counts, we need to get baseline counts
-          Task {
-            do {
-              let percentagePoints = try await self?.calculatePercentagePoints(
-                numeratorPoints: points,
-                baselineFilters: filters.percentageBaseFilters,
-                db: db
-              ) ?? []
-              
-              let series = await MainActor.run {
-                FilteredDataSeries(name: seriesName, filters: filters, points: percentagePoints)
-              }
-              continuation.resume(returning: series)
-            } catch {
-              continuation.resume(throwing: error)
-            }
-          }
-        } else {
-          // Apply normalization if enabled (works with all metrics)
-          var transformedPoints = if filters.normalizeToFirstYear {
-            self?.normalizeToFirstYear(points: points) ?? points
-          } else {
-            points
-          }
-          
-          // Apply cumulative sum if enabled (applied after normalization)
-          if filters.showCumulativeSum {
-            transformedPoints = self?.applyCumulativeSum(points: transformedPoints) ?? transformedPoints
-          }
-          
-          // Create series with the proper name (already resolved)
-          let series = FilteredDataSeries(name: seriesName, filters: filters, points: transformedPoints)
-          let duration = Date().timeIntervalSince(startTime)
-          
-          // Use simplified output for main query (raw query provides detailed info)
-          let performance = self?.getPerformanceClassification(time: duration) ?? ("📊", "Unknown")
-          print("\(performance.0) License query completed in \(String(format: "%.3f", duration))s - \(points.count) data points")
-          
-          continuation.resume(returning: series)
-        }
-      }
-    }
-#endif
   }
   
   /// Calculate percentage points by comparing numerator and baseline counts
@@ -2043,19 +1281,7 @@ class DatabaseManager: ObservableObject {
   /// Raw query method that returns just the data points without creating a FilteredDataSeries
   /// Used by percentage metric calculations to get numerator and baseline data
   private func queryDataRaw(filters: FilterConfiguration) async throws -> [TimeSeriesPoint] {
-    // Use optimized integer-based queries if available (same routing as main query path)
-#if false // TODO:  Delete obsolete code
-    if useOptimizedQueries, let optimizedManager = queryManager {
-      let series: FilteredDataSeries
-      switch filters.dataEntityType {
-      case .vehicle:
-        series = try await optimizedManager.queryOptimizedVehicleData(filters: filters)
-      case .license:
-        series = try await optimizedManager.queryOptimizedLicenseData(filters: filters)
-      }
-      return series.points
-    }
-#else
+
     guard let queryManager = queryManager else {
       throw DatabaseError.queryFailed("Query manager not initialized")
     }
@@ -2068,249 +1294,19 @@ class DatabaseManager: ObservableObject {
       series = try await queryManager.queryOptimizedLicenseData(filters: filters)
     }
     return series.points
-#endif
     
-#if false // TODO:  Delete obsolete code
-    // Fall back to legacy string-based queries
-    switch filters.dataEntityType {
-    case .vehicle:
-      return try await queryVehicleDataRaw(filters: filters)
-    case .license:
-      return try await queryLicenseDataRaw(filters: filters)
-    }
-#endif
   }
   
   /// Raw vehicle data query that returns just points without series wrapper
   private func queryVehicleDataRaw(filters: FilterConfiguration) async throws -> [TimeSeriesPoint] {
-#if false // TODO:  Delete obsolete code
-    // Use optimized query manager if available (for integer-based queries)
-    if useOptimizedQueries, let optimizedManager = queryManager {
-      let series = try await optimizedManager.queryOptimizedVehicleData(filters: filters)
-      return series.points
-    }
-#else
+    
     guard let queryManager = queryManager else {
       throw DatabaseError.queryFailed("Query manager not initialized")
     }
     
     let series = try await queryManager.queryOptimizedVehicleData(filters: filters)
     return series.points
-#endif
-    
-#if false // TODO:  Delete obsolete code
-    // Fallback to legacy string-based queries
-    let startTime = Date()
-    
-    return try await withCheckedThrowingContinuation { continuation in
-      dbQueue.async { [weak self] in
-        guard let db = self?.db else {
-          continuation.resume(throwing: DatabaseError.notConnected)
-          return
-        }
-        
-        // Build dynamic query based on filters and metric type
-        var query: String
-        
-        // Build SELECT clause based on metric type
-        switch filters.metricType {
-        case .count, .percentage:  // Percentage uses count for numerator
-          query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
-          
-        case .sum:
-          if filters.metricField == .vehicleAge {
-            query = "SELECT year, SUM(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
-          } else if let column = filters.metricField.databaseColumn {
-            query = "SELECT year, SUM(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
-          } else {
-            query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
-          }
-          
-        case .average:
-          if filters.metricField == .vehicleAge {
-            query = "SELECT year, AVG(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
-          } else if let column = filters.metricField.databaseColumn {
-            query = "SELECT year, AVG(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
-          } else {
-            query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
-          }
-          
-        case .median:
-          if filters.metricField == .vehicleAge {
-            // Special case: median of computed age using window functions
-            query = """
-                            WITH ranked_values AS (
-                                SELECT year,
-                                       (year - model_year) as value,
-                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY (year - model_year)) as row_num,
-                                       COUNT(*) OVER (PARTITION BY year) as total_count
-                                FROM vehicles
-                                WHERE model_year IS NOT NULL AND 1=1
-                            )
-                            SELECT year,
-                                   AVG(value) as value
-                            FROM ranked_values
-                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
-                            GROUP BY year
-                            """
-          } else if let column = filters.metricField.databaseColumn {
-            // General median calculation using window functions
-            query = """
-                            WITH ranked_values AS (
-                                SELECT year,
-                                       \(column) as value,
-                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY \(column)) as row_num,
-                                       COUNT(*) OVER (PARTITION BY year) as total_count
-                                FROM vehicles
-                                WHERE \(column) IS NOT NULL AND 1=1
-                            )
-                            SELECT year,
-                                   AVG(value) as value
-                            FROM ranked_values
-                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
-                            GROUP BY year
-                            """
-          } else {
-            query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
-          }
-          
-        case .minimum:
-          if filters.metricField == .vehicleAge {
-            query = "SELECT year, MIN(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
-          } else if let column = filters.metricField.databaseColumn {
-            query = "SELECT year, MIN(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
-          } else {
-            query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
-          }
-          
-        case .maximum:
-          if filters.metricField == .vehicleAge {
-            query = "SELECT year, MAX(year - model_year) as value FROM vehicles WHERE model_year IS NOT NULL AND 1=1"
-          } else if let column = filters.metricField.databaseColumn {
-            query = "SELECT year, MAX(\(column)) as value FROM vehicles WHERE \(column) IS NOT NULL AND 1=1"
-          } else {
-            query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
-          }
-          
-        case .coverage:
-          // For coverage, show either percentage or raw NULL count
-          if let coverageField = filters.coverageField {
-            let column = coverageField.databaseColumn
-            if filters.coverageAsPercentage {
-              query = "SELECT year, (CAST(COUNT(\(column)) AS REAL) / CAST(COUNT(*) AS REAL) * 100.0) as value FROM vehicles WHERE 1=1"
-            } else {
-              query = "SELECT year, (COUNT(*) - COUNT(\(column))) as value FROM vehicles WHERE 1=1"
-            }
-          } else {
-            // Fallback to count if no field selected
-            query = "SELECT year, COUNT(*) as value FROM vehicles WHERE 1=1"
-          }
-          
-        case .roadWearIndex:
-          // Road Wear Index: 4th power law based on vehicle mass
-          // Uses actual axle count when available (max_axles), falls back to vehicle type
-          // Axle-based coefficients (Oct 2025):
-          // - 2 axles: 0.1325 (45/55 split)
-          // - 3 axles: 0.0234 (30/35/35 split)
-          // - 4 axles: 0.0156 (25/25/25/25 split)
-          // - 5 axles: 0.0080 (20% each)
-          // - 6+ axles: 0.0046 (16.67% each)
-          let rwiCalculation = """
-                        CASE
-                            -- Use actual axle data when available (BCA trucks)
-                            WHEN max_axles = 2 THEN 0.1325 * POWER(net_mass, 4)
-                            WHEN max_axles = 3 THEN 0.0234 * POWER(net_mass, 4)
-                            WHEN max_axles = 4 THEN 0.0156 * POWER(net_mass, 4)
-                            WHEN max_axles = 5 THEN 0.0080 * POWER(net_mass, 4)
-                            WHEN max_axles >= 6 THEN 0.0046 * POWER(net_mass, 4)
-                            -- Fallback: vehicle type assumptions when max_axles is NULL
-                            WHEN vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code IN ('CA', 'VO'))
-                            THEN 0.0234 * POWER(net_mass, 4)
-                            WHEN vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code = 'AB')
-                            THEN 0.1935 * POWER(net_mass, 4)
-                            ELSE 0.125 * POWER(net_mass, 4)
-                        END
-                        """
-          if filters.roadWearIndexMode == .average {
-            query = "SELECT year, AVG(\(rwiCalculation)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
-          } else if filters.roadWearIndexMode == .median {
-            // Median requires window functions with CTE
-            query = """
-                            WITH rwi_values AS (
-                                SELECT year,
-                                       \(rwiCalculation) as value,
-                                       ROW_NUMBER() OVER (PARTITION BY year ORDER BY \(rwiCalculation)) as row_num,
-                                       COUNT(*) OVER (PARTITION BY year) as total_count
-                                FROM vehicles
-                                WHERE net_mass IS NOT NULL AND 1=1
-                            )
-                            SELECT year,
-                                   AVG(value) as value
-                            FROM rwi_values
-                            WHERE row_num IN ((total_count + 1) / 2, (total_count + 2) / 2)
-                            GROUP BY year
-                            ORDER BY year
-                            """
-          } else {
-            query = "SELECT year, SUM(\(rwiCalculation)) as value FROM vehicles WHERE net_mass IS NOT NULL AND 1=1"
-          }
-        }
-        
-        // Build WHERE clause from filters
-        var bindIndex = 1
-        var bindValues: [(Int32, Any)] = []
-        
-        // Add all filter conditions (years, regions, classes, etc.)
-        query += self?.buildVehicleWhereClause(filters: filters, bindIndex: &bindIndex, bindValues: &bindValues) ?? ""
-        
-        // Add GROUP BY and ORDER BY
-        query += " GROUP BY year ORDER BY year"
-        
-        // Prepare and execute statement
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
-        
-        guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
-          if let errorMessage = sqlite3_errmsg(db) {
-            continuation.resume(throwing: DatabaseError.queryFailed(String(cString: errorMessage)))
-          } else {
-            continuation.resume(throwing: DatabaseError.queryFailed("Unknown error"))
-          }
-          return
-        }
-        
-        // Bind values
-        for (index, value) in bindValues {
-          switch value {
-          case let intValue as Int:
-            sqlite3_bind_int(stmt, index, Int32(intValue))
-          case let stringValue as String:
-            sqlite3_bind_text(stmt, index, stringValue, -1, SQLITE_TRANSIENT)
-          default:
-            break
-          }
-        }
-        
-        // Execute query and collect results
-        var points: [TimeSeriesPoint] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-          let year = Int(sqlite3_column_int(stmt, 0))
-          let value = sqlite3_column_double(stmt, 1)
-          points.append(TimeSeriesPoint(year: year, value: value, label: nil))
-        }
-        
-        let duration = Date().timeIntervalSince(startTime)
-        self?.printEnhancedQueryResult(
-          queryType: "Vehicle",
-          executionTime: duration,
-          dataPoints: points.count,
-          query: query,
-          bindValues: bindValues
-        )
-        continuation.resume(returning: points)
-      }
-    }
-#endif
+
   }
   
   /// Raw license data query that returns just points without series wrapper
@@ -3453,18 +2449,7 @@ class DatabaseManager: ObservableObject {
   
   /// Gets available years - uses cache when possible
   func getAvailableYears() async -> [Int] {
-#if false // TODO:  Delete obsolete code
-    // Use enumeration-based data
-    if useOptimizedQueries, let filterCacheManager = filterCacheManager {
-      do {
-        let years = try await filterCacheManager.getAvailableYears()
-        print("✅ Using enumeration-based years (\(years.count) items)")
-        return years
-      } catch {
-        print("⚠️ Failed to load enumeration years, falling back to database query: \(error)")
-      }
-    }
-#else
+
     if let filterCacheManager = filterCacheManager {
       do {
         let years = try await filterCacheManager.getAvailableYears()
@@ -3474,35 +2459,16 @@ class DatabaseManager: ObservableObject {
         print("⚠️ Failed to load enumeration years, falling back to database query: \(error)")
       }
     }
-#endif
-    
-#if false // TODO:  // Delete obsolete code
-    // Fall back to database query
-    print("📊 Querying years from database...")
-    return await getYearsFromDatabase()
-#else
-    // New behavior: fail gracefully instead of string-based fallback
+
     print("⚠️ Unable to load years from cache")
     return []
-#endif
+
   }
   
   /// Gets available years for a specific data entity type
   func getAvailableYears(for dataType: DataEntityType) async -> [Int] {
     print("🔍 getAvailableYears(for: \(dataType)) - Data-type-aware query")
-    
-#if false // TODO:  Delete obsolete code
-    // Use enumeration-based data
-    if useOptimizedQueries, let filterCacheManager = filterCacheManager {
-      do {
-        let years = try await filterCacheManager.getAvailableYears()
-        print("✅ Using enumeration-based years (\(years.count) items) for \(dataType)")
-        return years
-      } catch {
-        print("⚠️ Failed to load enumeration years, falling back to database query: \(error)")
-      }
-    }
-#else
+
     if let filterCacheManager = filterCacheManager {
       do {
         let years = try await filterCacheManager.getAvailableYears()
@@ -3512,21 +2478,10 @@ class DatabaseManager: ObservableObject {
         print("⚠️ Failed to load enumeration years, falling back to database query: \(error)")
       }
     }
-#endif
     
-#if false // TODO:  Delete obsolete code
-    // Fall back to database query
-    switch dataType {
-    case .vehicle:
-      return await getVehicleYearsFromDatabase()
-    case .license:
-      return await getLicenseYearsFromDatabase()
-    }
-#else
-    // New behavior: fail gracefully instead of string-based fallback
     print("⚠️ Unable to load years from cache for \(dataType)")
     return []
-#endif
+
   }
   
   /// Internal method to query years directly from database
@@ -3568,18 +2523,7 @@ class DatabaseManager: ObservableObject {
   
   /// Gets available regions - uses enumeration tables
   func getAvailableRegions(for dataEntityType: DataEntityType = .vehicle) async -> [String] {
-#if false // TODO:  Delete
-    // Use enumeration-based data
-    if useOptimizedQueries, let filterCacheManager = filterCacheManager {
-      do {
-        let filterItems = try await filterCacheManager.getAvailableRegions()
-        print("✅ Using enumeration-based regions (\(filterItems.count) items)")
-        return filterItems.map { $0.displayName }
-      } catch {
-        print("⚠️ Failed to load enumeration regions, falling back to database query: \(error)")
-      }
-    }
-#else
+
     if let filterCacheManager = filterCacheManager {
       do {
         let filterItems = try await filterCacheManager.getAvailableRegions()
@@ -3589,32 +2533,15 @@ class DatabaseManager: ObservableObject {
         print("⚠️ Failed to load enumeration regions, falling back to database query: \(error)")
       }
     }
-#endif
-    
-#if false // TODO:  Delete
-    // Fall back to database query
-    return await getRegionsFromDatabase(for: dataEntityType)
-#else
-    // New behavior: fail gracefully instead of string-based fallback
+
     print("⚠️ Unable to load regions from cache for \(dataEntityType)")
     return []
-#endif
+
   }
   
   /// Gets available MRCs - uses enumeration tables
   func getAvailableMRCs(for dataEntityType: DataEntityType = .vehicle) async -> [String] {
-#if false // TODO:  Delete
-    // Use enumeration-based data
-    if useOptimizedQueries, let filterCacheManager = filterCacheManager {
-      do {
-        let filterItems = try await filterCacheManager.getAvailableMRCs()
-        print("✅ Using enumeration-based MRCs (\(filterItems.count) items)")
-        return filterItems.map { $0.displayName }
-      } catch {
-        print("⚠️ Failed to load enumeration MRCs, falling back to database query: \(error)")
-      }
-    }
-#else
+
     if let filterCacheManager = filterCacheManager {
       do {
         let filterItems = try await filterCacheManager.getAvailableMRCs()
@@ -3624,17 +2551,10 @@ class DatabaseManager: ObservableObject {
         print("⚠️ Failed to load enumeration MRCs, falling back to database query: \(error)")
       }
     }
-#endif
     
-    
-#if false // TODO:  Delete
-    // Fall back to database query
-    return await getMRCsFromDatabase(for: dataEntityType)
-#else
-    // New behavior: fail gracefully instead of string-based fallback
     print("⚠️ Unable to load MRCs from cache for \(dataEntityType)")
     return []
-#endif
+
   }
   
   /// Prepares database for bulk import session
@@ -3867,18 +2787,7 @@ class DatabaseManager: ObservableObject {
   
   /// Gets available vehicle classes - uses enumeration tables
   func getAvailableVehicleClasses() async -> [String] {
-#if false // TODO:  Delete
-    // Use enumeration-based data
-    if useOptimizedQueries, let filterCacheManager = filterCacheManager {
-      do {
-        let filterItems = try await filterCacheManager.getAvailableVehicleClasses()
-        print("✅ Using enumeration-based vehicle classes (\(filterItems.count) items)")
-        return filterItems.map { $0.displayName }
-      } catch {
-        print("⚠️ Failed to load enumeration vehicle classes, falling back to database query: \(error)")
-      }
-    }
-#else
+
     if let filterCacheManager = filterCacheManager {
       do {
         let filterItems = try await filterCacheManager.getAvailableVehicleClasses()
@@ -3888,32 +2797,15 @@ class DatabaseManager: ObservableObject {
         print("⚠️ Failed to load enumeration vehicle classes, falling back to database query: \(error)")
       }
     }
-#endif
-    
-#if false // TODO:  Delete
-    // Fall back to database query
-    return await getClassesFromDatabase()
-#else
-    // New behavior: fail gracefully instead of string-based fallback
+
     print("⚠️ Unable to load vehicle classes from cache")
     return []
-#endif
+
   }
   
   /// Gets available vehicle types - uses enumeration tables
   func getAvailableVehicleTypes() async -> [String] {
-#if false // TODO:  Delete
-    // Use enumeration-based data
-    if useOptimizedQueries, let filterCacheManager = filterCacheManager {
-      do {
-        let filterItems = try await filterCacheManager.getAvailableVehicleTypes()
-        print("✅ Using enumeration-based vehicle types (\(filterItems.count) items)")
-        return filterItems.map { $0.displayName }
-      } catch {
-        print("⚠️ Failed to load enumeration vehicle types, falling back to database query: \(error)")
-      }
-    }
-#else
+
     if let filterCacheManager = filterCacheManager {
       do {
         let filterItems = try await filterCacheManager.getAvailableVehicleTypes()
@@ -3923,31 +2815,16 @@ class DatabaseManager: ObservableObject {
         print("⚠️ Failed to load enumeration vehicle types, falling back to database query: \(error)")
       }
     }
-#endif
+
     
-#if false // TODO:  Delete
-    // Fall back to database query
-    return await getVehicleTypesFromDatabase()
-#else
-    // New behavior: fail gracefully instead of string-based fallback
     print("⚠️ Unable to load vehicle types from cache")
     return []
-#endif
+
   }
   
   /// Gets available vehicle makes - uses enumeration cache with badges
   func getAvailableVehicleMakes() async -> [String] {
-#if false // TODO:  Delete
-    if useOptimizedQueries, let filterCacheManager = filterCacheManager {
-      do {
-        let filterItems = try await filterCacheManager.getAvailableMakes()
-        print("✅ Using enumeration-based makes (\(filterItems.count) items)")
-        return filterItems.map { $0.displayName }
-      } catch {
-        print("⚠️ Failed to load enumeration makes, falling back to database query: \(error)")
-      }
-    }
-#else
+
     if let filterCacheManager = filterCacheManager {
       do {
         let filterItems = try await filterCacheManager.getAvailableMakes()
@@ -3957,31 +2834,15 @@ class DatabaseManager: ObservableObject {
         print("⚠️ Failed to load enumeration makes, falling back to database query: \(error)")
       }
     }
-#endif
     
-#if false // TODO:  Delete
-    // Fall back to database query
-    return await getVehicleMakesFromDatabase()
-#else
-    // New behavior: fail gracefully instead of string-based fallback
     print("⚠️ Unable to load vehicle makes from cache")
     return []
-#endif
+
   }
   
   /// Gets available vehicle models - uses enumeration cache with badges
   func getAvailableVehicleModels() async -> [String] {
-#if false // TODO:  Delete
-    if useOptimizedQueries, let filterCacheManager = filterCacheManager {
-      do {
-        let filterItems = try await filterCacheManager.getAvailableModels()
-        print("✅ Using enumeration-based models (\(filterItems.count) items with badges)")
-        return filterItems.map { $0.displayName }
-      } catch {
-        print("⚠️ Failed to load enumeration models, falling back to database query: \(error)")
-      }
-    }
-#else
+
     if let filterCacheManager = filterCacheManager {
       do {
         let filterItems = try await filterCacheManager.getAvailableModels()
@@ -3991,16 +2852,10 @@ class DatabaseManager: ObservableObject {
         print("⚠️ Failed to load enumeration models, falling back to database query: \(error)")
       }
     }
-#endif
     
-#if false // TODO:  Delete
-    // Fall back to database query
-    return await getVehicleModelsFromDatabase()
-#else
-    // New behavior: fail gracefully instead of string-based fallback
     print("⚠️ Unable to load vehicle models from cache")
     return []
-#endif
+
   }
   
   /// Gets available model years - queries database directly
@@ -4763,19 +3618,7 @@ class DatabaseManager: ObservableObject {
     guard dataType == .vehicle else {
       return []
     }
-    
-#if false // TODO:  Delete
-    // Use enumeration-based data
-    if useOptimizedQueries, let filterCacheManager = filterCacheManager {
-      do {
-        let filterItems = try await filterCacheManager.getAvailableMunicipalities()
-        print("✅ Using enumeration-based municipalities (\(filterItems.count) items)")
-        return filterItems.map { $0.displayName }
-      } catch {
-        print("⚠️ Failed to load enumeration municipalities, falling back to database query: \(error)")
-      }
-    }
-#else
+
     if let filterCacheManager = filterCacheManager {
           do {
               let filterItems = try await filterCacheManager.getAvailableMunicipalities()
@@ -4785,16 +3628,10 @@ class DatabaseManager: ObservableObject {
               print("⚠️ Failed to load enumeration municipalities, falling back to database query: \(error)")
           }
       }
-#endif
     
-#if false // TODO:  Delete
-    // Fall back to database query
-    return await getMunicipalitiesFromDatabase()
-#else
-    // New behavior: fail gracefully instead of string-based fallback
     print("⚠️ Unable to load municipalities from cache")
     return []
-#endif
+
   }
   
   /// Internal method to query municipalities from database
