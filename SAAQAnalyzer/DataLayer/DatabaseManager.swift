@@ -2696,14 +2696,14 @@ class DatabaseManager: ObservableObject {
       print("⚠️ Failed to refresh enumeration cache: \(error)")
     }
     
-    // Refresh legacy string-based cache
+    // Refresh enumeration-based filter cache
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
       Task {
         await self.refreshFilterCache()
         continuation.resume()
       }
     }
-    
+
     // Trigger UI refresh AFTER cache is fully loaded
     await Task { @MainActor in
       self.dataVersion += 1
@@ -2724,14 +2724,14 @@ class DatabaseManager: ObservableObject {
       print("⚠️ Failed to refresh enumeration cache: \(error)")
     }
     
-    // Refresh legacy string-based cache
+    // Refresh enumeration-based filter cache
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
       Task {
         await self.refreshFilterCache()
         continuation.resume()
       }
     }
-    
+
     // Trigger UI refresh AFTER cache is fully loaded
     await Task { @MainActor in
       self.dataVersion += 1
