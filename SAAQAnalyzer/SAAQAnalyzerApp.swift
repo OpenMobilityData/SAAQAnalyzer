@@ -664,43 +664,52 @@ struct ContentView: View {
     }
 
     // MARK: - Helper Functions
-
-    private func refreshChartData() {
-        Task {
-            let queryPattern = generateQueryPattern(from: selectedFilters)
-
-            // Analyze actual index usage deterministically
-            let actualIndexUsage = await databaseManager.analyzeQueryIndexUsage(filters: selectedFilters)
-
-            await MainActor.run {
-                currentQueryPattern = queryPattern
-                currentQueryIsIndexed = actualIndexUsage
-                isAddingSeries = true
-            }
-
-            do {
-                let newSeries = try await databaseManager.queryData(filters: selectedFilters)
-
-                await MainActor.run {
-                    // Assign unique color based on series index
-                    newSeries.color = Color.forSeriesIndex(chartData.count)
-                    chartData.append(newSeries)
-                    selectedSeries = newSeries
-                    isAddingSeries = false
-                    currentQueryPattern = nil
-                    currentQueryIsIndexed = nil
-                }
-            } catch {
-                await MainActor.run {
-                    isAddingSeries = false
-                    currentQueryPattern = nil
-                    currentQueryIsIndexed = nil
-                }
-                print("❌ Error creating chart series: \(error)")
-            }
+  
+  private func refreshChartData() {
+    Task {
+      let queryPattern = generateQueryPattern(from: selectedFilters)
+      
+#if false // TODO: Delete after testing - vestigial dual-path index analysis
+      // Analyze actual index usage deterministically
+      let actualIndexUsage = await databaseManager.analyzeQueryIndexUsage(filters: selectedFilters)
+      
+      await MainActor.run {
+        currentQueryPattern = queryPattern
+        currentQueryIsIndexed = actualIndexUsage
+        isAddingSeries = true
+      }
+#else
+      // New behavior: Integer-based queries always use indexes
+      await MainActor.run {
+        currentQueryPattern = queryPattern
+        currentQueryIsIndexed = true  // Integer queries always use indexes
+        isAddingSeries = true
+      }
+#endif
+      
+      do {
+        let newSeries = try await databaseManager.queryData(filters: selectedFilters)
+        
+        await MainActor.run {
+          // Assign unique color based on series index
+          newSeries.color = Color.forSeriesIndex(chartData.count)
+          chartData.append(newSeries)
+          selectedSeries = newSeries
+          isAddingSeries = false
+          currentQueryPattern = nil
+          currentQueryIsIndexed = nil
         }
+      } catch {
+        await MainActor.run {
+          isAddingSeries = false
+          currentQueryPattern = nil
+          currentQueryIsIndexed = nil
+        }
+        print("❌ Error creating chart series: \(error)")
+      }
     }
-
+  }
+  
     /// Updates the query preview text based on current filter configuration
     private func updateQueryPreview() {
         Task {
