@@ -19,7 +19,7 @@ SAAQAnalyzer is a sophisticated macOS SwiftUI application (42 Swift files, ~24K 
 **Key Classes**:
 - `DatabaseManager` - Singleton managing database connection, schema, caching
   - Published properties: `databaseURL`, `dataVersion`, `testDatabaseCleanupNeeded`
-  - Managers: `filterCacheManager`, `schemaManager`, `optimizedQueryManager`, `regularizationManager`
+  - Managers: `filterCacheManager`, `queryManager`, `regularizationManager`
 
 **Public APIs to Test**:
 ```swift
@@ -74,7 +74,7 @@ func applyCumulativeSum(_ values: [(Int, Double)]) -> [(Int, Double)]
    - UserDefaults filter cache clearing
 
 **Integration Points**:
-- Depends on: `CategoricalEnumManager` (enumeration creation), `FilterCacheManager` (filter loading), `OptimizedQueryManager` (integer queries), `RegularizationManager` (make/model mappings), `SchemaManager` (schema migrations)
+- Depends on: `CategoricalEnumManager` (enumeration creation), `FilterCacheManager` (filter loading), `QueryManager` (integer queries), `RegularizationManager` (make/model mappings)
 - Publishes: `dataVersion` (triggers UI refresh), cache state changes
 
 **Known Pitfalls** (from CLAUDE.md):
@@ -225,11 +225,11 @@ func getModelsForMake(_ makeId: Int) -> [FilterItem]
 
 ---
 
-### 1.4 OptimizedQueryManager.swift (1,267 lines)
+### 1.4 QueryManager.swift (1,267 lines)
 **Responsibility**: High-performance integer-based query execution
 
 **Key Classes**:
-- `OptimizedQueryManager` - Executes queries using enumeration table IDs
+- `QueryManager` - Executes queries using enumeration table IDs
 - `OptimizedFilterIds` - Holds converted filter string-to-ID mappings
 
 **Public APIs to Test**:
@@ -306,14 +306,12 @@ private func queryLicenseDataWithIntegers(filters: FilterConfiguration, filterId
 func createEnumerationTables() async throws
 func createEnumerationIndexes() async throws
 
-// Population
-func populateEnumerationsFromExistingData() async throws
-func populateEnumerationFromVehicleField(fieldName: String, enumTableName: String) async throws
-
 // Lookups
 func getEnumValue(for enumValue: String, from tableName: String) async throws -> Int?
 func getEnumDisplay(for id: Int, from tableName: String) async throws -> String?
 ```
+
+**Note**: Population methods (`populateEnumerationsFromExistingData()` and helpers) were removed in October 2024 refactoring as they queried non-existent string columns from pre-migration schema.
 
 **Complex Logic Requiring Validation**:
 1. **Table Schema Design** (lines ~16-200)
@@ -872,7 +870,7 @@ AppLogger.app           // Lifecycle, version info
    - No functional UI tests yet
 
 ### Coverage Gaps:
-- ❌ OptimizedQueryManager (no integer conversion tests)
+- ❌ QueryManager (no integer conversion tests)
 - ❌ FilterCacheManager (new enumeration-based cache, no tests)
 - ❌ RegularizationManager (critical but untested)
 - ❌ CategoricalEnumManager (schema creation, no tests)
@@ -887,7 +885,7 @@ AppLogger.app           // Lifecycle, version info
 ## 6. CRITICAL TESTING PRIORITIES
 
 ### Tier 1 (Foundation - Must Have):
-1. **Integer Query Path** - OptimizedQueryManager filter conversion
+1. **Integer Query Path** - QueryManager filter conversion
 2. **Enumeration Table Indexes** - Performance validation (16x difference)
 3. **Cache Invalidation Pattern** - invalidate() before initialize()
 4. **Regularization Query Translation** - Make/Model coupling logic
@@ -1001,7 +999,7 @@ AppLogger.app           // Lifecycle, version info
 | DatabaseManager | Core DB abstraction | 7.8K | Basic | Tier 1 | Singleton, many interdependencies |
 | CSVImporter | CSV parsing/import | 958 | Moderate | Tier 1 | Encoding handling critical |
 | FilterCacheManager | Enumeration cache | 892 | None | Tier 1 | New component, needs full coverage |
-| OptimizedQueryManager | Integer queries | 1.3K | None | Tier 1 | High complexity, performance critical |
+| QueryManager | Integer queries | 1.3K | None | Tier 1 | High complexity, performance critical |
 | CategoricalEnumManager | Enum tables | 787 | None | Tier 1 | Index presence validation critical |
 | RegularizationManager | Make/Model mappings | 1.9K | None | Tier 1 | Coupling logic complex |
 | SchemaManager | Schema migrations | 441 | None | Tier 2 | Safe to run multiple times |
@@ -1019,11 +1017,11 @@ AppLogger.app           // Lifecycle, version info
 
 SAAQAnalyzer employs sophisticated data structures and query optimization patterns that require comprehensive test coverage. The integer enumeration architecture is performant but fragile—missing indexes or incorrect query patterns can cause severe (165s) performance degradation. Critical test focus areas are:
 
-1. **Query system** (DatabaseManager, OptimizedQueryManager, FilterCacheManager)
+1. **Query system** (DatabaseManager, QueryManager, FilterCacheManager)
 2. **Enumeration infrastructure** (CategoricalEnumManager indexes)
 3. **Data transformation** (regularization, normalization, cumulative sum)
 4. **Concurrency safety** (cache locking, database connections)
 5. **Character encoding** (French diacritics preservation)
 
-Existing test infrastructure provides a foundation but lacks coverage of the most performance-sensitive components (OptimizedQueryManager, CategoricalEnumManager) and advanced features (regularization, normalization pipelines).
+Existing test infrastructure provides a foundation but lacks coverage of the most performance-sensitive components (QueryManager, CategoricalEnumManager) and advanced features (regularization, normalization pipelines).
 

@@ -63,7 +63,7 @@ Comprehensive testing documentation for SAAQAnalyzer codebase. This index provid
 
 | Component | Size | Risk | Tests Needed |
 |-----------|------|------|--------------|
-| OptimizedQueryManager | 1.3K | CRITICAL | 150 tests (filter conversion, RWI, regularization) |
+| QueryManager | 1.3K | CRITICAL | 150 tests (filter conversion, RWI, regularization) |
 | CategoricalEnumManager | 787 | CRITICAL | 80 tests (schema creation, index validation) |
 | FilterCacheManager | 892 | CRITICAL | 100 tests (initialization, guards, data types) |
 | RegularizationManager | 1.9K | CRITICAL | 120 tests (query translation, coupling) |
@@ -78,7 +78,6 @@ Comprehensive testing documentation for SAAQAnalyzer codebase. This index provid
 |-----------|------|------|--------------|
 | DatabaseManager | 7.8K | HIGH | 100+ tests (cache invalidation, queries) |
 | CSVImporter | 958 | HIGH | 50+ tests (encoding edge cases) |
-| SchemaManager | 441 | MEDIUM | 60 tests (migration pipeline) |
 | DataModels | 2.1K | MEDIUM | 40 tests (statistics, validation) |
 
 **Total Tier 2 Tests**: ~250 (estimated)
@@ -238,13 +237,12 @@ SAAQAnalyzerTests/
 ### Major Coverage Gaps
 
 **By Priority:**
-1. OptimizedQueryManager - 0% (CRITICAL)
+1. QueryManager - 0% (CRITICAL)
 2. CategoricalEnumManager - 0% (CRITICAL)
 3. FilterCacheManager - 0% (CRITICAL, new)
 4. RegularizationManager - 0% (CRITICAL)
 5. DatabaseManager - ~10% (HIGH)
 6. CSVImporter - ~15% (HIGH)
-7. SchemaManager - 0% (MEDIUM)
 8. All UI components - 0% (MEDIUM)
 
 ---

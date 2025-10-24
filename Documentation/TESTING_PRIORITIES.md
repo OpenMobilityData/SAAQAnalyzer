@@ -16,7 +16,7 @@ These components have complex logic critical to application correctness and perf
 
 | Component | Size | Risk Level | Why Critical | Existing Tests |
 |-----------|------|-----------|-------------|-----------------|
-| **OptimizedQueryManager** | 1.3K | CRITICAL | Integer query execution, filter conversion, performance | ❌ NONE |
+| **QueryManager** | 1.3K | CRITICAL | Integer query execution, filter conversion, performance | ❌ NONE |
 | **CategoricalEnumManager** | 787 | CRITICAL | Index creation (16x performance impact), schema setup | ❌ NONE |
 | **FilterCacheManager** | 892 | CRITICAL | Cache initialization guards, data type awareness, regularization info | ❌ NONE |
 | **RegularizationManager** | 1.9K | CRITICAL | Make/Model query translation, coupling logic, hierarchy generation | ❌ NONE |
@@ -29,7 +29,6 @@ These components implement important features but have less complex logic.
 
 | Component | Size | Risk Level | Why Important | Existing Tests |
 |-----------|------|-----------|-------------|-----------------|
-| **SchemaManager** | 441 | MEDIUM | Migration pipeline, integer column population | ❌ NONE |
 | **DataModels** | 2.1K | MEDIUM | Data structure validation, statistics calculations | ❌ NONE |
 | **ImportProgressManager** | 258 | MEDIUM | Progress tracking, stage progression | ❌ NONE |
 | **FilterPanel** | 2.7K | MEDIUM | State management, hierarchical filtering UI | ❌ NONE |
@@ -51,7 +50,7 @@ Infrastructure and utilities with straightforward responsibilities.
 
 ### 1. INTEGER ENUMERATION QUERY SYSTEM (Top Priority)
 
-**Tests Needed** (OptimizedQueryManager, CategoricalEnumManager):
+**Tests Needed** (QueryManager, CategoricalEnumManager):
 
 - [ ] Filter string → ID conversion (extract parenthesized codes)
 - [ ] Vehicle query with all filter combinations
@@ -94,7 +93,7 @@ Infrastructure and utilities with straightforward responsibilities.
 
 ### 3. NORMALIZATION & TRANSFORMATION PIPELINE
 
-**Tests Needed** (DatabaseManager, OptimizedQueryManager):
+**Tests Needed** (DatabaseManager, QueryManager):
 
 - [ ] `normalizeToFirstYear()` divides all values by first year
 - [ ] Normalization handles zero/negative first year values
@@ -133,7 +132,7 @@ Infrastructure and utilities with straightforward responsibilities.
 
 ### 5. REGULARIZATION MAKE/MODEL LOGIC
 
-**Tests Needed** (RegularizationManager, OptimizedQueryManager):
+**Tests Needed** (RegularizationManager, QueryManager):
 
 - [ ] Canonical hierarchy generation from curated years
 - [ ] Year configuration changes trigger cache invalidation
@@ -152,19 +151,15 @@ Infrastructure and utilities with straightforward responsibilities.
 
 ---
 
-### 6. SCHEMA CREATION & MIGRATION
+### 6. SCHEMA CREATION
 
-**Tests Needed** (CategoricalEnumManager, SchemaManager):
+**Tests Needed** (CategoricalEnumManager):
 
 - [ ] All enumeration tables created with correct integer types
 - [ ] All required indexes created on ID columns
 - [ ] Foreign key relationships enforced
 - [ ] NULL handling for optional fields (fuel_type, mrc)
-- [ ] Migration pipeline order: tables → populate → columns → indexes
-- [ ] Integer column population from string values
 - [ ] Validation detects orphaned records (missing enum values)
-- [ ] Migration safe to re-run multiple times
-- [ ] Schema version tracking for upgrade detection
 
 **Risk if Not Tested**:
 - Missing indexes cause catastrophic performance issues
@@ -277,7 +272,7 @@ SAAQAnalyzer/
 ### Coverage Gaps (Priority Order)
 
 **Tier 1 - MUST HAVE** (estimated 500+ tests):
-1. OptimizedQueryManager - Filter conversion, RWI calc, regularization (150 tests)
+1. QueryManager - Filter conversion, RWI calc, regularization (150 tests)
 2. CategoricalEnumManager - Schema creation, index validation (80 tests)
 3. FilterCacheManager - Initialization guards, data type awareness (100 tests)
 4. RegularizationManager - Query translation, coupling logic (120 tests)
@@ -312,7 +307,7 @@ Build test infrastructure and test Tier 1 critical components.
 # Tests
 4. CategoricalEnumManager tests (schema, indexes)
 5. FilterCacheManager tests (initialization, guards)
-6. OptimizedQueryManager tests (filter conversion, queries)
+6. QueryManager tests (filter conversion, queries)
 7. RegularizationManager tests (translation, coupling)
 8. Normalization pipeline tests (math correctness)
 ```

@@ -677,7 +677,7 @@ When you save or auto-regularize mappings during a session, the system automatic
   - Queries for curated models return correct results (no cross-contamination with uncurated variants)
 
 **Files Modified:**
-- `OptimizedQueryManager.swift:183,203` - Now respects `limitToCuratedYears` flag when loading makes/models
+- `QueryManager.swift:183,203` - Now respects `limitToCuratedYears` flag when loading makes/models
 
 ### Make/Model ID Expansion - Refined Logic
 
@@ -713,8 +713,8 @@ When you save or auto-regularize mappings during a session, the system automatic
 - User selects "ART (NOVA)" → Query matches ONLY that specific variant
 
 **Files Modified:**
-- `OptimizedQueryManager.swift:183,203` - Now respects `limitToCuratedYears` flag when loading makes/models
-- `OptimizedQueryManager.swift:217-245` - Restored Make/Model ID expansion with proper conditionals
+- `QueryManager.swift:183,203` - Now respects `limitToCuratedYears` flag when loading makes/models
+- `QueryManager.swift:217-245` - Restored Make/Model ID expansion with proper conditionals
 - `FilterCacheManager.swift:552-574` - Enhanced filtering to exclude both uncurated and regularized pairs when limiting to curated years
 
 **Impact on Queries:**

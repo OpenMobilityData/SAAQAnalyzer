@@ -35,7 +35,7 @@ xcodebuild test -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer -destinatio
 ```
 SAAQAnalyzerTests/
 ├── SAAQAnalyzerTests.swift               # Basic app initialization tests
-├── OptimizedQueryManagerTests.swift      # Integer query system and RWI calculation tests ✨ NEW
+├── QueryManagerTests.swift               # Integer query system and RWI calculation tests ✨ NEW
 ├── CategoricalEnumManagerTests.swift     # Enum table schema and index validation ✨ NEW
 ├── FilterCacheTests.swift                # Cache separation and consistency tests
 ├── DatabaseManagerTests.swift            # Database query and performance tests
@@ -45,7 +45,7 @@ SAAQAnalyzerTests/
 
 ## Test Categories
 
-### 1. OptimizedQueryManagerTests ✨ **NEW - October 23, 2025**
+### 1. QueryManagerTests ✨ **NEW - October 23, 2025**
 
 **Priority**: CRITICAL (Tier 1)
 **Coverage**: Highest-risk component with 0% prior coverage
@@ -124,7 +124,7 @@ SAAQAnalyzerTests/
 **Known Limitations:**
 - Tests currently validate configuration objects and formulas
 - Database integration requires mock database setup (future work)
-- No `OptimizedQueryManager` instantiation (causes SIGABRT with singleton)
+- No `QueryManager` instantiation (causes SIGABRT with singleton)
 - Tests serve as comprehensive documentation of expected behavior
 
 **Test Pattern Established:**

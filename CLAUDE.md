@@ -458,12 +458,12 @@ The application supports multiple metric types for data analysis:
    - **Legend format**: `"Avg RWI in [[filters]]"` or `"Total RWI (All Vehicles)"`
    - **Y-axis label**: Indicates normalization state: "(Normalized)" or "(Raw)"
    - **Implementation**:
-     - `OptimizedQueryManager.swift:647-673`: RWI calculation (axle-based with vehicle-type fallback) ⚠️ PRIMARY PATH
+     - `QueryManager.swift:647-673`: RWI calculation (axle-based with vehicle-type fallback) ⚠️ PRIMARY PATH
      - `DatabaseManager.swift:399-421`: Normalization helper function
      - `DatabaseManager.swift:1227-1245`: RWI calculation (legacy path, not used)
      - `DatabaseManager.swift:1923-1941`: RWI calculation (percentage query path, legacy)
      - `DatabaseManager.swift:1436-1440`: Conditional normalization application (see Normalize to First Year below)
-     - `OptimizedQueryManager.swift:693-697`: Conditional normalization (optimized path, see Normalize to First Year)
+     - `QueryManager.swift:693-697`: Conditional normalization (see Normalize to First Year)
      - `FilterPanel.swift:1731-1768`: UI mode selector (RWI-specific)
      - `DataModels.swift:1127`: normalizeToFirstYear property (global, see below)
      - `DataModels.swift:1546-1564`: Value formatting with normalization awareness
@@ -492,8 +492,8 @@ The application supports multiple metric types for data analysis:
   - `DatabaseManager.swift:2401-2404`: Legend generation for aggregate metrics (with cumulative prefix)
   - `DatabaseManager.swift:2473-2476`: Legend generation for RWI (with cumulative prefix)
   - `DatabaseManager.swift:2665-2668`: Legend generation for count metric (with cumulative prefix)
-  - `OptimizedQueryManager.swift:714-716`: Optimized vehicle query transform
-  - `OptimizedQueryManager.swift:856-858`: Optimized license query transform
+  - `QueryManager.swift:714-716`: Vehicle query transform
+  - `QueryManager.swift:856-858`: License query transform
   - `FilterPanel.swift:1773-1791`: UI toggle control
 
 ### Normalize to First Year ✨ *Promoted to Global in October 2025*
@@ -515,8 +515,8 @@ The application supports multiple metric types for data analysis:
   - `DatabaseManager.swift:399-421`: normalizeToFirstYear() helper function
   - `DatabaseManager.swift:1471-1480`: Vehicle query normalization (applied to all metrics)
   - `DatabaseManager.swift:1749-1758`: License query normalization (applied to all metrics)
-  - `OptimizedQueryManager.swift:719-723`: Optimized vehicle query normalization
-  - `OptimizedQueryManager.swift:867-876`: Optimized license query normalization
+  - `QueryManager.swift:719-723`: Vehicle query normalization
+  - `QueryManager.swift:867-876`: License query normalization
   - `FilterPanel.swift:1817-1835`: UI toggle control (global section, below RWI config)
   - `ChartView.swift:328-336`: Automatic 2-decimal precision detection for normalized values
   - `DataModels.swift:1516-1519`: Legend value formatting with normalization awareness
@@ -627,9 +627,9 @@ The application includes user-configurable preferences accessed via Settings (Cm
 - **Database deleted for clean slate** - Starting fresh with optimized schema
 
 ### Key Architectural Components
-1. **Optimized Query System**
+1. **Query System**
    - `CategoricalEnumManager.swift`: Creates and manages enumeration tables with performance indexes
-   - `OptimizedQueryManager.swift`: Integer-based queries (5.6x performance improvement)
+   - `QueryManager.swift`: Integer-based queries (5.6x performance improvement)
    - `FilterCacheManager.swift`: Loads filter data from enumeration tables
      - Supports "Limit to Curated Years Only" filtering (Oct 2025)
      - Efficient in-memory filtering of uncurated Make/Model pairs
@@ -668,7 +668,7 @@ SAAQAnalyzer/
 │   ├── CSVImporter.swift
 │   ├── GeographicDataImporter.swift
 │   ├── CategoricalEnumManager.swift    # Enumeration table management
-│   ├── OptimizedQueryManager.swift     # Integer-based queries
+│   ├── QueryManager.swift              # Integer-based queries
 │   ├── FilterCacheManager.swift        # Enumeration-based filter cache
 │   └── RegularizationManager.swift     # Make/Model/FuelType/VehicleType regularization
 ├── Models/             # Data structures and enums
@@ -707,8 +707,8 @@ Follow the pattern established for Road Wear Index (October 2025):
    - Add normalization/post-processing if needed (see `normalizeToFirstYear()`)
    - Update `generateSeriesNameAsync()` to format legend strings
 
-3. **Optimized Query** (`OptimizedQueryManager.swift`):
-   - Add case to query switch in `queryVehicleDataWithIntegers()`
+3. **Query Manager** (`QueryManager.swift`):
+   - Add case to query switch in `queryVehicleData()`
    - Use integer column names (e.g., `net_mass_int` instead of `net_mass`)
    - Apply same normalization logic
 
@@ -724,7 +724,7 @@ Follow the pattern established for Road Wear Index (October 2025):
 **Example Files Changed for Road Wear Index**:
 - `DataModels.swift`: Lines 1305, 1316, 1329, 1128-1139, 1492-1493, 1533-1542
 - `DatabaseManager.swift`: Lines 399-421, 1203-1211, 1436-1440, 2409-2459
-- `OptimizedQueryManager.swift`: Lines 606-616, 693-697
+- `QueryManager.swift`: Lines 606-616, 693-697
 - `FilterPanel.swift`: Lines 1556, 200, 1731-1746, 1853-1856
 - `ChartView.swift`: Lines 385-387
 
