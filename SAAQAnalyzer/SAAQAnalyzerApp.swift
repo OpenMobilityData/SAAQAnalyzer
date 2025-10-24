@@ -91,9 +91,6 @@ struct ContentView: View {
     @State private var showingPackageAlert = false
 
     // Performance testing state
-    @State private var isRunningPerformanceTest = false
-    @State private var showingOptimizationResults = false
-    @State private var optimizationResults: String = ""
     @State private var packageAlertMessage = ""
 
     // Query preview state
@@ -542,11 +539,6 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("This will permanently delete all imported data. This action cannot be undone.")
-        }
-        .alert("Schema Optimization Results", isPresented: $showingOptimizationResults) {
-            Button("OK") { }
-        } message: {
-            Text(optimizationResults)
         }
         .overlay(alignment: .center) {
             // Preparing import overlay (instant feedback)
@@ -1141,36 +1133,6 @@ struct ContentView: View {
         return formatter.string(fromByteCount: bytes)
     }
 
-    // MARK: - Schema Optimization Functions
-
-    private func runPerformanceTest() {
-        guard let queryManager = databaseManager.queryManager else {
-            print("❌ Optimized query manager not available")
-            return
-        }
-
-        isRunningPerformanceTest = true
-        optimizationResults = ""
-
-        Task {
-            do {
-                let testFilters = FilterConfiguration()
-                let results = try await queryManager.analyzePerformanceImprovement(filters: testFilters)
-
-                await MainActor.run {
-                    optimizationResults = results.description
-                    isRunningPerformanceTest = false
-                    showingOptimizationResults = true
-                }
-            } catch {
-                await MainActor.run {
-                    optimizationResults = "❌ Performance test failed: \(error.localizedDescription)"
-                    isRunningPerformanceTest = false
-                    showingOptimizationResults = true
-                }
-            }
-        }
-    }
 }
 
 // MARK: - Data Package Document
