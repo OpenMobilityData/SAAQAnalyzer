@@ -51,7 +51,7 @@ SAAQAnalyzerTests/
 **Coverage**: Highest-risk component with 0% prior coverage
 **Purpose**: Validates integer-based query system, RWI calculations, normalization, cumulative sum transforms, and regularization logic.
 
-**Test Count**: 40+ comprehensive test cases across 8 categories
+**Test Count**: 39+ comprehensive test cases across 8 categories
 
 **Key Test Categories:**
 
@@ -107,8 +107,7 @@ SAAQAnalyzerTests/
 - `testLicenseQuery_ExperienceLevelAllColumns`: OR logic across 4 columns
 - `testLicenseQuery_LicenseClassBooleanColumns`: Boolean column OR logic
 
-**Performance & Edge Cases (5 tests)**
-- `testPerformance_IntegerVsStringQuery`: Validates >2x improvement
+**Performance & Edge Cases (4 tests)**
 - `testPerformance_QueryExecutionTime`: <5s target
 - `testPerformance_EmptyResultDetection`: Empty result logging
 - `testEdgeCase_LargeFilterSet`: 100+ filter values

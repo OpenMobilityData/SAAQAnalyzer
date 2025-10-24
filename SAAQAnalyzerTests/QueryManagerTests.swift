@@ -763,29 +763,6 @@ final class QueryManagerTests: XCTestCase {
 
     // MARK: - Performance Tests
 
-    /// Test that optimized query is faster than string-based query
-    /// Target: >2x improvement from integer enumeration
-    @MainActor
-    func testPerformance_IntegerVsStringQuery() async throws {
-        // Note: This test requires a populated database to measure real performance
-
-        // Given: Filter configuration
-        var config = FilterConfiguration()
-        config.years = [2020, 2021, 2022]
-        config.regions = ["Montréal (06)"]
-
-        // When: Running performance comparison
-        // let comparison = try await queryManager.analyzePerformanceImprovement(filters: config)
-
-        // Then: Integer query should be significantly faster
-        // XCTAssertGreaterThan(comparison.improvementFactor, 2.0, "Should be >2x faster")
-
-        // Note: Actual improvement depends on database size and indexes
-        // Documentation reports 10x improvement with full dataset
-
-        XCTAssertEqual(config.years.count, 3)
-    }
-
     /// Test query execution time is under performance target
     /// Target: <5 seconds for typical queries
     @MainActor
