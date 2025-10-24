@@ -232,7 +232,7 @@ os.Logger is **highly optimized**:
 - [x] RegularizationManager.swift ✅ **COMPLETE** (Oct 10, 2025)
 - [ ] FilterCacheManager.swift
 - [x] CategoricalEnumManager.swift ✅ **COMPLETE** (Oct 11, 2025 - performance optimizations)
-- [ ] OptimizedQueryManager.swift
+- [ ] QueryManager.swift (renamed from OptimizedQueryManager.swift Oct 24, 2025)
 
 ### Phase 2: UI Layer (Priority: Medium)
 - [ ] SAAQAnalyzerApp.swift
@@ -244,8 +244,8 @@ os.Logger is **highly optimized**:
 ### Phase 3: Supporting Files (Priority: Low)
 - [ ] GeographicDataImporter.swift
 - [x] DataPackageManager.swift ✅ **COMPLETE** (Oct 11, 2025 - updated for canonical hierarchy cache)
-- [ ] FilterConfigurationAdapter.swift
-- [ ] SchemaManager.swift
+- ~~FilterConfigurationAdapter.swift~~ **DELETED** (Oct 24, 2025 - migration complete)
+- ~~SchemaManager.swift~~ **DELETED** (Oct 24, 2025 - migration complete)
 - [ ] FilterCache.swift
 - [ ] DataModels.swift
 - [ ] ImportProgressManager.swift

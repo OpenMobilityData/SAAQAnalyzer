@@ -5,33 +5,8 @@ import SQLite3
 
 // MARK: - Vehicle Registration Models
 
-/// Represents a vehicle registration record from SAAQ data
-struct VehicleRegistration: Codable, Sendable {
-    let year: Int                       // AN
-    let vehicleSequence: String         // NOSEQ_VEH
-    let classification: String          // CLAS (PAU, CMC, etc.)
-    let vehicleClass: String            // TYP_VEH_CATEG_USA
-    let make: String                   // MARQ_VEH
-    let model: String                  // MODEL_VEH
-    let modelYear: Int?                // ANNEE_MOD
-    let netMass: Double?               // MASSE_NETTE (kg)
-    let cylinderCount: Int?            // NB_CYL
-    let displacement: Double?          // CYL_VEH (cm³)
-    let maxAxles: Int?                 // NB_ESIEU_MAX
-    let originalColor: String?         // COUL_ORIG
-    let fuelType: String?              // TYP_CARBU (2017+ only)
-    let adminRegion: String            // REG_ADM
-    let mrc: String                    // MRC
-    let geoCode: String               // CG_FIXE
-    
-    /// Calculate vehicle age for a given year
-    func age(in year: Int) -> Int? {
-        guard let modelYear = modelYear else { return nil }
-        return year - modelYear
-    }
-}
-
 /// Vehicle classification types
+#if true // TODO:  Update to final schema
 enum VehicleClass: String, CaseIterable, Sendable {
     // Personal use
     case pau = "PAU"  // Automobile ou camion léger
@@ -106,8 +81,10 @@ enum VehicleClass: String, CaseIterable, Sendable {
         }
     }
 }
+#endif
 
 /// Fuel type codes (available from 2017+)
+#if true // TODO:  Update to final schema
 enum FuelType: String, CaseIterable, Sendable {
     case electric = "L"      // Électricité
     case gasoline = "E"      // Essence
@@ -139,32 +116,9 @@ enum FuelType: String, CaseIterable, Sendable {
         }
     }
 }
+#endif
 
 // MARK: - Driver's License Models
-
-/// Represents a driver's license record from SAAQ data
-struct DriverLicense: Codable, Sendable {
-    let year: Int                           // AN
-    let licenseSequence: String             // NOSEQ_TITUL
-    let ageGroup: String                    // AGE_1ER_JUIN
-    let gender: String                      // SEXE
-    let mrc: String                         // MRC
-    let adminRegion: String                 // REG_ADM
-    let licenseType: String                 // TYPE_PERMIS
-    let hasLearnerPermit123: Bool           // IND_PERMISAPPRENTI_123
-    let hasLearnerPermit5: Bool             // IND_PERMISAPPRENTI_5
-    let hasLearnerPermit6A6R: Bool          // IND_PERMISAPPRENTI_6A6R
-    let hasDriverLicense1234: Bool          // IND_PERMISCONDUIRE_1234
-    let hasDriverLicense5: Bool             // IND_PERMISCONDUIRE_5
-    let hasDriverLicense6ABCE: Bool         // IND_PERMISCONDUIRE_6ABCE
-    let hasDriverLicense6D: Bool            // IND_PERMISCONDUIRE_6D
-    let hasDriverLicense8: Bool             // IND_PERMISCONDUIRE_8
-    let isProbationary: Bool                // IND_PROBATOIRE
-    let experience1234: String              // EXPERIENCE_1234
-    let experience5: String                 // EXPERIENCE_5
-    let experience6ABCE: String             // EXPERIENCE_6ABCE
-    let experienceGlobal: String            // EXPERIENCE_GLOBALE
-}
 
 // MARK: - Categorical Enumeration Models
 
@@ -303,7 +257,7 @@ struct LicenseTypeEnum: CategoricalEnum, Sendable {
 }
 
 /// Optimized vehicle registration with enumerated categorical data
-struct OptimizedVehicleRegistration: Codable, Sendable {
+struct VehicleRegistration: Codable, Sendable {
     // Core identifiers
     let yearId: Int                    // TINYINT → year enum
     let vehicleSequence: String        // Keep as-is for uniqueness constraint
@@ -338,7 +292,7 @@ struct OptimizedVehicleRegistration: Codable, Sendable {
 }
 
 /// Optimized driver license with enumerated categorical data
-struct OptimizedDriverLicense: Codable, Sendable {
+struct DriverLicense: Codable, Sendable {
     // Core identifiers
     let yearId: Int                    // TINYINT → year enum
     let licenseSequence: String        // Keep as-is for uniqueness constraint
@@ -940,16 +894,6 @@ enum DataEntityType: String, CaseIterable, Sendable {
     }
 }
 
-/// Protocol for shared fields between vehicles and licenses
-protocol SAAQDataRecord {
-    var year: Int { get }
-    var adminRegion: String { get }
-    var mrc: String { get }
-}
-
-extension VehicleRegistration: SAAQDataRecord {}
-extension DriverLicense: SAAQDataRecord {}
-
 // MARK: - Geographic Models
 
 /// Represents a geographic entity (municipality, MRC, region)
@@ -1091,7 +1035,7 @@ struct FilterItem: Equatable, Identifiable, Sendable {
     }
 }
 
-// MARK: - Current Filter Configuration (String-based, will migrate to integer-based)
+// MARK: - Filter Configuration (UI uses strings, QueryManager converts to integer IDs)
 struct FilterConfiguration: Equatable, Sendable {
     // Data type selection
     var dataEntityType: DataEntityType = .vehicle
@@ -1199,42 +1143,6 @@ struct FilterConfiguration: Equatable, Sendable {
     var cleanVehicleMakes: Set<String> {
         Set(vehicleMakes.map { FilterConfiguration.stripMakeBadge($0) })
     }
-}
-
-// MARK: - Future Integer-based Filter Configuration
-struct IntegerFilterConfiguration: Equatable, Sendable {
-    // Data type selection
-    var dataEntityType: DataEntityType = .vehicle
-
-    // Shared filters (available for both vehicles and licenses)
-    var years: Set<Int> = []  // Years can remain as integers
-    var regions: Set<Int> = []  // Now uses admin_region_enum IDs
-    var mrcs: Set<Int> = []  // Now uses mrc_enum IDs
-    var municipalities: Set<Int> = []  // Now uses municipality_enum IDs
-
-    // Vehicle-specific filters
-    var vehicleClasses: Set<Int> = []  // Now uses vehicle_class_enum IDs
-    var vehicleMakes: Set<Int> = []  // Now uses make_enum IDs
-    var vehicleModels: Set<Int> = []  // Now uses model_enum IDs
-    var vehicleColors: Set<Int> = []  // Now uses color_enum IDs
-    var modelYears: Set<Int> = []  // Model years can remain as integers
-    var fuelTypes: Set<Int> = []  // Now uses fuel_type_enum IDs
-    var axleCounts: Set<Int> = []  // Axle counts as integers (2-6+)
-    var ageRanges: [FilterConfiguration.AgeRange] = []  // Keep as-is for numeric ranges
-
-    // License-specific filters
-    var licenseTypes: Set<Int> = []  // Now uses license_type_enum IDs
-    var ageGroups: Set<Int> = []  // Now uses age_group_enum IDs
-    var genders: Set<Int> = []  // Now uses gender_enum IDs
-    var experienceLevels: Set<String> = []  // Keep as strings for now
-    var licenseClasses: Set<String> = []  // Keep as strings for now
-
-    // Metric configuration
-    var metricType: ChartMetricType = .count
-    var metricField: ChartMetricField = .none
-    var percentageBaseFilters: IntegerPercentageBaseFilters? = nil
-    var roadWearIndexMode: FilterConfiguration.RoadWearIndexMode = .average
-    var normalizeToFirstYear: Bool = false  // true = normalize to first year (first year = 1.0), false = show raw values
 }
 
 // MARK: - Percentage Base Configuration
@@ -1692,61 +1600,6 @@ struct StandardAnalysisResult: AnalysisResult, Sendable {
     let description: String
     let timeSeries: [TimeSeriesPoint]
 }
-
-// MARK: - Integer-based Percentage Base Configuration
-struct IntegerPercentageBaseFilters: Equatable, Sendable {
-    // Data type selection
-    var dataEntityType: DataEntityType = .vehicle
-
-    // Shared filters
-    var years: Set<Int> = []
-    var regions: Set<Int> = []
-    var mrcs: Set<Int> = []
-    var municipalities: Set<Int> = []
-
-    // Vehicle-specific filters
-    var vehicleClasses: Set<Int> = []
-    var vehicleMakes: Set<Int> = []
-    var vehicleModels: Set<Int> = []
-    var vehicleColors: Set<Int> = []
-    var modelYears: Set<Int> = []
-    var fuelTypes: Set<Int> = []
-    var axleCounts: Set<Int> = []
-    var ageRanges: [FilterConfiguration.AgeRange] = []
-
-    // License-specific filters
-    var licenseTypes: Set<Int> = []
-    var ageGroups: Set<Int> = []
-    var genders: Set<Int> = []
-    var experienceLevels: Set<String> = []
-    var licenseClasses: Set<String> = []
-
-    /// Convert to full IntegerFilterConfiguration for database queries
-    func toIntegerFilterConfiguration() -> IntegerFilterConfiguration {
-        var config = IntegerFilterConfiguration()
-        config.dataEntityType = dataEntityType
-        config.years = years
-        config.regions = regions
-        config.mrcs = mrcs
-        config.municipalities = municipalities
-        config.vehicleClasses = vehicleClasses
-        config.vehicleMakes = vehicleMakes
-        config.vehicleModels = vehicleModels
-        config.vehicleColors = vehicleColors
-        config.modelYears = modelYears
-        config.fuelTypes = fuelTypes
-        config.axleCounts = axleCounts
-        config.ageRanges = ageRanges
-        config.licenseTypes = licenseTypes
-        config.ageGroups = ageGroups
-        config.genders = genders
-        config.experienceLevels = experienceLevels
-        config.licenseClasses = licenseClasses
-        config.metricType = .count  // Always count for baseline
-        return config
-    }
-}
-
 // MARK: - Color Extensions for Charts
 
 extension Color {
@@ -1891,20 +1744,6 @@ struct MakeModelHierarchy: Sendable {
         let makeId: Int
         let modelYearFuelTypes: [Int?: [FuelTypeInfo]]  // NEW: Dictionary keyed by modelYearId (nil = unknown year)
         let vehicleTypes: [VehicleTypeInfo]
-
-        /// Legacy accessor for backward compatibility - returns all fuel types across all years
-        var fuelTypes: [FuelTypeInfo] {
-            let allFuelTypes = modelYearFuelTypes.values.flatMap { $0 }
-            // Deduplicate by fuel type ID
-            var seen = Set<Int>()
-            return allFuelTypes.filter { fuelType in
-                if seen.contains(fuelType.id) {
-                    return false
-                }
-                seen.insert(fuelType.id)
-                return true
-            }.sorted { $0.description < $1.description }
-        }
     }
 
     /// Third level: Fuel Type (for a Make/Model/ModelYear combination)

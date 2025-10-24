@@ -244,34 +244,7 @@ class CategoricalEnumManager {
     }
 
     // MARK: - Data Population
-
-    /// Populates enumeration tables from existing string data in main tables
-    func populateEnumerationsFromExistingData() async throws {
-        guard self.db != nil else { throw DatabaseError.notConnected }
-
-        print("🔄 Populating categorical enumerations from existing data...")
-
-        // Populate in dependency order (referenced tables first)
-        try await populateYearEnum()
-        try await populateVehicleClassEnum()
-        try await populateVehicleTypeEnum()
-        try await populateMakeEnum()
-        try await populateModelEnum()  // Depends on make_enum
-        try await populateModelYearEnum()
-        try await populateCylinderCountEnum()
-        try await populateAxleCountEnum()
-        try await populateColorEnum()
-        try await populateFuelTypeEnum()
-        try await populateAdminRegionEnum()
-        try await populateMRCEnum()
-        try await populateMunicipalityEnum()
-        try await populateAgeGroupEnum()
-        try await populateGenderEnum()
-        try await populateLicenseTypeEnum()
-
-        print("✅ All categorical enumerations populated")
-    }
-
+  
     private func populateYearEnum() async throws {
         let sql = """
         INSERT OR IGNORE INTO year_enum (year)

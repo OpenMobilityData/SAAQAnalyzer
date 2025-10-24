@@ -41,10 +41,10 @@ struct RegularizationView: View {
 
                     Button("Reload Pairs List") {
                         Task {
-                            await viewModel.loadUncuratedPairs()
+                            await viewModel.loadUncuratedPairsAsync()
                         }
                     }
-                    .help("Reload the uncurated pairs list from the database to pick up any changes made by auto-regularization or external updates")
+                    .help("Reload the uncurated pairs list, mappings, and model years from the database to pick up any changes made by auto-regularization or external updates")
                     .disabled(viewModel.isLoading)
                 }
             }
@@ -1152,7 +1152,7 @@ class RegularizationViewModel: ObservableObject {
         // This task sequences the dependencies to enable performance optimizations
         Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
-            await self.loadUncuratedPairsOptimizedAsync()
+            await self.loadUncuratedPairsAsync()
         }
 
         // 4. Auto-regularize exact matches (VERY SLOW) - lowest priority background task
@@ -1225,46 +1225,10 @@ class RegularizationViewModel: ObservableObject {
         }
     }
 
-    nonisolated func loadUncuratedPairsAsync() async {
-        guard let manager = regularizationManager else {
-            logger.error("RegularizationManager not available")
-            return
-        }
-
-        await MainActor.run {
-            self.isLoading = true
-        }
-
-        let startTime = CFAbsoluteTimeGetCurrent()
-        do {
-            // Always load all pairs (including exact matches) - filtering is done in UI by status
-            let pairs = try await manager.findUncuratedPairs(includeExactMatches: true)
-            await MainActor.run {
-                self.uncuratedPairs = pairs
-                self.isLoading = false
-            }
-            let duration = CFAbsoluteTimeGetCurrent() - startTime
-            logger.notice("Loaded \(pairs.count) uncurated pairs in \(String(format: "%.3f", duration))s")
-        } catch {
-            logger.error("Error loading uncurated pairs: \(error.localizedDescription)")
-            await MainActor.run {
-                self.isLoading = false
-            }
-        }
-    }
-
-    // Keep old method for backwards compatibility (delegates to async version)
-    @MainActor
-    func loadUncuratedPairs() async {
-        Task {
-            await loadUncuratedPairsAsync()
-        }
-    }
-
-    /// Optimized coordinated loading of mappings, model years, and uncurated pairs
+    /// Coordinated loading of mappings, model years, and uncurated pairs
     /// This function sequences the dependencies to avoid duplicate database queries
     /// Performance improvement: Eliminates 2x 78K mapping loads and 500+ model year queries
-    nonisolated func loadUncuratedPairsOptimizedAsync() async {
+    nonisolated func loadUncuratedPairsAsync() async {
         guard let manager = regularizationManager else {
             logger.error("RegularizationManager not available")
             return
@@ -1652,7 +1616,7 @@ class RegularizationViewModel: ObservableObject {
             }
         }
 
-        // Wait for uncurated pairs to be loaded by loadUncuratedPairs() task (avoid duplicate query)
+        // Wait for uncurated pairs to be loaded by loadUncuratedPairsAsync() task (avoid duplicate query)
         // Poll for up to 60 seconds, checking every 0.5s
         var allUncuratedPairs = await MainActor.run { uncuratedPairs }
         var pairsWaitAttempts = 0

@@ -34,16 +34,153 @@ xcodebuild test -project SAAQAnalyzer.xcodeproj -scheme SAAQAnalyzer -destinatio
 
 ```
 SAAQAnalyzerTests/
-├── SAAQAnalyzerTests.swift         # Basic app initialization tests
-├── FilterCacheTests.swift          # Cache separation and consistency tests
-├── DatabaseManagerTests.swift      # Database query and performance tests
-├── CSVImporterTests.swift         # CSV import and encoding tests
-└── WorkflowIntegrationTests.swift  # End-to-end workflow tests
+├── SAAQAnalyzerTests.swift               # Basic app initialization tests
+├── QueryManagerTests.swift               # Integer query system and RWI calculation tests ✨ NEW
+├── CategoricalEnumManagerTests.swift     # Enum table schema and index validation ✨ NEW
+├── FilterCacheTests.swift                # Cache separation and consistency tests
+├── DatabaseManagerTests.swift            # Database query and performance tests
+├── CSVImporterTests.swift               # CSV import and encoding tests
+└── WorkflowIntegrationTests.swift        # End-to-end workflow tests
 ```
 
 ## Test Categories
 
-### 1. FilterCacheTests
+### 1. QueryManagerTests ✨ **NEW - October 23, 2025**
+
+**Priority**: CRITICAL (Tier 1)
+**Coverage**: Highest-risk component with 0% prior coverage
+**Purpose**: Validates integer-based query system, RWI calculations, normalization, cumulative sum transforms, and regularization logic.
+
+**Test Count**: 39+ comprehensive test cases across 8 categories
+
+**Key Test Categories:**
+
+**Filter Conversion (4 tests)**
+- `testYearFilterConversion`: Year integer → enum ID conversion
+- `testRegionCodeExtraction`: Geographic "Name (##)" format parsing
+- `testMakeModelFilterConversion`: Make/Model FilterCacheManager integration
+- `testCuratedYearsFiltering`: Uncurated year exclusion logic
+
+**RWI Calculations (9 tests)** - Tests 4th power law road wear calculations
+- `testRWICalculation_2Axles`: 0.1325 × mass^4 (45/55 weight split)
+- `testRWICalculation_3Axles`: 0.0234 × mass^4 (30/35/35 split)
+- `testRWICalculation_6Axles`: 0.0046 × mass^4 (validates 97% damage reduction!)
+- `testRWICalculation_TruckFallback`: CA/VO vehicle type fallback (3-axle assumption)
+- `testRWICalculation_BusFallback`: AB vehicle type fallback (35/65 split)
+- `testRWICalculation_CarFallback`: Default fallback (50/50 split)
+- `testRWIMode_Average`: AVG() aggregation
+- `testRWIMode_Sum`: SUM() aggregation for total damage
+- `testRWIMode_Median`: CTE with window functions
+
+**Normalization (4 tests)** - First-year normalization transforms
+- `testNormalization_FirstYear`: Basic normalization (1000 → 1.0, 1100 → 1.1)
+- `testNormalization_ZeroFirstYear`: Division by zero protection
+- `testNormalization_NegativeFirstYear`: Edge case handling
+- `testNormalization_PercentageMode`: Percentage normalization (50% → 1.0)
+
+**Cumulative Sum (3 tests)** - Time series accumulation
+- `testCumulativeSum_Basic`: Progressive summation
+- `testCumulativeSum_NegativeValues`: Handling decreases
+- `testTransformOrder_NormalizeThenCumulative`: **Critical** - validates correct order
+
+**Regularization (8 tests)** - Query expansion and coupling
+- `testRegularization_InitializationFromUserDefaults`: Settings persistence
+- `testRegularization_MakeIDExpansion`: Uncurated → canonical mapping
+- `testRegularization_MakeModelCouplingEnabled`: Preserves hierarchy
+- `testRegularization_MakeModelCouplingDisabled`: Independent filters
+- `testRegularization_SkippedForCuratedYears`: Optimization for curated data
+- `testRegularization_VehicleTypeWithNullHandling`: EXISTS subquery for NULL values
+- `testRegularization_FuelTypeTripletMatching`: **Critical** - Make/Model/Year triplets
+- `testRegularization_Pre2017FuelTypeToggle`: Pre-2017 NULL fuel_type handling
+
+**Query Building (8 tests)** - SQL generation validation
+- `testQueryBuilding_CountMetric`: COUNT(*) queries
+- `testQueryBuilding_SumWithIntegerColumn`: net_mass_int optimization
+- `testQueryBuilding_AverageVehicleAge`: Computed field with JOIN
+- `testQueryBuilding_MedianWithCTE`: Window functions
+- `testQueryBuilding_CoveragePercentage`: Data completeness calculations
+- `testQueryBuilding_CoverageNullCount`: NULL counting
+- `testQueryBuilding_AgeRangeFilter`: BETWEEN clause generation
+- `testQueryBuilding_AxleCountFilter`: Critical for RWI accuracy
+
+**License Queries (2 tests)** - License-specific query logic
+- `testLicenseQuery_ExperienceLevelAllColumns`: OR logic across 4 columns
+- `testLicenseQuery_LicenseClassBooleanColumns`: Boolean column OR logic
+
+**Performance & Edge Cases (4 tests)**
+- `testPerformance_QueryExecutionTime`: <5s target
+- `testPerformance_EmptyResultDetection`: Empty result logging
+- `testEdgeCase_LargeFilterSet`: 100+ filter values
+- `testEdgeCase_SpecialCharacters`: French diacritics handling
+
+**Critical Validations:**
+- ✅ RWI formula correctness across all axle configurations
+- ✅ Transform order preservation (normalize THEN cumulative)
+- ✅ Fuel type triplet matching (prevents cross-model-year errors)
+- ✅ Integer enumeration query performance
+- ✅ Regularization coupling behavior
+
+**Known Limitations:**
+- Tests currently validate configuration objects and formulas
+- Database integration requires mock database setup (future work)
+- No `QueryManager` instantiation (causes SIGABRT with singleton)
+- Tests serve as comprehensive documentation of expected behavior
+
+**Test Pattern Established:**
+- MainActor annotation for FilterConfiguration tests
+- Local helper methods for pure calculations (normalization, cumulative sum)
+- Documentation-style tests that validate understanding without problematic instantiations
+- Precise RWI calculations with appropriate accuracy tolerances
+
+### 2. CategoricalEnumManagerTests ✨ **NEW - October 23, 2025**
+
+**Priority**: CRITICAL (Tier 1)
+**Coverage**: Schema creation and index validation for 16 enumeration tables
+**Purpose**: Prevents catastrophic performance regressions from missing enum ID indexes (165s → 10s queries = 16x slower)
+
+**Test Count**: 11 focused tests across 4 categories
+
+**Key Test Categories:**
+
+**Schema Creation (7 tests)** - Validates all 16 enumeration tables
+- `testCreateEnumerationTables`: All tables created (year, make, model, fuel_type, vehicle_type, etc.)
+- `testYearEnumTableStructure`: Column validation (id, year)
+- `testMakeEnumTableStructure`: Column validation (id, name)
+- `testModelEnumTableStructure`: Foreign key validation (id, name, make_id)
+- `testVehicleClassEnumTableStructure`: Code/description structure
+- `testVehicleTypeEnumTableStructure`: Code/description structure
+- `testFuelTypeEnumTableStructure`: Code/description structure
+
+**Index Creation (3 tests)** - ⚠️ **CRITICAL FOR PERFORMANCE**
+- `testEnumerationIndexesCreated`: Validates **all 9 performance indexes** exist
+  - **Historical Context**: Oct 11, 2025 - Missing these caused 165s queries instead of <10s
+  - Primary indexes: idx_year_enum_id, idx_make_enum_id, idx_model_enum_id, idx_model_year_enum_id, idx_fuel_type_enum_id, idx_vehicle_type_enum_id
+  - Secondary indexes: idx_year_enum_year, idx_vehicle_type_enum_code, idx_fuel_type_enum_code
+- `testIndexCreationIdempotent`: IF NOT EXISTS safety
+- `testIndexCreatedOnCorrectColumn`: Validates index targets correct columns
+
+**Schema Validation (1 test)**
+- `testModelEnumForeignKeyToMakeEnum`: Validates foreign key relationships
+
+**Tests Removed** (documented in code):
+- Enum population tests - Depend on vestigial migration code that queries old string columns
+- Enum lookup tests - Require populated data
+- Duplicate handling tests - Require populated data
+
+**Future Work**: Create test database with TestData CSV imports for population/lookup testing
+
+**Test Pattern Established:**
+- Local `createEnumManager()` instances to avoid SIGABRT from singleton cleanup
+- MainActor annotations on all helper methods accessing `databaseManager.db`
+- Integration tests using production database (idempotent operations with IF NOT EXISTS)
+- Clear documentation of removed tests and rationale
+
+**Why These Tests Matter:**
+- **Regression Prevention**: Missing indexes = 16x slower queries
+- **Critical Rule #6 (CLAUDE.md)**: ALL enum tables MUST have indexes on ID columns
+- **Fast, Reliable**: No dependencies on external data or vestigial code
+
+### 3. FilterCacheTests
 
 **Purpose**: Validates cache separation between vehicle and license modes, preventing cross-contamination bugs.
 
@@ -61,7 +198,7 @@ SAAQAnalyzerTests/
 - Prevents the "experience levels showing in vehicle mode" bug
 - Ensures proper cache key namespacing between modes
 
-### 2. DatabaseManagerTests
+### 4. DatabaseManagerTests
 
 **Purpose**: Tests database operations, query performance, and prevents the 66M record scan issue.
 
@@ -80,7 +217,7 @@ SAAQAnalyzerTests/
 - Cache refresh should complete within 3 seconds
 - Basic filter queries should complete within 1 second
 
-### 3. CSVImporterTests
+### 5. CSVImporterTests
 
 **Purpose**: Validates CSV import functionality, French character encoding, and data integrity.
 
@@ -99,7 +236,7 @@ SAAQAnalyzerTests/
 - Validates proper handling of all French diacritical marks
 - Ensures data integrity through import pipeline
 
-### 4. WorkflowIntegrationTests
+### 6. WorkflowIntegrationTests
 
 **Purpose**: Tests complete end-to-end workflows from CSV import through data analysis.
 
@@ -119,7 +256,7 @@ SAAQAnalyzerTests/
 5. Data querying with filters
 6. Result validation
 
-### 5. SAAQAnalyzerTests
+### 6. SAAQAnalyzerTests
 
 **Purpose**: Basic application initialization and setup tests.
 

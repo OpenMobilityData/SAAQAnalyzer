@@ -166,12 +166,12 @@ final class WorkflowIntegrationTests: XCTestCase {
 
         // Test vehicle mode
         let vehicleRegions = await databaseManager.getAvailableRegions(for: .vehicle)
-        let vehicleMRCs = await databaseManager.getAvailableMRCs(for: .vehicle)
+        _ = await databaseManager.getAvailableMRCs(for: .vehicle)
         let vehicleMakes = await databaseManager.getAvailableVehicleMakes()
 
         // Test license mode
         let licenseRegions = await databaseManager.getAvailableRegions(for: .license)
-        let licenseMRCs = await databaseManager.getAvailableMRCs(for: .license)
+        _ = await databaseManager.getAvailableMRCs(for: .license)
         let licenseTypes = await databaseManager.getAvailableLicenseTypes()
 
         // Verify mode separation

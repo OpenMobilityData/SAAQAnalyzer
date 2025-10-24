@@ -72,7 +72,8 @@ struct ContentView: View {
 
     // Series query progress state
     @State private var currentQueryPattern: String?
-    @State private var currentQueryIsIndexed: Bool?
+    @State private var currentLimitToCuratedYears: Bool?
+    @State private var currentRegularizationEnabled: Bool?
     @State private var queryStartTime: Date?
 
     // Import handling state
@@ -90,11 +91,7 @@ struct ContentView: View {
     // Data package import handling state
     @State private var showingPackageAlert = false
 
-    // Schema optimization state
-    @State private var isMigratingSchema = false
-    @State private var isRunningPerformanceTest = false
-    @State private var showingOptimizationResults = false
-    @State private var optimizationResults: String = ""
+    // Performance testing state
     @State private var packageAlertMessage = ""
 
     // Query preview state
@@ -471,31 +468,6 @@ struct ContentView: View {
             }
             .help("Export options")
 
-            // Schema Optimization menu
-            Menu {
-                Label("Database Optimization", systemImage: "speedometer")
-                    .font(.caption)
-                    .symbolRenderingMode(.hierarchical)
-                Button(isMigratingSchema ? "Migrating Schema..." : "Migrate to Optimized Schema") {
-                    migrateToOptimizedSchema()
-                }
-                .disabled(isMigratingSchema)
-
-                Button(isRunningPerformanceTest ? "Testing Performance..." : "Run Performance Test") {
-                    runPerformanceTest()
-                }
-                .disabled(isRunningPerformanceTest)
-
-                if !optimizationResults.isEmpty {
-                    Divider()
-                    Button("Show Last Results") {
-                        showingOptimizationResults = true
-                    }
-                }
-            } label: {
-                Label("Optimize", systemImage: "speedometer")
-                    .symbolRenderingMode(.hierarchical)
-            }
         }
     }
 
@@ -512,7 +484,7 @@ struct ContentView: View {
         }
         .onAppear {
             // Generate initial preview on appear
-            // OptimizedQueryManager now initializes from UserDefaults, so no delay needed
+            // QueryManager now initializes from UserDefaults, so no delay needed
             updateQueryPreview()
         }
         .onChange(of: regularizationEnabled) { _, _ in
@@ -568,11 +540,6 @@ struct ContentView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("This will permanently delete all imported data. This action cannot be undone.")
-        }
-        .alert("Schema Optimization Results", isPresented: $showingOptimizationResults) {
-            Button("OK") { }
-        } message: {
-            Text(optimizationResults)
         }
         .overlay(alignment: .center) {
             // Preparing import overlay (instant feedback)
@@ -630,7 +597,8 @@ struct ContentView: View {
 
                     SeriesQueryProgressView(
                         queryPattern: currentQueryPattern,
-                        isIndexed: currentQueryIsIndexed,
+                        limitToCuratedYears: currentLimitToCuratedYears,
+                        regularizationEnabled: currentRegularizationEnabled,
                         dataType: selectedFilters.dataEntityType == .vehicle ? "vehicle registrations" : "license holders"
                     )
                     .frame(maxWidth: 400)
@@ -690,43 +658,62 @@ struct ContentView: View {
     }
 
     // MARK: - Helper Functions
+  
+  private func refreshChartData() {
+    Task {
+      let queryPattern = generateQueryPattern(from: selectedFilters)
 
-    private func refreshChartData() {
-        Task {
-            let queryPattern = generateQueryPattern(from: selectedFilters)
-
-            // Analyze actual index usage deterministically
-            let actualIndexUsage = await databaseManager.analyzeQueryIndexUsage(filters: selectedFilters)
-
-            await MainActor.run {
-                currentQueryPattern = queryPattern
-                currentQueryIsIndexed = actualIndexUsage
-                isAddingSeries = true
-            }
-
-            do {
-                let newSeries = try await databaseManager.queryData(filters: selectedFilters)
-
-                await MainActor.run {
-                    // Assign unique color based on series index
-                    newSeries.color = Color.forSeriesIndex(chartData.count)
-                    chartData.append(newSeries)
-                    selectedSeries = newSeries
-                    isAddingSeries = false
-                    currentQueryPattern = nil
-                    currentQueryIsIndexed = nil
-                }
-            } catch {
-                await MainActor.run {
-                    isAddingSeries = false
-                    currentQueryPattern = nil
-                    currentQueryIsIndexed = nil
-                }
-                print("❌ Error creating chart series: \(error)")
-            }
+      // Compute effective curated-only status
+      // Edge case: If limitToCuratedYears toggle is OFF but all selected years are curated,
+      // treat as curated-only mode for progress display
+      let effectivelyCuratedOnly: Bool = {
+        if selectedFilters.limitToCuratedYears {
+          return true  // Explicit toggle
         }
-    }
 
+        // Check if all selected years are actually curated
+        guard let yearConfig = databaseManager.regularizationManager?.getYearConfiguration(),
+              !selectedFilters.years.isEmpty else {
+          return false
+        }
+
+        let curatedYears = yearConfig.curatedYears
+        return selectedFilters.years.isSubset(of: curatedYears)
+      }()
+
+      // Set query progress state with filter configuration
+      await MainActor.run {
+        currentQueryPattern = queryPattern
+        currentLimitToCuratedYears = effectivelyCuratedOnly
+        currentRegularizationEnabled = UserDefaults.standard.bool(forKey: "regularizationEnabled")
+        isAddingSeries = true
+      }
+      
+      do {
+        let newSeries = try await databaseManager.queryData(filters: selectedFilters)
+        
+        await MainActor.run {
+          // Assign unique color based on series index
+          newSeries.color = Color.forSeriesIndex(chartData.count)
+          chartData.append(newSeries)
+          selectedSeries = newSeries
+          isAddingSeries = false
+          currentQueryPattern = nil
+          currentLimitToCuratedYears = nil
+          currentRegularizationEnabled = nil
+        }
+      } catch {
+        await MainActor.run {
+          isAddingSeries = false
+          currentQueryPattern = nil
+          currentLimitToCuratedYears = nil
+          currentRegularizationEnabled = nil
+        }
+        print("❌ Error creating chart series: \(error)")
+      }
+    }
+  }
+  
     /// Updates the query preview text based on current filter configuration
     private func updateQueryPreview() {
         Task {
@@ -1169,85 +1156,6 @@ struct ContentView: View {
         return formatter.string(fromByteCount: bytes)
     }
 
-    // MARK: - Schema Optimization Functions
-
-    private func migrateToOptimizedSchema() {
-        guard let schemaManager = databaseManager.schemaManager else {
-            print("❌ Schema manager not available")
-            return
-        }
-
-        isMigratingSchema = true
-        optimizationResults = ""
-
-        Task {
-            do {
-                let startTime = Date()
-                try await schemaManager.migrateToOptimizedSchema()
-                let duration = Date().timeIntervalSince(startTime)
-
-                await MainActor.run {
-                    optimizationResults = """
-                    ✅ Schema Migration Completed Successfully!
-
-                    Duration: \(String(format: "%.2f", duration)) seconds
-
-                    Categorical enumeration tables created and populated.
-                    Integer foreign key columns added to main tables.
-                    Optimized indexes created for improved performance.
-
-                    Your database is now using categorical enumeration for:
-                    • Vehicle classifications, makes, models, colors, fuel types
-                    • Geographic regions, MRCs, municipalities
-                    • License age groups, genders, license types
-                    • Years and other categorical data
-
-                    Expected benefits:
-                    • 3-5x faster query performance
-                    • 50-70% reduction in storage size
-                    • Improved memory efficiency
-                    """
-                    isMigratingSchema = false
-                    showingOptimizationResults = true
-                }
-            } catch {
-                await MainActor.run {
-                    optimizationResults = "❌ Schema migration failed: \(error.localizedDescription)"
-                    isMigratingSchema = false
-                    showingOptimizationResults = true
-                }
-            }
-        }
-    }
-
-    private func runPerformanceTest() {
-        guard let optimizedQueryManager = databaseManager.optimizedQueryManager else {
-            print("❌ Optimized query manager not available")
-            return
-        }
-
-        isRunningPerformanceTest = true
-        optimizationResults = ""
-
-        Task {
-            do {
-                let testFilters = FilterConfiguration()
-                let results = try await optimizedQueryManager.analyzePerformanceImprovement(filters: testFilters)
-
-                await MainActor.run {
-                    optimizationResults = results.description
-                    isRunningPerformanceTest = false
-                    showingOptimizationResults = true
-                }
-            } catch {
-                await MainActor.run {
-                    optimizationResults = "❌ Performance test failed: \(error.localizedDescription)"
-                    isRunningPerformanceTest = false
-                    showingOptimizationResults = true
-                }
-            }
-        }
-    }
 }
 
 // MARK: - Data Package Document
@@ -1349,13 +1257,37 @@ struct SeriesQueryProgressView: View {
 
     // Query information for enhanced feedback
     let queryPattern: String?
-    let isIndexed: Bool?
+    let limitToCuratedYears: Bool?
+    let regularizationEnabled: Bool?
     let dataType: String
 
-    init(queryPattern: String? = nil, isIndexed: Bool? = nil, dataType: String = "data") {
+    init(queryPattern: String? = nil, limitToCuratedYears: Bool? = nil, regularizationEnabled: Bool? = nil, dataType: String = "data") {
         self.queryPattern = queryPattern
-        self.isIndexed = isIndexed
+        self.limitToCuratedYears = limitToCuratedYears
+        self.regularizationEnabled = regularizationEnabled
         self.dataType = dataType
+    }
+
+    // MARK: - Data Quality States
+
+    /// Represents the quality/mode of data being queried
+    private enum DataQualityMode {
+        case curatedOnly        // Green - curated years only, highest quality
+        case regularized        // Blue - uncurated data with regularization (safer)
+        case rawUncurated      // Amber - uncurated data without regularization (requires attention)
+    }
+
+    /// Computes the current data quality mode based on filter settings
+    private var dataQualityMode: DataQualityMode? {
+        guard let curated = limitToCuratedYears else { return nil }
+
+        if curated {
+            return .curatedOnly
+        } else {
+            // Uncurated data - check if regularization is enabled
+            guard let regularized = regularizationEnabled else { return nil }
+            return regularized ? .regularized : .rawUncurated
+        }
     }
 
     var body: some View {
@@ -1388,18 +1320,18 @@ struct SeriesQueryProgressView: View {
                         .cornerRadius(4)
                 }
 
-                // Query optimization status
-                if let indexed = isIndexed {
+                // Data quality indicator badge
+                if let mode = dataQualityMode {
                     HStack(spacing: 4) {
-                        Image(systemName: indexed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                            .foregroundColor(indexed ? .green : .orange)
-                        Text(indexed ? "Using integer enumeration optimization" : "Using legacy query path")
+                        Image(systemName: badgeIcon(for: mode))
+                            .foregroundColor(badgeColor(for: mode))
+                        Text(badgeText(for: mode))
                             .font(.caption2)
-                            .foregroundColor(indexed ? .green : .orange)
+                            .foregroundColor(badgeColor(for: mode))
                     }
                     .padding(.horizontal)
                     .padding(.vertical, 2)
-                    .background((indexed ? Color.green : Color.orange).opacity(0.1))
+                    .background(badgeColor(for: mode).opacity(0.1))
                     .cornerRadius(4)
                 }
             }
@@ -1450,35 +1382,87 @@ struct SeriesQueryProgressView: View {
     // MARK: - Computed Properties
 
     private var iconName: String {
-        if let indexed = isIndexed {
-            return indexed ? "magnifyingglass" : "clock.arrow.circlepath"
+        guard let mode = dataQualityMode else {
+            return "magnifyingglass"
         }
-        return "magnifyingglass"
+
+        switch mode {
+        case .curatedOnly:
+            return "checkmark.seal.fill"
+        case .regularized:
+            return "wand.and.stars"
+        case .rawUncurated:
+            return "chart.bar.doc.horizontal"
+        }
     }
 
     private var iconColor: Color {
-        if let indexed = isIndexed {
-            return indexed ? .accentColor : .orange
+        guard let mode = dataQualityMode else {
+            return .accentColor
         }
-        return .accentColor
+
+        switch mode {
+        case .curatedOnly:
+            return .green
+        case .regularized:
+            return .blue
+        case .rawUncurated:
+            return .orange
+        }
     }
 
     private var titleText: String {
-        if let indexed = isIndexed, !indexed {
-            return "Legacy Query in Progress"
-        }
         return "Querying Database"
     }
 
     private var subtitleText: String {
-        if let indexed = isIndexed {
-            if indexed {
-                return "Processing \(dataType) using integer-based enumeration tables..."
-            } else {
-                return "Using legacy string-based queries - consider reimporting data for optimal performance..."
-            }
+        guard let mode = dataQualityMode else {
+            return "Analyzing \(dataType) with your filter criteria..."
         }
-        return "Analyzing \(dataType) with your filter criteria..."
+
+        switch mode {
+        case .curatedOnly:
+            return "Processing \(dataType) from curated years only..."
+        case .regularized:
+            return "Merging uncurated variants into canonical values..."
+        case .rawUncurated:
+            return "Including all uncurated data variants..."
+        }
+    }
+
+    // MARK: - Badge Helpers
+
+    private func badgeIcon(for mode: DataQualityMode) -> String {
+        switch mode {
+        case .curatedOnly:
+            return "checkmark.circle.fill"
+        case .regularized:
+            return "arrow.triangle.merge"
+        case .rawUncurated:
+            return "info.circle.fill"
+        }
+    }
+
+    private func badgeColor(for mode: DataQualityMode) -> Color {
+        switch mode {
+        case .curatedOnly:
+            return .green
+        case .regularized:
+            return .blue
+        case .rawUncurated:
+            return .orange
+        }
+    }
+
+    private func badgeText(for mode: DataQualityMode) -> String {
+        switch mode {
+        case .curatedOnly:
+            return "Curated data only"
+        case .regularized:
+            return "Regularization enabled"
+        case .rawUncurated:
+            return "Raw uncurated data"
+        }
     }
 }
 
@@ -2326,7 +2310,7 @@ struct RegularizationSettingsView: View {
     }
 
     private func updateRegularizationInQueryManager(_ enabled: Bool, coupling: Bool) {
-        if let queryManager = databaseManager.optimizedQueryManager {
+        if let queryManager = databaseManager.queryManager {
             queryManager.regularizationEnabled = enabled
             queryManager.regularizationCoupling = coupling
             if enabled {

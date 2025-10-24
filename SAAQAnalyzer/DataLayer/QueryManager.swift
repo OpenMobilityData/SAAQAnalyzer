@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 /// Holds converted filter IDs for optimized queries
-struct OptimizedFilterIds: Sendable {
+struct FilterIds: Sendable {
     let yearIds: [Int]
     let regionIds: [Int]
     let mrcIds: [Int]
@@ -23,7 +23,7 @@ struct OptimizedFilterIds: Sendable {
 }
 
 /// Simplified high-performance query manager using categorical enumeration
-class OptimizedQueryManager {
+class QueryManager {
     private weak var databaseManager: DatabaseManager?
     private var db: OpaquePointer? { databaseManager?.db }
     private let enumManager: CategoricalEnumManager
@@ -49,7 +49,7 @@ class OptimizedQueryManager {
     // MARK: - Optimized Vehicle Query Using Integer Enumerations
 
     /// High-performance vehicle data query using integer enumerations
-    func queryOptimizedVehicleData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
+    func queryVehicleData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
         print("🚀 Starting OPTIMIZED vehicle query with integer enumerations...")
 
         // Debug: Log the filters we received
@@ -71,7 +71,7 @@ class OptimizedQueryManager {
         let filterIds = try await convertFiltersToIds(filters: filters, isVehicle: true)
 
         // Run the optimized query using integer columns
-        return try await queryVehicleDataWithIntegers(filters: filters, filterIds: filterIds)
+        return try await queryVehicleData(filters: filters, filterIds: filterIds)
     }
 
     /// Extract code from "Name (##)" formatted string
@@ -87,7 +87,7 @@ class OptimizedQueryManager {
     }
 
     /// Convert filter strings to enumeration IDs
-    private func convertFiltersToIds(filters: FilterConfiguration, isVehicle: Bool) async throws -> OptimizedFilterIds {
+    private func convertFiltersToIds(filters: FilterConfiguration, isVehicle: Bool) async throws -> FilterIds {
         var yearIds: [Int] = []
         var regionIds: [Int] = []
         var mrcIds: [Int] = []
@@ -332,7 +332,7 @@ class OptimizedQueryManager {
             print("   Experience Levels: \(experienceLevelIds.count) -> \(experienceLevelIds)")
         }
 
-        return OptimizedFilterIds(
+        return FilterIds(
             yearIds: yearIds,
             regionIds: regionIds,
             mrcIds: mrcIds,
@@ -353,7 +353,7 @@ class OptimizedQueryManager {
     }
 
     /// Optimized vehicle query using integer columns
-    private func queryVehicleDataWithIntegers(filters: FilterConfiguration, filterIds: OptimizedFilterIds) async throws -> FilteredDataSeries {
+    private func queryVehicleData(filters: FilterConfiguration, filterIds: FilterIds) async throws -> FilteredDataSeries {
         let startTime = Date()
 
         // Capture MainActor-isolated properties and filter flags before entering the closure
@@ -871,18 +871,18 @@ class OptimizedQueryManager {
     }
 
     /// High-performance license data query using integer enumerations
-    func queryOptimizedLicenseData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
+    func queryLicenseData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
         print("🚀 Starting OPTIMIZED license query with integer enumerations...")
 
         // First, convert filter strings to integer IDs
         let filterIds = try await convertFiltersToIds(filters: filters, isVehicle: false)
 
         // Run the optimized query using integer columns
-        return try await queryLicenseDataWithIntegers(filters: filters, filterIds: filterIds)
+        return try await queryLicenseData(filters: filters, filterIds: filterIds)
     }
 
     /// Optimized license query using integer columns
-    private func queryLicenseDataWithIntegers(filters: FilterConfiguration, filterIds: OptimizedFilterIds) async throws -> FilteredDataSeries {
+    private func queryLicenseData(filters: FilterConfiguration, filterIds: FilterIds) async throws -> FilteredDataSeries {
         let startTime = Date()
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -1090,133 +1090,6 @@ class OptimizedQueryManager {
         }
     }
 
-    // MARK: - Performance Analysis
-
-    /// Analyzes query performance improvements from enumeration
-    func analyzePerformanceImprovement(filters: FilterConfiguration) async throws -> PerformanceComparison {
-        print("🔬 Starting performance comparison test...")
-
-        // Test optimized integer-based query
-        let optimizedStart = Date()
-        let optimizedSeries = try await queryOptimizedVehicleData(filters: filters)
-        let optimizedTime = Date().timeIntervalSince(optimizedStart)
-        let optimizedCount = optimizedSeries.points.count
-
-        // Test string-based query for comparison
-        let stringStart = Date()
-        let stringSeries = try await queryStringBasedComparison(filters: filters)
-        let stringTime = Date().timeIntervalSince(stringStart)
-        let stringCount = stringSeries.points.count
-
-        // Validate that both queries return the same results
-        if optimizedCount != stringCount {
-            print("⚠️ Warning: Result counts differ - Optimized: \(optimizedCount), String: \(stringCount)")
-        }
-
-        let improvementFactor = stringTime / optimizedTime
-        print("📊 Performance Results:")
-        print("   - String-based query: \(String(format: "%.3f", stringTime))s")
-        print("   - Integer-based query: \(String(format: "%.3f", optimizedTime))s")
-        print("   - Improvement: \(String(format: "%.1f", improvementFactor))x faster")
-
-        return PerformanceComparison(
-            optimizedTime: optimizedTime,
-            estimatedStringTime: stringTime,
-            improvementFactor: improvementFactor,
-            memoryReduction: 0.65 // Estimated 65% memory reduction based on integer vs string storage
-        )
-    }
-
-    /// String-based query for performance comparison
-    private func queryStringBasedComparison(filters: FilterConfiguration) async throws -> FilteredDataSeries {
-        print("🔍 Running string-based comparison query...")
-
-        return try await withCheckedThrowingContinuation { continuation in
-            databaseManager?.dbQueue.async {
-                guard let db = self.databaseManager?.db else {
-                    continuation.resume(throwing: DatabaseError.notConnected)
-                    return
-                }
-
-                // Build traditional string-based query
-                var whereClause = "WHERE 1=1"
-                var bindValues: [(Int32, Any)] = []
-                var bindIndex: Int32 = 1
-
-                // Year filter using string column
-                if !filters.years.isEmpty {
-                    let placeholders = Array(repeating: "?", count: filters.years.count).joined(separator: ",")
-                    whereClause += " AND year IN (\(placeholders))"
-                    for year in filters.years {
-                        bindValues.append((bindIndex, year))
-                        bindIndex += 1
-                    }
-                }
-
-                // Region filter using string column
-                if !filters.regions.isEmpty {
-                    let placeholders = Array(repeating: "?", count: filters.regions.count).joined(separator: ",")
-                    whereClause += " AND admin_region IN (\(placeholders))"
-                    for region in filters.regions {
-                        bindValues.append((bindIndex, region))
-                        bindIndex += 1
-                    }
-                }
-
-                // Classification filter using string column
-                if !filters.vehicleClasses.isEmpty {
-                    let placeholders = Array(repeating: "?", count: filters.vehicleClasses.count).joined(separator: ",")
-                    whereClause += " AND vehicle_class_id IN (\(placeholders))"
-                    for vehicleClass in filters.vehicleClasses {
-                        bindValues.append((bindIndex, vehicleClass))
-                        bindIndex += 1
-                    }
-                }
-
-                let query = """
-                    SELECT year, COUNT(*) as value
-                    FROM vehicles
-                    \(whereClause)
-                    GROUP BY year
-                    ORDER BY year
-                """
-
-                var stmt: OpaquePointer?
-                defer { sqlite3_finalize(stmt) }
-
-                if sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK {
-                    // Bind parameters
-                    for (index, value) in bindValues {
-                        if let intValue = value as? Int {
-                            sqlite3_bind_int(stmt, index, Int32(intValue))
-                        } else if let stringValue = value as? String {
-                            sqlite3_bind_text(stmt, index, stringValue, -1, nil)
-                        }
-                    }
-
-                    var dataPoints: [TimeSeriesPoint] = []
-
-                    while sqlite3_step(stmt) == SQLITE_ROW {
-                        let year = Int(sqlite3_column_int(stmt, 0))
-                        let value = sqlite3_column_double(stmt, 1)
-                        dataPoints.append(TimeSeriesPoint(year: year, value: value, label: nil))
-                    }
-
-                    let series = FilteredDataSeries(
-                        name: "Vehicle Count by Year (String-based)",
-                        filters: filters,
-                        points: dataPoints
-                    )
-
-                    continuation.resume(returning: series)
-                } else {
-                    let error = String(cString: sqlite3_errmsg(db))
-                    continuation.resume(throwing: DatabaseError.queryFailed("String comparison query failed: \(error)"))
-                }
-            }
-        }
-    }
-
     // MARK: - Debug Helpers
 
     /// Debug helper to show available regions in enum table
@@ -1244,24 +1117,4 @@ class OptimizedQueryManager {
     }
 }
 
-/// Performance comparison results
-struct PerformanceComparison: Sendable {
-    let optimizedTime: TimeInterval
-    let estimatedStringTime: TimeInterval
-    let improvementFactor: Double
-    let memoryReduction: Double
 
-    var description: String {
-        return """
-        Performance Analysis:
-        - Integer-based query: \(String(format: "%.3f", optimizedTime))s
-        - String-based query: \(String(format: "%.3f", estimatedStringTime))s
-        - Speed improvement: \(String(format: "%.1f", improvementFactor))x faster
-        - Memory reduction: \(String(format: "%.0f", memoryReduction * 100))%
-
-        Note: These are actual measured times, not estimates!
-        The integer-based query uses indexed integer columns for filtering,
-        while the string-based query requires string comparisons.
-        """
-    }
-}
