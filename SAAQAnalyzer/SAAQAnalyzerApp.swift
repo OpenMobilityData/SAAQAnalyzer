@@ -90,8 +90,7 @@ struct ContentView: View {
     // Data package import handling state
     @State private var showingPackageAlert = false
 
-    // Schema optimization state
-    @State private var isMigratingSchema = false
+    // Performance testing state
     @State private var isRunningPerformanceTest = false
     @State private var showingOptimizationResults = false
     @State private var optimizationResults: String = ""
@@ -471,31 +470,6 @@ struct ContentView: View {
             }
             .help("Export options")
 
-            // Schema Optimization menu
-            Menu {
-                Label("Database Optimization", systemImage: "speedometer")
-                    .font(.caption)
-                    .symbolRenderingMode(.hierarchical)
-                Button(isMigratingSchema ? "Migrating Schema..." : "Migrate to Optimized Schema") {
-                    migrateToOptimizedSchema()
-                }
-                .disabled(isMigratingSchema)
-
-                Button(isRunningPerformanceTest ? "Testing Performance..." : "Run Performance Test") {
-                    runPerformanceTest()
-                }
-                .disabled(isRunningPerformanceTest)
-
-                if !optimizationResults.isEmpty {
-                    Divider()
-                    Button("Show Last Results") {
-                        showingOptimizationResults = true
-                    }
-                }
-            } label: {
-                Label("Optimize", systemImage: "speedometer")
-                    .symbolRenderingMode(.hierarchical)
-            }
         }
     }
 
@@ -1170,55 +1144,6 @@ struct ContentView: View {
     }
 
     // MARK: - Schema Optimization Functions
-
-    private func migrateToOptimizedSchema() {
-        guard let schemaManager = databaseManager.schemaManager else {
-            print("❌ Schema manager not available")
-            return
-        }
-
-        isMigratingSchema = true
-        optimizationResults = ""
-
-        Task {
-            do {
-                let startTime = Date()
-                try await schemaManager.migrateToOptimizedSchema()
-                let duration = Date().timeIntervalSince(startTime)
-
-                await MainActor.run {
-                    optimizationResults = """
-                    ✅ Schema Migration Completed Successfully!
-
-                    Duration: \(String(format: "%.2f", duration)) seconds
-
-                    Categorical enumeration tables created and populated.
-                    Integer foreign key columns added to main tables.
-                    Optimized indexes created for improved performance.
-
-                    Your database is now using categorical enumeration for:
-                    • Vehicle classifications, makes, models, colors, fuel types
-                    • Geographic regions, MRCs, municipalities
-                    • License age groups, genders, license types
-                    • Years and other categorical data
-
-                    Expected benefits:
-                    • 3-5x faster query performance
-                    • 50-70% reduction in storage size
-                    • Improved memory efficiency
-                    """
-                    isMigratingSchema = false
-                    showingOptimizationResults = true
-                }
-            } catch {
-                await MainActor.run {
-                    optimizationResults = "❌ Schema migration failed: \(error.localizedDescription)"
-                    isMigratingSchema = false
-                    showingOptimizationResults = true
-                }
-            }
-        }
-    }
 
     private func runPerformanceTest() {
         guard let optimizedQueryManager = databaseManager.optimizedQueryManager else {

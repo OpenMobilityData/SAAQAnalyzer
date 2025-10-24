@@ -283,10 +283,12 @@ final class DatabaseManagerTests: XCTestCase {
 extension DatabaseManagerTests {
 
     /// Helper to check if a table exists in the database
+    @MainActor
     func tableExists(_ tableName: String) async -> Bool {
+        guard let manager = databaseManager else { return false }
         return await withCheckedContinuation { continuation in
-            databaseManager.dbQueue.async {
-                guard let db = self.databaseManager.db else {
+            manager.dbQueue.async {
+                guard let db = manager.db else {
                     continuation.resume(returning: false)
                     return
                 }

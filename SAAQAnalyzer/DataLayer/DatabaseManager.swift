@@ -23,9 +23,6 @@ class DatabaseManager: ObservableObject {
     /// Filter cache manager (enumeration table-based)
     private(set) var filterCacheManager: FilterCacheManager?
 
-    /// Schema migration manager
-    private(set) var schemaManager: SchemaManager?
-
     /// Optimized query manager
     private(set) var optimizedQueryManager: OptimizedQueryManager?
 
@@ -302,7 +299,6 @@ class DatabaseManager: ObservableObject {
             print("✅ Database AGGRESSIVELY optimized for M3 Ultra: 8GB cache, 32GB mmap, 16 threads")
 
             // Initialize schema and optimization managers
-            schemaManager = SchemaManager(databaseManager: self)
             optimizedQueryManager = OptimizedQueryManager(databaseManager: self)
             filterCacheManager = FilterCacheManager(databaseManager: self)
             regularizationManager = RegularizationManager(databaseManager: self)
@@ -601,14 +597,6 @@ class DatabaseManager: ObservableObject {
                 }
             }
         }
-    }
-
-    /// Re-populate integer columns for optimized queries
-    func repopulateIntegerColumns() async throws {
-        print("🔧 Re-populating integer columns from DatabaseManager...")
-        let schemaManager = SchemaManager(databaseManager: self)
-        try await schemaManager.repopulateIntegerColumns()
-        print("✅ Integer column population completed from DatabaseManager")
     }
 
     // MARK: - Enumeration-based Filter Data
