@@ -49,7 +49,7 @@ class QueryManager {
     // MARK: - Optimized Vehicle Query Using Integer Enumerations
 
     /// High-performance vehicle data query using integer enumerations
-    func queryOptimizedVehicleData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
+    func queryVehicleData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
         print("🚀 Starting OPTIMIZED vehicle query with integer enumerations...")
 
         // Debug: Log the filters we received
@@ -871,7 +871,7 @@ class QueryManager {
     }
 
     /// High-performance license data query using integer enumerations
-    func queryOptimizedLicenseData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
+    func queryLicenseData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
         print("🚀 Starting OPTIMIZED license query with integer enumerations...")
 
         // First, convert filter strings to integer IDs

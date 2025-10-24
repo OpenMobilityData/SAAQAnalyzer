@@ -1153,7 +1153,7 @@ class DatabaseManager: ObservableObject {
     }
     
     print("🚀 Using integer-based queries for vehicles")
-    let series = try await queryManager.queryOptimizedVehicleData(filters: filters)
+    let series = try await queryManager.queryVehicleData(filters: filters)
     
     // Update the series name to match the expected format
     let seriesName = await generateSeriesNameAsync(from: filters)
@@ -1171,7 +1171,7 @@ class DatabaseManager: ObservableObject {
     }
     
     print("🚀 Using integer-based queries for licenses")
-    let series = try await queryManager.queryOptimizedLicenseData(filters: filters)
+    let series = try await queryManager.queryLicenseData(filters: filters)
     
     // Update the series name to match the expected format
     let seriesName = await generateSeriesNameAsync(from: filters)
@@ -1289,9 +1289,9 @@ class DatabaseManager: ObservableObject {
     let series: FilteredDataSeries
     switch filters.dataEntityType {
     case .vehicle:
-      series = try await queryManager.queryOptimizedVehicleData(filters: filters)
+      series = try await queryManager.queryVehicleData(filters: filters)
     case .license:
-      series = try await queryManager.queryOptimizedLicenseData(filters: filters)
+      series = try await queryManager.queryLicenseData(filters: filters)
     }
     return series.points
     
@@ -1304,7 +1304,7 @@ class DatabaseManager: ObservableObject {
       throw DatabaseError.queryFailed("Query manager not initialized")
     }
     
-    let series = try await queryManager.queryOptimizedVehicleData(filters: filters)
+    let series = try await queryManager.queryVehicleData(filters: filters)
     return series.points
 
   }
