@@ -172,7 +172,8 @@ struct FilterPanel: View {
                                 }
                             ),
                             limitToCuratedYears: configuration.limitToCuratedYears,
-                            curatedYears: Set(databaseManager.regularizationManager?.getYearConfiguration().curatedYears ?? [])
+                            curatedYears: Set(databaseManager.regularizationManager?.getYearConfiguration().curatedYears ?? []),
+                            dataEntityType: configuration.dataEntityType
                         )
                     } label: {
                         Label("Years", systemImage: "calendar")
@@ -710,6 +711,7 @@ struct YearFilterSection: View {
     @Binding var selectedYears: Set<Int>
     let limitToCuratedYears: Bool
     let curatedYears: Set<Int>
+    let dataEntityType: DataEntityType
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -727,18 +729,28 @@ struct YearFilterSection: View {
                 .buttonBorderShape(.roundedRectangle)
                 .controlSize(.small)
 
-                Button("Last 5") {
-                    let lastFive = availableYears.suffix(5)
-                    // Filter out uncurated years if limitToCuratedYears is enabled
-                    if limitToCuratedYears {
-                        selectedYears = Set(lastFive).intersection(curatedYears)
-                    } else {
-                        selectedYears = Set(lastFive)
+                // Vehicle-specific quick selects
+                if dataEntityType == .vehicle {
+                    Button("Curated") {
+                        // Select all curated years from available years
+                        selectedYears = curatedYears.intersection(Set(availableYears))
                     }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.roundedRectangle)
+                    .controlSize(.small)
+                    .help("Select all curated years (2011-2022)")
+
+                    Button("Fuel Type") {
+                        // Select years with canonical fuel type data (2017-2022)
+                        // TODO: Make this range configurable in Settings/Regularization panel
+                        let fuelTypeYears = Set(2017...2022)
+                        selectedYears = fuelTypeYears.intersection(Set(availableYears))
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.roundedRectangle)
+                    .controlSize(.small)
+                    .help("Select years with canonical fuel type data (2017-2022)")
                 }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.roundedRectangle)
-                .controlSize(.small)
 
                 Button("Clear") {
                     selectedYears.removeAll()
