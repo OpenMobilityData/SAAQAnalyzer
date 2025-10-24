@@ -511,7 +511,6 @@ The application supports multiple metric types for data analysis:
 - **Edge Cases**: Returns original values if first year is zero or negative (prevents division by zero)
 - **Implementation**:
   - `DataModels.swift:1127`: normalizeToFirstYear property
-  - `DataModels.swift:1232`: normalizeToFirstYear in IntegerFilterConfiguration
   - `DatabaseManager.swift:399-421`: normalizeToFirstYear() helper function
   - `DatabaseManager.swift:1471-1480`: Vehicle query normalization (applied to all metrics)
   - `DatabaseManager.swift:1749-1758`: License query normalization (applied to all metrics)

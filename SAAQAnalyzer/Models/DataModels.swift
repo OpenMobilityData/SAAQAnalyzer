@@ -1035,7 +1035,7 @@ struct FilterItem: Equatable, Identifiable, Sendable {
     }
 }
 
-// MARK: - Current Filter Configuration (String-based, will migrate to integer-based)
+// MARK: - Filter Configuration (UI uses strings, QueryManager converts to integer IDs)
 struct FilterConfiguration: Equatable, Sendable {
     // Data type selection
     var dataEntityType: DataEntityType = .vehicle
@@ -1143,42 +1143,6 @@ struct FilterConfiguration: Equatable, Sendable {
     var cleanVehicleMakes: Set<String> {
         Set(vehicleMakes.map { FilterConfiguration.stripMakeBadge($0) })
     }
-}
-
-// MARK: - Future Integer-based Filter Configuration
-struct IntegerFilterConfiguration: Equatable, Sendable {
-    // Data type selection
-    var dataEntityType: DataEntityType = .vehicle
-
-    // Shared filters (available for both vehicles and licenses)
-    var years: Set<Int> = []  // Years can remain as integers
-    var regions: Set<Int> = []  // Now uses admin_region_enum IDs
-    var mrcs: Set<Int> = []  // Now uses mrc_enum IDs
-    var municipalities: Set<Int> = []  // Now uses municipality_enum IDs
-
-    // Vehicle-specific filters
-    var vehicleClasses: Set<Int> = []  // Now uses vehicle_class_enum IDs
-    var vehicleMakes: Set<Int> = []  // Now uses make_enum IDs
-    var vehicleModels: Set<Int> = []  // Now uses model_enum IDs
-    var vehicleColors: Set<Int> = []  // Now uses color_enum IDs
-    var modelYears: Set<Int> = []  // Model years can remain as integers
-    var fuelTypes: Set<Int> = []  // Now uses fuel_type_enum IDs
-    var axleCounts: Set<Int> = []  // Axle counts as integers (2-6+)
-    var ageRanges: [FilterConfiguration.AgeRange] = []  // Keep as-is for numeric ranges
-
-    // License-specific filters
-    var licenseTypes: Set<Int> = []  // Now uses license_type_enum IDs
-    var ageGroups: Set<Int> = []  // Now uses age_group_enum IDs
-    var genders: Set<Int> = []  // Now uses gender_enum IDs
-    var experienceLevels: Set<String> = []  // Keep as strings for now
-    var licenseClasses: Set<String> = []  // Keep as strings for now
-
-    // Metric configuration
-    var metricType: ChartMetricType = .count
-    var metricField: ChartMetricField = .none
-    var percentageBaseFilters: IntegerPercentageBaseFilters? = nil
-    var roadWearIndexMode: FilterConfiguration.RoadWearIndexMode = .average
-    var normalizeToFirstYear: Bool = false  // true = normalize to first year (first year = 1.0), false = show raw values
 }
 
 // MARK: - Percentage Base Configuration
@@ -1636,61 +1600,6 @@ struct StandardAnalysisResult: AnalysisResult, Sendable {
     let description: String
     let timeSeries: [TimeSeriesPoint]
 }
-
-// MARK: - Integer-based Percentage Base Configuration
-struct IntegerPercentageBaseFilters: Equatable, Sendable {
-    // Data type selection
-    var dataEntityType: DataEntityType = .vehicle
-
-    // Shared filters
-    var years: Set<Int> = []
-    var regions: Set<Int> = []
-    var mrcs: Set<Int> = []
-    var municipalities: Set<Int> = []
-
-    // Vehicle-specific filters
-    var vehicleClasses: Set<Int> = []
-    var vehicleMakes: Set<Int> = []
-    var vehicleModels: Set<Int> = []
-    var vehicleColors: Set<Int> = []
-    var modelYears: Set<Int> = []
-    var fuelTypes: Set<Int> = []
-    var axleCounts: Set<Int> = []
-    var ageRanges: [FilterConfiguration.AgeRange] = []
-
-    // License-specific filters
-    var licenseTypes: Set<Int> = []
-    var ageGroups: Set<Int> = []
-    var genders: Set<Int> = []
-    var experienceLevels: Set<String> = []
-    var licenseClasses: Set<String> = []
-
-    /// Convert to full IntegerFilterConfiguration for database queries
-    func toIntegerFilterConfiguration() -> IntegerFilterConfiguration {
-        var config = IntegerFilterConfiguration()
-        config.dataEntityType = dataEntityType
-        config.years = years
-        config.regions = regions
-        config.mrcs = mrcs
-        config.municipalities = municipalities
-        config.vehicleClasses = vehicleClasses
-        config.vehicleMakes = vehicleMakes
-        config.vehicleModels = vehicleModels
-        config.vehicleColors = vehicleColors
-        config.modelYears = modelYears
-        config.fuelTypes = fuelTypes
-        config.axleCounts = axleCounts
-        config.ageRanges = ageRanges
-        config.licenseTypes = licenseTypes
-        config.ageGroups = ageGroups
-        config.genders = genders
-        config.experienceLevels = experienceLevels
-        config.licenseClasses = licenseClasses
-        config.metricType = .count  // Always count for baseline
-        return config
-    }
-}
-
 // MARK: - Color Extensions for Charts
 
 extension Color {
