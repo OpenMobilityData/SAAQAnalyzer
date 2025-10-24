@@ -2,7 +2,7 @@ import Foundation
 import SQLite3
 
 /// Holds converted filter IDs for optimized queries
-struct OptimizedFilterIds: Sendable {
+struct FilterIds: Sendable {
     let yearIds: [Int]
     let regionIds: [Int]
     let mrcIds: [Int]
@@ -23,7 +23,7 @@ struct OptimizedFilterIds: Sendable {
 }
 
 /// Simplified high-performance query manager using categorical enumeration
-class OptimizedQueryManager {
+class QueryManager {
     private weak var databaseManager: DatabaseManager?
     private var db: OpaquePointer? { databaseManager?.db }
     private let enumManager: CategoricalEnumManager
@@ -71,7 +71,7 @@ class OptimizedQueryManager {
         let filterIds = try await convertFiltersToIds(filters: filters, isVehicle: true)
 
         // Run the optimized query using integer columns
-        return try await queryVehicleDataWithIntegers(filters: filters, filterIds: filterIds)
+        return try await queryVehicleData(filters: filters, filterIds: filterIds)
     }
 
     /// Extract code from "Name (##)" formatted string
@@ -87,7 +87,7 @@ class OptimizedQueryManager {
     }
 
     /// Convert filter strings to enumeration IDs
-    private func convertFiltersToIds(filters: FilterConfiguration, isVehicle: Bool) async throws -> OptimizedFilterIds {
+    private func convertFiltersToIds(filters: FilterConfiguration, isVehicle: Bool) async throws -> FilterIds {
         var yearIds: [Int] = []
         var regionIds: [Int] = []
         var mrcIds: [Int] = []
@@ -332,7 +332,7 @@ class OptimizedQueryManager {
             print("   Experience Levels: \(experienceLevelIds.count) -> \(experienceLevelIds)")
         }
 
-        return OptimizedFilterIds(
+        return FilterIds(
             yearIds: yearIds,
             regionIds: regionIds,
             mrcIds: mrcIds,
@@ -353,7 +353,7 @@ class OptimizedQueryManager {
     }
 
     /// Optimized vehicle query using integer columns
-    private func queryVehicleDataWithIntegers(filters: FilterConfiguration, filterIds: OptimizedFilterIds) async throws -> FilteredDataSeries {
+    private func queryVehicleData(filters: FilterConfiguration, filterIds: FilterIds) async throws -> FilteredDataSeries {
         let startTime = Date()
 
         // Capture MainActor-isolated properties and filter flags before entering the closure
@@ -878,11 +878,11 @@ class OptimizedQueryManager {
         let filterIds = try await convertFiltersToIds(filters: filters, isVehicle: false)
 
         // Run the optimized query using integer columns
-        return try await queryLicenseDataWithIntegers(filters: filters, filterIds: filterIds)
+        return try await queryLicenseData(filters: filters, filterIds: filterIds)
     }
 
     /// Optimized license query using integer columns
-    private func queryLicenseDataWithIntegers(filters: FilterConfiguration, filterIds: OptimizedFilterIds) async throws -> FilteredDataSeries {
+    private func queryLicenseData(filters: FilterConfiguration, filterIds: FilterIds) async throws -> FilteredDataSeries {
         let startTime = Date()
 
         return try await withCheckedThrowingContinuation { continuation in

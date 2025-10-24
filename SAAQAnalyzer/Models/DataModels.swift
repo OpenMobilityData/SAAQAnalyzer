@@ -6,7 +6,7 @@ import SQLite3
 // MARK: - Vehicle Registration Models
 
 /// Represents a vehicle registration record from SAAQ data
-struct VehicleRegistration: Codable, Sendable {
+struct LegacyVehicleRegistration: Codable, Sendable {
     let year: Int                       // AN
     let vehicleSequence: String         // NOSEQ_VEH
     let classification: String          // CLAS (PAU, CMC, etc.)
@@ -143,7 +143,7 @@ enum FuelType: String, CaseIterable, Sendable {
 // MARK: - Driver's License Models
 
 /// Represents a driver's license record from SAAQ data
-struct DriverLicense: Codable, Sendable {
+struct LegacyDriverLicense: Codable, Sendable {
     let year: Int                           // AN
     let licenseSequence: String             // NOSEQ_TITUL
     let ageGroup: String                    // AGE_1ER_JUIN
@@ -303,7 +303,7 @@ struct LicenseTypeEnum: CategoricalEnum, Sendable {
 }
 
 /// Optimized vehicle registration with enumerated categorical data
-struct OptimizedVehicleRegistration: Codable, Sendable {
+struct VehicleRegistration: Codable, Sendable {
     // Core identifiers
     let yearId: Int                    // TINYINT → year enum
     let vehicleSequence: String        // Keep as-is for uniqueness constraint
@@ -338,7 +338,7 @@ struct OptimizedVehicleRegistration: Codable, Sendable {
 }
 
 /// Optimized driver license with enumerated categorical data
-struct OptimizedDriverLicense: Codable, Sendable {
+struct DriverLicense: Codable, Sendable {
     // Core identifiers
     let yearId: Int                    // TINYINT → year enum
     let licenseSequence: String        // Keep as-is for uniqueness constraint
@@ -947,8 +947,8 @@ protocol SAAQDataRecord {
     var mrc: String { get }
 }
 
-extension VehicleRegistration: SAAQDataRecord {}
-extension DriverLicense: SAAQDataRecord {}
+extension LegacyVehicleRegistration: SAAQDataRecord {}
+extension LegacyDriverLicense: SAAQDataRecord {}
 
 // MARK: - Geographic Models
 

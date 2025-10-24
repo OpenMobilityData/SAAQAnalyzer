@@ -2605,7 +2605,7 @@ struct FilterOptionsSection: View {
     }
 
     private func updateRegularizationInQueryManager(enabled: Bool, coupling: Bool) {
-        if let queryManager = databaseManager.optimizedQueryManager {
+        if let queryManager = databaseManager.queryManager {
             queryManager.regularizationEnabled = enabled
             queryManager.regularizationCoupling = coupling
             if enabled {

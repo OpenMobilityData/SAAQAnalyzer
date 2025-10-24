@@ -1,10 +1,10 @@
 //
-//  OptimizedQueryManagerTests.swift
+//  QueryManagerTests.swift
 //  SAAQAnalyzerTests
 //
 //  Created by Claude Code on 2025-01-27.
 //
-//  Comprehensive test suite for OptimizedQueryManager - the highest-risk component
+//  Comprehensive test suite for QueryManager - the highest-risk component
 //  handling all production integer-based queries, RWI calculations, normalization,
 //  and regularization logic.
 //
@@ -12,7 +12,7 @@
 import XCTest
 @testable import SAAQAnalyzer
 
-/// Tests for OptimizedQueryManager - critical path for all production queries
+/// Tests for QueryManager - critical path for all production queries
 ///
 /// Priority: CRITICAL (Tier 1)
 /// Risk: HIGHEST - 0% coverage before this suite
@@ -25,7 +25,7 @@ import XCTest
 /// 4. Regularization Query Expansion
 /// 5. Query Building & SQL Generation
 /// 6. Performance Validation
-final class OptimizedQueryManagerTests: XCTestCase {
+final class QueryManagerTests: XCTestCase {
 
     // Note: queryManager is created inline in tests that need it
     // Do NOT create it in setUp - causes SIGABRT due to singleton cleanup issues
@@ -431,7 +431,7 @@ final class OptimizedQueryManagerTests: XCTestCase {
         UserDefaults.standard.set(false, forKey: "regularizationCoupling")
 
         // When: Creating new query manager
-        // OptimizedQueryManager.init() reads from UserDefaults:
+        // QueryManager.init() reads from UserDefaults:
         //   regularizationEnabled = UserDefaults.standard.bool(forKey: "regularizationEnabled")
         //   regularizationCoupling = UserDefaults.standard.bool(forKey: "regularizationCoupling")
 
@@ -455,7 +455,7 @@ final class OptimizedQueryManagerTests: XCTestCase {
         // Example: Uncurated "VOLV0" (typo) → Canonical "VOLVO"
 
         // When: Regularization enabled and expanding Make IDs (line 231)
-        // In production, OptimizedQueryManager reads regularizationEnabled from UserDefaults
+        // In production, QueryManager reads regularizationEnabled from UserDefaults
         // and calls RegularizationManager.expandMakeIDs()
 
         // Note: In full test with database, RegularizationManager would:
@@ -474,7 +474,7 @@ final class OptimizedQueryManagerTests: XCTestCase {
     @MainActor
     func testRegularization_MakeModelCouplingEnabled() async throws {
         // Given: Model filter active with coupling enabled
-        // OptimizedQueryManager reads coupling setting from UserDefaults
+        // QueryManager reads coupling setting from UserDefaults
 
         // When: Expanding Make/Model IDs (line 240-244)
         // RegularizationManager.expandMakeModelIDs(coupling: true)
@@ -492,7 +492,7 @@ final class OptimizedQueryManagerTests: XCTestCase {
     @MainActor
     func testRegularization_MakeModelCouplingDisabled() async throws {
         // Given: Model filter with coupling disabled
-        // OptimizedQueryManager reads coupling: false from UserDefaults
+        // QueryManager reads coupling: false from UserDefaults
 
         // When: Expanding Make/Model IDs (line 243)
         // coupling: regularizationCoupling (false)
@@ -531,7 +531,7 @@ final class OptimizedQueryManagerTests: XCTestCase {
         config.limitToCuratedYears = false
 
         // When: Building WHERE clause (line 412-428)
-        // OptimizedQueryManager generates:
+        // QueryManager generates:
         // (vehicle_type_id IN (...) OR (vehicle_type_id IS NULL AND EXISTS (...)))
 
         // Then: Query should match both:
@@ -552,7 +552,7 @@ final class OptimizedQueryManagerTests: XCTestCase {
         config.limitToCuratedYears = false
 
         // When: Building WHERE clause (line 520-543)
-        // OptimizedQueryManager checks:
+        // QueryManager checks:
         //   r.uncurated_make_id = v.make_id
         //   AND r.uncurated_model_id = v.model_id
         //   AND r.model_year_id = v.model_year_id  (CRITICAL!)
@@ -575,7 +575,7 @@ final class OptimizedQueryManagerTests: XCTestCase {
 
         // When: regularizePre2017FuelType = false (line 537-539)
         AppSettings.shared.regularizePre2017FuelType = false
-        // OptimizedQueryManager adds: AND v.year_id IN (SELECT id FROM year_enum WHERE year >= 2017)
+        // QueryManager adds: AND v.year_id IN (SELECT id FROM year_enum WHERE year >= 2017)
 
         // Then: Pre-2017 records should be excluded even if they have mappings
 
@@ -831,7 +831,7 @@ final class OptimizedQueryManagerTests: XCTestCase {
         // Given: Query manager with nil database connection
 
         // When: Attempting query on disconnected database
-        // OptimizedQueryManager checks if db is nil before executing queries
+        // QueryManager checks if db is nil before executing queries
 
         // Then: Should throw DatabaseError.notConnected error
         // Note: Actual test would need mock DatabaseManager with nil db property

@@ -486,7 +486,7 @@ struct ContentView: View {
         }
         .onAppear {
             // Generate initial preview on appear
-            // OptimizedQueryManager now initializes from UserDefaults, so no delay needed
+            // QueryManager now initializes from UserDefaults, so no delay needed
             updateQueryPreview()
         }
         .onChange(of: regularizationEnabled) { _, _ in
@@ -1146,7 +1146,7 @@ struct ContentView: View {
     // MARK: - Schema Optimization Functions
 
     private func runPerformanceTest() {
-        guard let optimizedQueryManager = databaseManager.optimizedQueryManager else {
+        guard let queryManager = databaseManager.queryManager else {
             print("❌ Optimized query manager not available")
             return
         }
@@ -1157,7 +1157,7 @@ struct ContentView: View {
         Task {
             do {
                 let testFilters = FilterConfiguration()
-                let results = try await optimizedQueryManager.analyzePerformanceImprovement(filters: testFilters)
+                let results = try await queryManager.analyzePerformanceImprovement(filters: testFilters)
 
                 await MainActor.run {
                     optimizationResults = results.description
@@ -2251,7 +2251,7 @@ struct RegularizationSettingsView: View {
     }
 
     private func updateRegularizationInQueryManager(_ enabled: Bool, coupling: Bool) {
-        if let queryManager = databaseManager.optimizedQueryManager {
+        if let queryManager = databaseManager.queryManager {
             queryManager.regularizationEnabled = enabled
             queryManager.regularizationCoupling = coupling
             if enabled {

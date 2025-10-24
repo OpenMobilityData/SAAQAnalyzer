@@ -23,14 +23,14 @@ class DatabaseManager: ObservableObject {
     /// Filter cache manager (enumeration table-based)
     private(set) var filterCacheManager: FilterCacheManager?
 
-    /// Optimized query manager
-    private(set) var optimizedQueryManager: OptimizedQueryManager?
+    /// query manager
+    private(set) var queryManager: QueryManager?
 
     /// Regularization manager
     private(set) var regularizationManager: RegularizationManager?
 
     /// Flag to enable optimized integer-based queries
-    private var useOptimizedQueries = true  // Default to optimized after migration
+    private var useOptimizedQueries = true
 
     /// Toggle between optimized and traditional queries for testing
     func setOptimizedQueriesEnabled(_ enabled: Bool) {
@@ -299,7 +299,7 @@ class DatabaseManager: ObservableObject {
             print("✅ Database AGGRESSIVELY optimized for M3 Ultra: 8GB cache, 32GB mmap, 16 threads")
 
             // Initialize schema and optimization managers
-            optimizedQueryManager = OptimizedQueryManager(databaseManager: self)
+            queryManager = QueryManager(databaseManager: self)
             filterCacheManager = FilterCacheManager(databaseManager: self)
             regularizationManager = RegularizationManager(databaseManager: self)
 
@@ -1192,7 +1192,7 @@ class DatabaseManager: ObservableObject {
     /// Queries vehicle data based on filters
     func queryVehicleData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
         // Use optimized query manager if available and enabled
-        if useOptimizedQueries, let optimizedManager = optimizedQueryManager {
+        if useOptimizedQueries, let optimizedManager = queryManager {
             print("🚀 Using optimized integer-based queries for vehicles")
             let optimizedSeries = try await optimizedManager.queryOptimizedVehicleData(filters: filters)
 
@@ -1599,7 +1599,7 @@ class DatabaseManager: ObservableObject {
     /// Queries license data based on filters
     func queryLicenseData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
         // Use optimized query manager if available and enabled
-        if useOptimizedQueries, let optimizedManager = optimizedQueryManager {
+        if useOptimizedQueries, let optimizedManager = queryManager {
             print("🚀 Using optimized integer-based queries for licenses")
             let optimizedSeries = try await optimizedManager.queryOptimizedLicenseData(filters: filters)
 
@@ -2004,7 +2004,7 @@ class DatabaseManager: ObservableObject {
     /// Used by percentage metric calculations to get numerator and baseline data
     private func queryDataRaw(filters: FilterConfiguration) async throws -> [TimeSeriesPoint] {
         // Use optimized integer-based queries if available (same routing as main query path)
-        if useOptimizedQueries, let optimizedManager = optimizedQueryManager {
+        if useOptimizedQueries, let optimizedManager = queryManager {
             let series: FilteredDataSeries
             switch filters.dataEntityType {
             case .vehicle:
@@ -2027,7 +2027,7 @@ class DatabaseManager: ObservableObject {
     /// Raw vehicle data query that returns just points without series wrapper
     private func queryVehicleDataRaw(filters: FilterConfiguration) async throws -> [TimeSeriesPoint] {
         // Use optimized query manager if available (for integer-based queries)
-        if useOptimizedQueries, let optimizedManager = optimizedQueryManager {
+        if useOptimizedQueries, let optimizedManager = queryManager {
             let series = try await optimizedManager.queryOptimizedVehicleData(filters: filters)
             return series.points
         }
@@ -2624,7 +2624,7 @@ class DatabaseManager: ObservableObject {
 
                 // Add regularization indicator if enabled (only for vehicle data)
                 // Only show tag when regularization is actually applied (not when limiting to curated years)
-                if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true && !filters.limitToCuratedYears {
+                if filters.dataEntityType == .vehicle && queryManager?.regularizationEnabled == true && !filters.limitToCuratedYears {
                     metricLabel += " [Regularized]"
                 }
 
@@ -2659,7 +2659,7 @@ class DatabaseManager: ObservableObject {
 
                 // Add regularization indicator if enabled (only for vehicle data)
                 // Only show tag when regularization is actually applied (not when limiting to curated years)
-                if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true && !filters.limitToCuratedYears {
+                if filters.dataEntityType == .vehicle && queryManager?.regularizationEnabled == true && !filters.limitToCuratedYears {
                     percentageLabel += " [Regularized]"
                 }
 
@@ -2744,7 +2744,7 @@ class DatabaseManager: ObservableObject {
 
                     // Add regularization indicator if enabled (only for vehicle data)
                     // Only show tag when regularization is actually applied (not when limiting to curated years)
-                    if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true && !filters.limitToCuratedYears {
+                    if filters.dataEntityType == .vehicle && queryManager?.regularizationEnabled == true && !filters.limitToCuratedYears {
                         coverageLabel += " [Regularized]"
                     }
 
@@ -2776,7 +2776,7 @@ class DatabaseManager: ObservableObject {
 
                 // Add regularization indicator if enabled (only for vehicle data)
                 // Only show tag when regularization is actually applied (not when limiting to curated years)
-                if optimizedQueryManager?.regularizationEnabled == true && !filters.limitToCuratedYears {
+                if queryManager?.regularizationEnabled == true && !filters.limitToCuratedYears {
                     modePrefix += " [Regularized]"
                 }
 
@@ -2993,7 +2993,7 @@ class DatabaseManager: ObservableObject {
 
         // Add regularization indicator if enabled (only for vehicle data)
         // Only show tag when regularization is actually applied (not when limiting to curated years)
-        if filters.dataEntityType == .vehicle && optimizedQueryManager?.regularizationEnabled == true && !filters.limitToCuratedYears {
+        if filters.dataEntityType == .vehicle && queryManager?.regularizationEnabled == true && !filters.limitToCuratedYears {
             result += " [Regularized]"
         }
 
