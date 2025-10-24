@@ -140,11 +140,6 @@ final class FilterCacheTests: XCTestCase {
         XCTAssertEqual(filterCache.getCachedLicenseAgeGroups(), ageGroups)
         XCTAssertEqual(filterCache.getCachedLicenseGenders(), genders)
         XCTAssertEqual(filterCache.getCachedLicenseClasses(), licenseClasses)
-
-        // And: Legacy methods should return empty (using different keys)
-        XCTAssertTrue(filterCache.getCachedExperienceLevels().isEmpty) // This was the bug
-        XCTAssertTrue(filterCache.getCachedAgeGroups().isEmpty)
-        XCTAssertTrue(filterCache.getCachedGenders().isEmpty)
     }
 
     // MARK: - Cache State Management Tests

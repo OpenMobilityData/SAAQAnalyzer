@@ -1744,20 +1744,6 @@ struct MakeModelHierarchy: Sendable {
         let makeId: Int
         let modelYearFuelTypes: [Int?: [FuelTypeInfo]]  // NEW: Dictionary keyed by modelYearId (nil = unknown year)
         let vehicleTypes: [VehicleTypeInfo]
-
-        /// Legacy accessor for backward compatibility - returns all fuel types across all years
-        var fuelTypes: [FuelTypeInfo] {
-            let allFuelTypes = modelYearFuelTypes.values.flatMap { $0 }
-            // Deduplicate by fuel type ID
-            var seen = Set<Int>()
-            return allFuelTypes.filter { fuelType in
-                if seen.contains(fuelType.id) {
-                    return false
-                }
-                seen.insert(fuelType.id)
-                return true
-            }.sorted { $0.description < $1.description }
-        }
     }
 
     /// Third level: Fuel Type (for a Make/Model/ModelYear combination)

@@ -17,7 +17,7 @@ class DatabaseManager: ObservableObject {
   /// Test database cleanup decision (for SwiftUI alert)
   @Published var testDatabaseCleanupNeeded: URL?
   
-  /// Legacy filter cache (only used for clearing UserDefaults in test mode)
+  /// Filter cache (UserDefaults-based, used for clearing cache in test mode)
   private let filterCache = FilterCache()
   
   /// Filter cache manager (enumeration table-based)
@@ -76,9 +76,9 @@ class DatabaseManager: ObservableObject {
     print("📍 Using test database: saaq_data_test.sqlite")
     print("🔒 Production database (saaq_data.sqlite) will not be modified")
     
-    // Clear legacy UserDefaults-based filter cache to simulate fresh installation
+    // Clear UserDefaults-based filter cache to simulate fresh installation
     filterCache.clearCache()
-    print("🗑️ Cleared legacy filter cache from UserDefaults")
+    print("🗑️ Cleared filter cache from UserDefaults")
     
     // Check if test database already exists
     if FileManager.default.fileExists(atPath: testDBPath.path) {
@@ -2371,80 +2371,6 @@ class DatabaseManager: ObservableObject {
     }
     
     return nil
-  }
-  
-  /// Generates a descriptive name for a data series based on filters (legacy synchronous version)
-  private func generateSeriesName(from filters: FilterConfiguration) -> String {
-    var components: [String] = []
-    
-    // Add metric information if not count
-    if filters.metricType != .count {
-      var metricLabel = filters.metricType.shortLabel
-      if filters.metricType == .sum || filters.metricType == .average {
-        metricLabel += " \(filters.metricField.rawValue)"
-        if let unit = filters.metricField.unit {
-          metricLabel += " (\(unit))"
-        }
-      } else if filters.metricType == .coverage {
-        // For coverage, show the mode and field being analyzed
-        if let coverageField = filters.coverageField {
-          let modePrefix = filters.coverageAsPercentage ? "% Non-NULL" : "NULL Count"
-          metricLabel = "\(modePrefix) [\(coverageField.rawValue)]"
-        } else {
-          metricLabel = "Coverage (No Field)"
-        }
-      }
-      components.append(metricLabel)
-    }
-    
-    if !filters.vehicleClasses.isEmpty {
-      let classifications = filters.vehicleClasses
-        .compactMap { VehicleClass(rawValue: $0)?.description }
-        .joined(separator: " OR ")
-      if !classifications.isEmpty {
-        components.append("[\(classifications)]")
-      }
-    }
-    
-    if !filters.vehicleMakes.isEmpty {
-      let makes = Array(filters.vehicleMakes).sorted().joined(separator: " OR ")
-      components.append("[Make: \(makes)]")
-    }
-    
-    if !filters.vehicleModels.isEmpty {
-      let models = Array(filters.vehicleModels).sorted().joined(separator: " OR ")
-      components.append("[Model: \(models)]")
-    }
-    
-    if !filters.vehicleColors.isEmpty {
-      let colors = Array(filters.vehicleColors).sorted().joined(separator: " OR ")
-      components.append("[Color: \(colors)]")
-    }
-    
-    if !filters.modelYears.isEmpty {
-      let years = Array(filters.modelYears).sorted(by: >).map { String($0) }.joined(separator: " OR ")
-      components.append("[Model Year: \(years)]")
-    }
-    
-    if !filters.fuelTypes.isEmpty {
-      let fuels = filters.fuelTypes
-        .compactMap { FuelType(rawValue: $0)?.description }
-        .joined(separator: " OR ")
-      if !fuels.isEmpty {
-        components.append("[Fuel: \(fuels)]")
-      }
-    }
-    
-    if !filters.regions.isEmpty {
-      components.append("[Region: \(filters.regions.joined(separator: " OR "))]")
-    } else if !filters.mrcs.isEmpty {
-      components.append("[MRC: \(filters.mrcs.joined(separator: " OR "))]")
-    } else if !filters.municipalities.isEmpty {
-      // Use codes in series name (fallback for synchronous version)
-      components.append("[Municipality: \(filters.municipalities.joined(separator: " OR "))]")
-    }
-    
-    return components.isEmpty ? "All Vehicles" : components.joined(separator: " AND ")
   }
   
   /// Gets available years - uses cache when possible

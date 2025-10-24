@@ -76,17 +76,6 @@ class FilterCache {
         static let licenseGenders = "FilterCache.licenseGenders"
         static let licenseExperienceLevels = "FilterCache.licenseExperienceLevels"
         static let licenseClasses = "FilterCache.licenseClasses"
-
-        // Legacy keys for backward compatibility
-        static let years = "FilterCache.years"
-        static let regions = "FilterCache.regions"
-        static let mrcs = "FilterCache.mrcs"
-        static let municipalities = "FilterCache.municipalities"
-        static let classifications = "FilterCache.classifications"
-        static let modelYears = "FilterCache.modelYears"
-        static let ageGroups = "FilterCache.ageGroups"
-        static let genders = "FilterCache.genders"
-        static let experienceLevels = "FilterCache.experienceLevels"
     }
     
     // MARK: - Cache Status
@@ -184,23 +173,6 @@ class FilterCache {
         }
     }
 
-    // Legacy methods for backward compatibility
-    func getCachedYears() -> [Int] {
-        return userDefaults.array(forKey: CacheKeys.years) as? [Int] ?? []
-    }
-
-    func getCachedRegions() -> [String] {
-        return userDefaults.stringArray(forKey: CacheKeys.regions) ?? []
-    }
-
-    func getCachedMRCs() -> [String] {
-        return userDefaults.stringArray(forKey: CacheKeys.mrcs) ?? []
-    }
-    
-    func getCachedMunicipalities() -> [String] {
-        return userDefaults.stringArray(forKey: CacheKeys.municipalities) ?? []
-    }
-
     func getCachedMunicipalityCodeToName() -> [String: String] {
         guard let data = userDefaults.data(forKey: CacheKeys.municipalityCodeToName) else { return [:] }
         return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
@@ -227,15 +199,6 @@ class FilterCache {
         return userDefaults.array(forKey: CacheKeys.vehicleModelYears) as? [Int] ?? []
     }
 
-    // Legacy vehicle methods for backward compatibility
-    func getcachedVehicleClasses() -> [String] {
-        return userDefaults.stringArray(forKey: CacheKeys.classifications) ?? []
-    }
-
-    func getCachedModelYears() -> [Int] {
-        return userDefaults.array(forKey: CacheKeys.modelYears) as? [Int] ?? []
-    }
-
     func getCachedDatabaseStats() -> CachedDatabaseStats? {
         guard let data = userDefaults.data(forKey: CacheKeys.databaseStats) else { return nil }
         return try? JSONDecoder().decode(CachedDatabaseStats.self, from: data)
@@ -260,19 +223,6 @@ class FilterCache {
 
     func getCachedLicenseClasses() -> [String] {
         return userDefaults.stringArray(forKey: CacheKeys.licenseClasses) ?? []
-    }
-
-    // Legacy license methods for backward compatibility
-    func getCachedAgeGroups() -> [String] {
-        return userDefaults.stringArray(forKey: CacheKeys.ageGroups) ?? []
-    }
-
-    func getCachedGenders() -> [String] {
-        return userDefaults.stringArray(forKey: CacheKeys.genders) ?? []
-    }
-
-    func getCachedExperienceLevels() -> [String] {
-        return userDefaults.stringArray(forKey: CacheKeys.licenseExperienceLevels) ?? []
     }
 
     /// Check if license data is cached
@@ -368,31 +318,30 @@ class FilterCache {
     /// Clear the entire cache
     func clearCache() {
         // Shared keys
-        userDefaults.removeObject(forKey: CacheKeys.years)
-        userDefaults.removeObject(forKey: CacheKeys.regions)
-        userDefaults.removeObject(forKey: CacheKeys.mrcs)
-        userDefaults.removeObject(forKey: CacheKeys.municipalities)
         userDefaults.removeObject(forKey: CacheKeys.municipalityCodeToName)
         userDefaults.removeObject(forKey: CacheKeys.databaseStats)
         userDefaults.removeObject(forKey: CacheKeys.lastUpdated)
         userDefaults.removeObject(forKey: CacheKeys.dataVersion)
 
         // Vehicle-specific keys
+        userDefaults.removeObject(forKey: CacheKeys.vehicleYears)
         userDefaults.removeObject(forKey: CacheKeys.vehicleRegions)
         userDefaults.removeObject(forKey: CacheKeys.vehicleMRCs)
-        userDefaults.removeObject(forKey: CacheKeys.classifications)
+        userDefaults.removeObject(forKey: CacheKeys.vehicleMunicipalities)
+        userDefaults.removeObject(forKey: CacheKeys.vehicleClasses)
         userDefaults.removeObject(forKey: CacheKeys.vehicleMakes)
         userDefaults.removeObject(forKey: CacheKeys.vehicleModels)
         userDefaults.removeObject(forKey: CacheKeys.vehicleColors)
-        userDefaults.removeObject(forKey: CacheKeys.modelYears)
+        userDefaults.removeObject(forKey: CacheKeys.vehicleModelYears)
 
         // License-specific keys
+        userDefaults.removeObject(forKey: CacheKeys.licenseYears)
         userDefaults.removeObject(forKey: CacheKeys.licenseRegions)
         userDefaults.removeObject(forKey: CacheKeys.licenseMRCs)
         userDefaults.removeObject(forKey: CacheKeys.licenseTypes)
-        userDefaults.removeObject(forKey: CacheKeys.ageGroups)
-        userDefaults.removeObject(forKey: CacheKeys.genders)
-        userDefaults.removeObject(forKey: CacheKeys.experienceLevels)
+        userDefaults.removeObject(forKey: CacheKeys.licenseAgeGroups)
+        userDefaults.removeObject(forKey: CacheKeys.licenseGenders)
+        userDefaults.removeObject(forKey: CacheKeys.licenseExperienceLevels)
         userDefaults.removeObject(forKey: CacheKeys.licenseClasses)
 
         print("🗑️ Filter cache cleared")
