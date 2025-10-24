@@ -72,7 +72,8 @@ struct ContentView: View {
 
     // Series query progress state
     @State private var currentQueryPattern: String?
-    @State private var currentQueryIsIndexed: Bool?
+    @State private var currentLimitToCuratedYears: Bool?
+    @State private var currentRegularizationEnabled: Bool?
     @State private var queryStartTime: Date?
 
     // Import handling state
@@ -596,7 +597,8 @@ struct ContentView: View {
 
                     SeriesQueryProgressView(
                         queryPattern: currentQueryPattern,
-                        isIndexed: currentQueryIsIndexed,
+                        limitToCuratedYears: currentLimitToCuratedYears,
+                        regularizationEnabled: currentRegularizationEnabled,
                         dataType: selectedFilters.dataEntityType == .vehicle ? "vehicle registrations" : "license holders"
                     )
                     .frame(maxWidth: 400)
@@ -660,11 +662,30 @@ struct ContentView: View {
   private func refreshChartData() {
     Task {
       let queryPattern = generateQueryPattern(from: selectedFilters)
-      
-      // New behavior: Integer-based queries always use indexes
+
+      // Compute effective curated-only status
+      // Edge case: If limitToCuratedYears toggle is OFF but all selected years are curated,
+      // treat as curated-only mode for progress display
+      let effectivelyCuratedOnly: Bool = {
+        if selectedFilters.limitToCuratedYears {
+          return true  // Explicit toggle
+        }
+
+        // Check if all selected years are actually curated
+        guard let yearConfig = databaseManager.regularizationManager?.getYearConfiguration(),
+              !selectedFilters.years.isEmpty else {
+          return false
+        }
+
+        let curatedYears = yearConfig.curatedYears
+        return selectedFilters.years.isSubset(of: curatedYears)
+      }()
+
+      // Set query progress state with filter configuration
       await MainActor.run {
         currentQueryPattern = queryPattern
-        currentQueryIsIndexed = true  // Integer queries always use indexes
+        currentLimitToCuratedYears = effectivelyCuratedOnly
+        currentRegularizationEnabled = UserDefaults.standard.bool(forKey: "regularizationEnabled")
         isAddingSeries = true
       }
       
@@ -678,13 +699,15 @@ struct ContentView: View {
           selectedSeries = newSeries
           isAddingSeries = false
           currentQueryPattern = nil
-          currentQueryIsIndexed = nil
+          currentLimitToCuratedYears = nil
+          currentRegularizationEnabled = nil
         }
       } catch {
         await MainActor.run {
           isAddingSeries = false
           currentQueryPattern = nil
-          currentQueryIsIndexed = nil
+          currentLimitToCuratedYears = nil
+          currentRegularizationEnabled = nil
         }
         print("❌ Error creating chart series: \(error)")
       }
@@ -1234,13 +1257,37 @@ struct SeriesQueryProgressView: View {
 
     // Query information for enhanced feedback
     let queryPattern: String?
-    let isIndexed: Bool?
+    let limitToCuratedYears: Bool?
+    let regularizationEnabled: Bool?
     let dataType: String
 
-    init(queryPattern: String? = nil, isIndexed: Bool? = nil, dataType: String = "data") {
+    init(queryPattern: String? = nil, limitToCuratedYears: Bool? = nil, regularizationEnabled: Bool? = nil, dataType: String = "data") {
         self.queryPattern = queryPattern
-        self.isIndexed = isIndexed
+        self.limitToCuratedYears = limitToCuratedYears
+        self.regularizationEnabled = regularizationEnabled
         self.dataType = dataType
+    }
+
+    // MARK: - Data Quality States
+
+    /// Represents the quality/mode of data being queried
+    private enum DataQualityMode {
+        case curatedOnly        // Green - curated years only, highest quality
+        case regularized        // Blue - uncurated data with regularization (safer)
+        case rawUncurated      // Amber - uncurated data without regularization (requires attention)
+    }
+
+    /// Computes the current data quality mode based on filter settings
+    private var dataQualityMode: DataQualityMode? {
+        guard let curated = limitToCuratedYears else { return nil }
+
+        if curated {
+            return .curatedOnly
+        } else {
+            // Uncurated data - check if regularization is enabled
+            guard let regularized = regularizationEnabled else { return nil }
+            return regularized ? .regularized : .rawUncurated
+        }
     }
 
     var body: some View {
@@ -1273,18 +1320,18 @@ struct SeriesQueryProgressView: View {
                         .cornerRadius(4)
                 }
 
-                // Query optimization status
-                if let indexed = isIndexed {
+                // Data quality indicator badge
+                if let mode = dataQualityMode {
                     HStack(spacing: 4) {
-                        Image(systemName: indexed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                            .foregroundColor(indexed ? .green : .orange)
-                        Text(indexed ? "Using integer enumeration optimization" : "Using legacy query path")
+                        Image(systemName: badgeIcon(for: mode))
+                            .foregroundColor(badgeColor(for: mode))
+                        Text(badgeText(for: mode))
                             .font(.caption2)
-                            .foregroundColor(indexed ? .green : .orange)
+                            .foregroundColor(badgeColor(for: mode))
                     }
                     .padding(.horizontal)
                     .padding(.vertical, 2)
-                    .background((indexed ? Color.green : Color.orange).opacity(0.1))
+                    .background(badgeColor(for: mode).opacity(0.1))
                     .cornerRadius(4)
                 }
             }
@@ -1335,35 +1382,87 @@ struct SeriesQueryProgressView: View {
     // MARK: - Computed Properties
 
     private var iconName: String {
-        if let indexed = isIndexed {
-            return indexed ? "magnifyingglass" : "clock.arrow.circlepath"
+        guard let mode = dataQualityMode else {
+            return "magnifyingglass"
         }
-        return "magnifyingglass"
+
+        switch mode {
+        case .curatedOnly:
+            return "checkmark.seal.fill"
+        case .regularized:
+            return "wand.and.stars"
+        case .rawUncurated:
+            return "chart.bar.doc.horizontal"
+        }
     }
 
     private var iconColor: Color {
-        if let indexed = isIndexed {
-            return indexed ? .accentColor : .orange
+        guard let mode = dataQualityMode else {
+            return .accentColor
         }
-        return .accentColor
+
+        switch mode {
+        case .curatedOnly:
+            return .green
+        case .regularized:
+            return .blue
+        case .rawUncurated:
+            return .orange
+        }
     }
 
     private var titleText: String {
-        if let indexed = isIndexed, !indexed {
-            return "Legacy Query in Progress"
-        }
         return "Querying Database"
     }
 
     private var subtitleText: String {
-        if let indexed = isIndexed {
-            if indexed {
-                return "Processing \(dataType) using integer-based enumeration tables..."
-            } else {
-                return "Using legacy string-based queries - consider reimporting data for optimal performance..."
-            }
+        guard let mode = dataQualityMode else {
+            return "Analyzing \(dataType) with your filter criteria..."
         }
-        return "Analyzing \(dataType) with your filter criteria..."
+
+        switch mode {
+        case .curatedOnly:
+            return "Processing \(dataType) from curated years only..."
+        case .regularized:
+            return "Merging uncurated variants into canonical values..."
+        case .rawUncurated:
+            return "Including all uncurated data variants..."
+        }
+    }
+
+    // MARK: - Badge Helpers
+
+    private func badgeIcon(for mode: DataQualityMode) -> String {
+        switch mode {
+        case .curatedOnly:
+            return "checkmark.circle.fill"
+        case .regularized:
+            return "arrow.triangle.merge"
+        case .rawUncurated:
+            return "info.circle.fill"
+        }
+    }
+
+    private func badgeColor(for mode: DataQualityMode) -> Color {
+        switch mode {
+        case .curatedOnly:
+            return .green
+        case .regularized:
+            return .blue
+        case .rawUncurated:
+            return .orange
+        }
+    }
+
+    private func badgeText(for mode: DataQualityMode) -> String {
+        switch mode {
+        case .curatedOnly:
+            return "Curated data only"
+        case .regularized:
+            return "Regularization enabled"
+        case .rawUncurated:
+            return "Raw uncurated data"
+        }
     }
 }
 
