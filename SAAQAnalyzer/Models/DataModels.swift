@@ -5,33 +5,8 @@ import SQLite3
 
 // MARK: - Vehicle Registration Models
 
-/// Represents a vehicle registration record from SAAQ data
-struct LegacyVehicleRegistration: Codable, Sendable {
-    let year: Int                       // AN
-    let vehicleSequence: String         // NOSEQ_VEH
-    let classification: String          // CLAS (PAU, CMC, etc.)
-    let vehicleClass: String            // TYP_VEH_CATEG_USA
-    let make: String                   // MARQ_VEH
-    let model: String                  // MODEL_VEH
-    let modelYear: Int?                // ANNEE_MOD
-    let netMass: Double?               // MASSE_NETTE (kg)
-    let cylinderCount: Int?            // NB_CYL
-    let displacement: Double?          // CYL_VEH (cm³)
-    let maxAxles: Int?                 // NB_ESIEU_MAX
-    let originalColor: String?         // COUL_ORIG
-    let fuelType: String?              // TYP_CARBU (2017+ only)
-    let adminRegion: String            // REG_ADM
-    let mrc: String                    // MRC
-    let geoCode: String               // CG_FIXE
-    
-    /// Calculate vehicle age for a given year
-    func age(in year: Int) -> Int? {
-        guard let modelYear = modelYear else { return nil }
-        return year - modelYear
-    }
-}
-
 /// Vehicle classification types
+#if true // TODO:  Update to final schema
 enum VehicleClass: String, CaseIterable, Sendable {
     // Personal use
     case pau = "PAU"  // Automobile ou camion léger
@@ -106,8 +81,10 @@ enum VehicleClass: String, CaseIterable, Sendable {
         }
     }
 }
+#endif
 
 /// Fuel type codes (available from 2017+)
+#if true // TODO:  Update to final schema
 enum FuelType: String, CaseIterable, Sendable {
     case electric = "L"      // Électricité
     case gasoline = "E"      // Essence
@@ -139,32 +116,9 @@ enum FuelType: String, CaseIterable, Sendable {
         }
     }
 }
+#endif
 
 // MARK: - Driver's License Models
-
-/// Represents a driver's license record from SAAQ data
-struct LegacyDriverLicense: Codable, Sendable {
-    let year: Int                           // AN
-    let licenseSequence: String             // NOSEQ_TITUL
-    let ageGroup: String                    // AGE_1ER_JUIN
-    let gender: String                      // SEXE
-    let mrc: String                         // MRC
-    let adminRegion: String                 // REG_ADM
-    let licenseType: String                 // TYPE_PERMIS
-    let hasLearnerPermit123: Bool           // IND_PERMISAPPRENTI_123
-    let hasLearnerPermit5: Bool             // IND_PERMISAPPRENTI_5
-    let hasLearnerPermit6A6R: Bool          // IND_PERMISAPPRENTI_6A6R
-    let hasDriverLicense1234: Bool          // IND_PERMISCONDUIRE_1234
-    let hasDriverLicense5: Bool             // IND_PERMISCONDUIRE_5
-    let hasDriverLicense6ABCE: Bool         // IND_PERMISCONDUIRE_6ABCE
-    let hasDriverLicense6D: Bool            // IND_PERMISCONDUIRE_6D
-    let hasDriverLicense8: Bool             // IND_PERMISCONDUIRE_8
-    let isProbationary: Bool                // IND_PROBATOIRE
-    let experience1234: String              // EXPERIENCE_1234
-    let experience5: String                 // EXPERIENCE_5
-    let experience6ABCE: String             // EXPERIENCE_6ABCE
-    let experienceGlobal: String            // EXPERIENCE_GLOBALE
-}
 
 // MARK: - Categorical Enumeration Models
 
@@ -939,16 +893,6 @@ enum DataEntityType: String, CaseIterable, Sendable {
         }
     }
 }
-
-/// Protocol for shared fields between vehicles and licenses
-protocol SAAQDataRecord {
-    var year: Int { get }
-    var adminRegion: String { get }
-    var mrc: String { get }
-}
-
-extension LegacyVehicleRegistration: SAAQDataRecord {}
-extension LegacyDriverLicense: SAAQDataRecord {}
 
 // MARK: - Geographic Models
 
