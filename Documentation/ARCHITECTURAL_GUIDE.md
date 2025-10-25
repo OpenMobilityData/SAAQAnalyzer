@@ -2,7 +2,7 @@
 
 **Purpose**: Comprehensive architectural reference to prevent regressions and guide future development
 **Audience**: Claude Code sessions and human developers
-**Last Updated**: October 21, 2025
+**Last Updated**: October 24, 2025
 **Maintainers**: Review and update at end of each significant development session
 
 ---
@@ -18,7 +18,8 @@
 7. [Logging Infrastructure](#logging-infrastructure)
 8. [Common Regression Patterns](#common-regression-patterns)
 9. [Critical Code Patterns](#critical-code-patterns)
-10. [Decision Log](#decision-log)
+10. [RWI Configuration System](#rwi-configuration-system)
+11. [Decision Log](#decision-log)
 
 ---
 
@@ -1088,6 +1089,178 @@ struct ExpensiveSheet: View {
 - ViewModel survives sheet dismiss → instant reopen
 
 **Example**: `RegularizationSettingsView` owns `RegularizationViewModel`, passes to `RegularizationView` sheet. Reopen time: 60s → <1s.
+
+---
+
+## RWI Configuration System
+
+**Added**: October 24, 2025
+
+### Overview
+
+The Road Wear Index (RWI) calculation system is fully user-configurable, making assumptions transparent and allowing customization for different analytical scenarios. All configuration is managed via Settings → Road Wear Index tab.
+
+### Architecture
+
+**Two-Tier Fallback Strategy:**
+1. **Primary**: Actual axle count data (when `max_axles` is not NULL)
+2. **Fallback**: Vehicle type assumptions (when `max_axles` is NULL)
+3. **Default**: Wildcard fallback for unknown vehicle types
+
+**Configuration Model:**
+- `RWIConfigurationData`: Root configuration object
+  - `axleConfigurations`: [Int: AxleConfiguration] - Keyed by axle count (2-6)
+  - `vehicleTypeFallbacks`: [String: VehicleTypeFallback] - Keyed by type code
+  - `schemaVersion`: Int - For future migrations
+- `AxleConfiguration`: Axle-specific weight distributions
+  - `axleCount`: Int
+  - `weightDistribution`: [Double] - Percentages (must sum to 100%)
+  - `coefficient`: Double - Auto-calculated from distribution
+- `VehicleTypeFallback`: Vehicle type assumptions
+  - `typeCode`: String - "CA", "VO", "AB", "AU", "*"
+  - `assumedAxles`: Int
+  - `weightDistribution`: [Double]
+  - `coefficient`: Double
+
+### Calculation Flow
+
+1. User modifies settings via `RWISettingsView`
+2. Settings saved to UserDefaults (JSON encoded)
+3. `RWICalculator` reads configuration from `RWIConfigurationManager`
+4. SQL CASE expression generated dynamically
+5. SQL embedded in vehicle queries via `QueryManager`
+6. Database executes query with custom coefficients
+
+### Coefficient Calculation
+
+**Formula**: Coefficient = Σ(weight_fraction⁴)
+
+**Example** (3 axles, 30/35/35 distribution):
+```
+Coefficient = (0.30)⁴ + (0.35)⁴ + (0.35)⁴ = 0.0234
+```
+
+**Rationale**: 4th power law of road wear - damage is proportional to (axle load)⁴
+
+### SQL Generation
+
+`RWICalculator` generates dynamic SQL CASE expression:
+
+```sql
+CASE
+    -- Axle-based (when max_axles is not NULL)
+    WHEN v.max_axles = 2 THEN 0.1325 * POWER(v.net_mass_int, 4)
+    WHEN v.max_axles = 3 THEN 0.0234 * POWER(v.net_mass_int, 4)
+    WHEN v.max_axles = 4 THEN 0.0156 * POWER(v.net_mass_int, 4)
+    WHEN v.max_axles = 5 THEN 0.0080 * POWER(v.net_mass_int, 4)
+    WHEN v.max_axles >= 6 THEN 0.0046 * POWER(v.net_mass_int, 4)
+    -- Vehicle type fallbacks (when max_axles is NULL)
+    WHEN v.vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code = 'CA')
+    THEN 0.0234 * POWER(v.net_mass_int, 4)
+    WHEN v.vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code = 'AB')
+    THEN 0.1935 * POWER(v.net_mass_int, 4)
+    -- Default wildcard
+    ELSE 0.125 * POWER(v.net_mass_int, 4)
+END
+```
+
+### Performance Optimization
+
+**SQL Caching**: Generated SQL is cached using configuration hash
+- Cache hit: <0.001ms
+- Cache miss: <1ms (negligible compared to query execution)
+- Cache invalidation: Automatic on configuration change
+
+```swift
+private static var cachedSQL: String?
+private static var lastConfigHash: Int?
+
+func generateSQLCalculation() -> String {
+    let currentHash = configManager.configuration.hashValue
+    if let cached = Self.cachedSQL, Self.lastConfigHash == currentHash {
+        return cached
+    }
+    // Generate fresh SQL...
+}
+```
+
+### Storage and Persistence
+
+**UserDefaults with JSON Encoding:**
+- Key: `"rwiConfiguration"`
+- Format: JSON (exportable/importable)
+- Versioning: `schemaVersion` field for future migrations
+- Fallback: Default configuration if missing/corrupt
+
+**File Locations:**
+- `Settings/RWIConfiguration.swift`: Data models
+- `Settings/RWIConfigurationManager.swift`: Storage and persistence
+- `Utilities/RWICalculator.swift`: SQL generation
+- `Settings/RWISettings.swift`: Settings UI
+- `Settings/RWIEditDialogs.swift`: Edit dialogs
+
+### Validation
+
+**Real-time Validation in UI:**
+- Weight distributions must sum to 100% (±0.01% tolerance)
+- All weights must be > 0 and ≤ 100
+- Number of weights must match axle count
+- Axle count must be 2-6
+- Save button disabled until valid
+
+**Validation on Import:**
+- JSON schema validation
+- Data integrity checks
+- Coefficient recalculation verification
+- Graceful error handling with user feedback
+
+### Import/Export
+
+**Export Format** (JSON, pretty-printed):
+```json
+{
+  "axleConfigurations": {
+    "2": {
+      "axleCount": 2,
+      "weightDistribution": [45.0, 55.0],
+      "coefficient": 0.1325
+    },
+    ...
+  },
+  "vehicleTypeFallbacks": {
+    "CA": {
+      "typeCode": "CA",
+      "description": "Truck",
+      "assumedAxles": 3,
+      "weightDistribution": [30.0, 35.0, 35.0],
+      "coefficient": 0.0234
+    },
+    ...
+  },
+  "schemaVersion": 1
+}
+```
+
+**Use Cases:**
+- Share configurations across machines
+- Backup settings before experimentation
+- Collaborate on analytical scenarios
+- Document methodology for research
+
+### Extensibility
+
+**Future Enhancements:**
+- Make/Model-specific overrides
+- Year-specific coefficient adjustments
+- Multiple named presets
+- Visual coefficient calculator
+- Comparative analysis tools
+
+**Design Accommodates:**
+- Schema versioning for migrations
+- Additional configuration properties
+- New calculation methods
+- Custom validation rules
 
 ---
 

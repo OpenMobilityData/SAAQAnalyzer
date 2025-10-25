@@ -1508,8 +1508,14 @@ struct SettingsView: View {
                     Label("Regularization", systemImage: "arrow.triangle.merge")
                 }
                 .tag(4)
+
+            RWISettingsView()
+                .tabItem {
+                    Label("Road Wear", systemImage: "truck.box.fill")
+                }
+                .tag(5)
         }
-        .frame(width: 550, height: 650)
+        .frame(width: 750, height: 650)
     }
 }
 
