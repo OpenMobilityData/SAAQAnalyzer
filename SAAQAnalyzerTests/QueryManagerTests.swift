@@ -45,7 +45,7 @@ final class QueryManagerTests: XCTestCase {
 
         // When: Converting filters to IDs
         // Note: This requires database connection with enum tables populated
-        // In production test, we'd validate the returned OptimizedFilterIds
+        // In production test, we'd validate the returned filterIds
 
         // Then: Year IDs should map correctly to year_enum table
         // Expected behavior:
@@ -773,7 +773,7 @@ final class QueryManagerTests: XCTestCase {
 
         // When: Executing query
         let startTime = Date()
-        // let result = try await queryManager.queryOptimizedVehicleData(filters: config)
+        // let result = try await queryManager.queryVehicleData(filters: config)
         let duration = Date().timeIntervalSince(startTime)
 
         // Then: Should complete in <5 seconds
@@ -791,7 +791,7 @@ final class QueryManagerTests: XCTestCase {
         config.years = [9999]  // Non-existent year
 
         // When: Executing query
-        // let result = try await queryManager.queryOptimizedVehicleData(filters: config)
+        // let result = try await queryManager.queryVehicleData(filters: config)
 
         // Then: Should detect empty results and log warning (line 842-844)
         // Console should show: "⚠️ Empty results - likely ID lookup problem..."

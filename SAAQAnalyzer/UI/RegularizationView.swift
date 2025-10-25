@@ -1289,10 +1289,10 @@ class RegularizationViewModel: ObservableObject {
             }
 
             let overallDuration = CFAbsoluteTimeGetCurrent() - overallStartTime
-            logger.notice("✅ Optimized loading complete in \(String(format: "%.3f", overallDuration))s (mappings: \(String(format: "%.2f", mappingsDuration))s, model years: \(String(format: "%.2f", modelYearsDuration))s, pairs: \(String(format: "%.2f", pairsDuration))s)")
+            logger.notice("✅ Asynchronous loading complete in \(String(format: "%.3f", overallDuration))s (mappings: \(String(format: "%.2f", mappingsDuration))s, model years: \(String(format: "%.2f", modelYearsDuration))s, pairs: \(String(format: "%.2f", pairsDuration))s)")
 
         } catch {
-            logger.error("❌ Error in optimized loading: \(error.localizedDescription)")
+            logger.error("❌ Error in asynchronous loading: \(error.localizedDescription)")
             logger.error("Error type: \(type(of: error))")
             logger.error("Full error: \(String(describing: error))")
             await MainActor.run {
