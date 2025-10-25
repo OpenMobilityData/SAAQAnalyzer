@@ -607,7 +607,10 @@ struct ContentView: View {
                         queryPattern: currentQueryPattern,
                         limitToCuratedYears: currentLimitToCuratedYears,
                         regularizationEnabled: currentRegularizationEnabled,
-                        dataType: selectedFilters.dataEntityType == .vehicle ? "vehicle registrations" : "license holders"
+                        dataType: selectedFilters.dataEntityType == .vehicle ? "vehicle registrations" : "license holders",
+                        dataEntityType: selectedFilters.dataEntityType,
+                        selectedYears: selectedFilters.years,
+                        databaseManager: databaseManager
                     )
                     .frame(maxWidth: 400)
                         .transition(.scale.combined(with: .opacity))
@@ -1268,12 +1271,18 @@ struct SeriesQueryProgressView: View {
     let limitToCuratedYears: Bool?
     let regularizationEnabled: Bool?
     let dataType: String
+    let dataEntityType: DataEntityType?
+    let selectedYears: Set<Int>?
+    let databaseManager: DatabaseManager?
 
-    init(queryPattern: String? = nil, limitToCuratedYears: Bool? = nil, regularizationEnabled: Bool? = nil, dataType: String = "data") {
+    init(queryPattern: String? = nil, limitToCuratedYears: Bool? = nil, regularizationEnabled: Bool? = nil, dataType: String = "data", dataEntityType: DataEntityType? = nil, selectedYears: Set<Int>? = nil, databaseManager: DatabaseManager? = nil) {
         self.queryPattern = queryPattern
         self.limitToCuratedYears = limitToCuratedYears
         self.regularizationEnabled = regularizationEnabled
         self.dataType = dataType
+        self.dataEntityType = dataEntityType
+        self.selectedYears = selectedYears
+        self.databaseManager = databaseManager
     }
 
     // MARK: - Data Quality States
@@ -1285,11 +1294,38 @@ struct SeriesQueryProgressView: View {
         case rawUncurated      // Amber - uncurated data without regularization (requires attention)
     }
 
-    /// Computes the current data quality mode based on filter settings
+    /// Computes the current data quality mode based on filter settings and selected years
     private var dataQualityMode: DataQualityMode? {
-        guard let curated = limitToCuratedYears else { return nil }
+        // Determine if all selected years are curated based on data type
+        guard let entityType = dataEntityType, let years = selectedYears, !years.isEmpty else {
+            // Fallback to old logic if we don't have the required data
+            guard let curated = limitToCuratedYears else { return nil }
+            if curated {
+                return .curatedOnly
+            } else {
+                guard let regularized = regularizationEnabled else { return nil }
+                return regularized ? .regularized : .rawUncurated
+            }
+        }
 
-        if curated {
+        let allYearsCurated: Bool
+        switch entityType {
+        case .vehicle:
+            // For vehicles, check against regularization manager's curated years
+            if let regManager = databaseManager?.regularizationManager {
+                let curatedYears = regManager.getYearConfiguration().curatedYears
+                allYearsCurated = years.allSatisfy { curatedYears.contains($0) }
+            } else {
+                // Fallback if no regularization manager
+                allYearsCurated = limitToCuratedYears ?? false
+            }
+        case .license:
+            // For licenses, all current years are curated (2011-2022)
+            // In the future, this can be enhanced to check against a license-specific curation config
+            allYearsCurated = true
+        }
+
+        if allYearsCurated {
             return .curatedOnly
         } else {
             // Uncurated data - check if regularization is enabled
