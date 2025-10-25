@@ -2430,19 +2430,17 @@ class DatabaseManager: ObservableObject {
   func getAvailableYears(for dataType: DataEntityType) async -> [Int] {
     print("🔍 getAvailableYears(for: \(dataType)) - Data-type-aware query")
 
-    if let filterCacheManager = filterCacheManager {
-      do {
-        let years = try await filterCacheManager.getAvailableYears()
-        print("✅ Using enumeration-based years (\(years.count) items) for \(dataType)")
-        return years
-      } catch {
-        print("⚠️ Failed to load enumeration years, falling back to database query: \(error)")
-      }
+    // Query the actual table to get years specific to this data type
+    switch dataType {
+    case .vehicle:
+      let years = await getVehicleYearsFromDatabase()
+      print("✅ Loaded \(years.count) years from vehicles table")
+      return years
+    case .license:
+      let years = await getLicenseYearsFromDatabase()
+      print("✅ Loaded \(years.count) years from licenses table")
+      return years
     }
-    
-    print("⚠️ Unable to load years from cache for \(dataType)")
-    return []
-
   }
   
   /// Internal method to query years directly from database

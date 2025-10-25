@@ -149,18 +149,20 @@ struct FilterPanel: View {
                         .padding()
                     }
 
-                    // Filter Options section
-                    DisclosureGroup(isExpanded: $filterOptionsSectionExpanded) {
-                        FilterOptionsSection(
-                            limitToCuratedYears: $configuration.limitToCuratedYears
-                        )
-                    } label: {
-                        Label("Filter Options", systemImage: "slider.horizontal.3")
-                            .font(.subheadline)
-                            .symbolRenderingMode(.hierarchical)
-                    }
+                    // Filter Options section (only for vehicle data)
+                    if configuration.dataEntityType == .vehicle {
+                        DisclosureGroup(isExpanded: $filterOptionsSectionExpanded) {
+                            FilterOptionsSection(
+                                limitToCuratedYears: $configuration.limitToCuratedYears
+                            )
+                        } label: {
+                            Label("Filter Options", systemImage: "slider.horizontal.3")
+                                .font(.subheadline)
+                                .symbolRenderingMode(.hierarchical)
+                        }
 
-                    Divider()
+                        Divider()
+                    }
 
                     // Years section
                     DisclosureGroup(isExpanded: $yearSectionExpanded) {
@@ -432,19 +434,22 @@ struct FilterPanel: View {
 
                 // Only auto-select years when explicitly requested (not during hierarchical filter resets)
                 if autoSelectYears {
-                    // Auto-select all years when switching data types if none are selected
-                    // OR auto-select newly available years
-                    if configuration.years.isEmpty && !years.isEmpty {
-                        configuration.years = Set(years)
-                        print("📊 Auto-selected all \(years.count) years after data type switch")
-                    } else {
-                        // Auto-select any newly available years
-                        let newYears = Set(years).subtracting(configuration.years)
-                        if !newYears.isEmpty {
-                            configuration.years.formUnion(newYears)
-                            print("📊 Auto-selected \(newYears.count) newly available year(s): \(newYears.sorted())")
-                        }
+                    // Filter selected years to only include years available in this data type
+                    let availableYearsSet = Set(years)
+                    let previouslySelected = configuration.years
+                    let stillAvailable = previouslySelected.intersection(availableYearsSet)
+
+                    if stillAvailable.isEmpty && !years.isEmpty {
+                        // No previously selected years are available - select all
+                        configuration.years = availableYearsSet
+                        print("📊 Auto-selected all \(years.count) years after data type switch (no overlap)")
+                    } else if stillAvailable.count < previouslySelected.count {
+                        // Some years are not available in new mode - filter them out
+                        let removed = previouslySelected.subtracting(stillAvailable)
+                        configuration.years = stillAvailable
+                        print("📊 Filtered out \(removed.count) unavailable year(s): \(removed.sorted()), keeping \(stillAvailable.count) year(s)")
                     }
+                    // If all previously selected years are available, keep the selection as-is
                 }
             }
         }

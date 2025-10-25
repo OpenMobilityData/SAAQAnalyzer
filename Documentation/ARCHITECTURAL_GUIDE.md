@@ -2,7 +2,7 @@
 
 **Purpose**: Comprehensive architectural reference to prevent regressions and guide future development
 **Audience**: Claude Code sessions and human developers
-**Last Updated**: October 24, 2025
+**Last Updated**: October 25, 2025
 **Maintainers**: Review and update at end of each significant development session
 
 ---
@@ -412,12 +412,16 @@ sqlite3_exec(db, "ANALYZE")
    - Cumulative Sum toggle
 
 2. **Filters Section** (scrollable):
-   - Filter Options (Limit to Curated Years, Enable Regularization, etc.)
-   - Years (when)
+   - Filter Options (Vehicle mode only: Limit to Curated Years, Enable Regularization, etc.)
+   - Years (when) - **Data-type-aware**: queries vehicle/license tables separately
    - Geographic Location (where)
    - Vehicle/License Characteristics (what/who)
 
-**Critical UI Pattern**: Manual "Filter by Selected Makes" button avoids AttributeGraph crashes from automatic hierarchical filtering.
+**Critical UI Patterns**:
+- Manual "Filter by Selected Makes" button avoids AttributeGraph crashes from automatic hierarchical filtering
+- Filter Options section hidden in license mode (not applicable to license data)
+- Year ranges reflect actual data availability per data type (vehicles: 2011-2024, licenses: 2011-2022)
+- Progress badges show data-type-aware curation status
 
 ### SwiftUI Performance Patterns
 
