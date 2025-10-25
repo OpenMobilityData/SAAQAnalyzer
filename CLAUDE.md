@@ -469,6 +469,22 @@ The application supports multiple metric types for data analysis:
      - `DataModels.swift:1546-1564`: Value formatting with normalization awareness
      - `ChartView.swift:328-336`: Y-axis formatting with automatic precision detection for normalized values
      - `ChartView.swift:688`: Legend display using formatValue()
+   - **User Configuration** ✨ *New in October 2025*:
+     - All RWI assumptions are user-configurable via Settings → Road Wear Index tab
+     - **Axle-based coefficients**: Edit weight distributions for 2-6+ axles
+     - **Vehicle type fallbacks**: Edit assumptions for CA, VO, AB, AU, and wildcard (*)
+     - **Real-time validation**: Weight distributions must sum to 100%
+     - **Auto-calculated coefficients**: Updated automatically from weight distributions
+     - **Import/Export**: Share configurations as JSON files
+     - **Configuration storage**: UserDefaults (persistent across sessions)
+     - **File locations**:
+       - `Settings/RWIConfiguration.swift`: Data models (AxleConfiguration, VehicleTypeFallback)
+       - `Settings/RWIConfigurationManager.swift`: Storage and persistence logic
+       - `Utilities/RWICalculator.swift`: SQL generation from configuration
+       - `Settings/RWISettings.swift`: Settings UI with validation
+       - `Settings/RWIEditDialogs.swift`: Edit dialogs for configurations
+     - **SQL generation**: `RWICalculator` generates dynamic SQL CASE expressions from user settings
+     - **Caching**: Generated SQL cached to avoid regeneration on every query
 
 ### Cumulative Sum Transform ✨ *New in October 2025*
 

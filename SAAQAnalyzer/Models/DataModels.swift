@@ -256,13 +256,13 @@ struct LicenseTypeEnum: CategoricalEnum, Sendable {
     var displayValue: String { description }
 }
 
-/// Optimized vehicle registration with enumerated categorical data
+/// Store vehicle registration with enumerated categorical data
 struct VehicleRegistration: Codable, Sendable {
     // Core identifiers
     let yearId: Int                    // TINYINT → year enum
     let vehicleSequence: String        // Keep as-is for uniqueness constraint
 
-    // Categorical enums (significant storage reduction)
+    // Categorical enums (significant storage reduction over original strings)
     let classificationId: Int          // TINYINT → 30 classifications
     let makeId: Int                   // SMALLINT → 418 makes
     let modelId: Int                  // SMALLINT → 9,923 models
@@ -275,7 +275,7 @@ struct VehicleRegistration: Codable, Sendable {
     let mrcId: Int                    // SMALLINT → 106 MRCs
     let municipalityId: Int           // SMALLINT → 129 municipalities
 
-    // Optimized numeric data
+    // Numeric data
     let netMass: Int?                 // SMALLINT instead of REAL (kg)
     let displacement: Int?            // SMALLINT instead of REAL (cm³)
 
@@ -291,7 +291,7 @@ struct VehicleRegistration: Codable, Sendable {
     }
 }
 
-/// Optimized driver license with enumerated categorical data
+/// Store driver license with enumerated categorical data
 struct DriverLicense: Codable, Sendable {
     // Core identifiers
     let yearId: Int                    // TINYINT → year enum
@@ -1073,6 +1073,7 @@ struct FilterConfiguration: Equatable, Sendable {
     var roadWearIndexMode: RoadWearIndexMode = .average  // average or sum for Road Wear Index
     var normalizeToFirstYear: Bool = false  // true = normalize to first year (first year = 1.0), false = show raw values
     var showCumulativeSum: Bool = false  // true = cumulative sum over time, false = raw year-by-year values
+    var excludeZeroes: Bool = false  // true = exclude years with zero values from chart, false = show all years including zeros
 
     // Regularization and filter UI configuration
     var limitToCuratedYears: Bool = false  // true = exclude uncurated years from queries and filter dropdowns

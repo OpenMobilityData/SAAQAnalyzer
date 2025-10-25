@@ -1,7 +1,7 @@
 import Foundation
 import SQLite3
 
-/// Holds converted filter IDs for optimized queries
+/// Holds filter values converted to enumeration IDs
 struct FilterIds: Sendable {
     let yearIds: [Int]
     let regionIds: [Int]
@@ -46,11 +46,11 @@ class QueryManager {
         self.regularizationCoupling = UserDefaults.standard.object(forKey: "regularizationCoupling") as? Bool ?? true
     }
 
-    // MARK: - Optimized Vehicle Query Using Integer Enumerations
+    // MARK: - Vehicle Query Using Integer Enumerations
 
     /// High-performance vehicle data query using integer enumerations
     func queryVehicleData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
-        print("🚀 Starting OPTIMIZED vehicle query with integer enumerations...")
+        print("🚀 Starting vehicle query with integer enumerations...")
 
         // Debug: Log the filters we received
         print("🔍 Received filters:")
@@ -70,7 +70,7 @@ class QueryManager {
         // First, convert filter strings to integer IDs
         let filterIds = try await convertFiltersToIds(filters: filters, isVehicle: true)
 
-        // Run the optimized query using integer columns
+        // Run the query using integer columns
         return try await queryVehicleData(filters: filters, filterIds: filterIds)
     }
 
@@ -352,7 +352,7 @@ class QueryManager {
         )
     }
 
-    /// Optimized vehicle query using integer columns
+    /// Vehicle query using integer columns
     private func queryVehicleData(filters: FilterConfiguration, filterIds: FilterIds) async throws -> FilteredDataSeries {
         let startTime = Date()
 
@@ -367,7 +367,7 @@ class QueryManager {
                     return
                 }
 
-                // Build optimized query using integer columns
+                // Build query using integer columns
                 var whereClause = "WHERE 1=1"
                 var bindValues: [(Int32, Any)] = []
                 var bindIndex: Int32 = 1
@@ -691,25 +691,10 @@ class QueryManager {
 
                 case .roadWearIndex:
                     // Road Wear Index: 4th power law based on vehicle mass
-                    // Uses actual axle count when available (max_axles), falls back to vehicle type
-                    // Axle-based coefficients (Oct 2025):
-                    // - 2 axles: 0.1325, 3 axles: 0.0234, 4 axles: 0.0156, 5 axles: 0.0080, 6+ axles: 0.0046
-                    let rwiCalculation = """
-                        CASE
-                            -- Use actual axle data when available (BCA trucks)
-                            WHEN v.max_axles = 2 THEN 0.1325 * POWER(v.net_mass_int, 4)
-                            WHEN v.max_axles = 3 THEN 0.0234 * POWER(v.net_mass_int, 4)
-                            WHEN v.max_axles = 4 THEN 0.0156 * POWER(v.net_mass_int, 4)
-                            WHEN v.max_axles = 5 THEN 0.0080 * POWER(v.net_mass_int, 4)
-                            WHEN v.max_axles >= 6 THEN 0.0046 * POWER(v.net_mass_int, 4)
-                            -- Fallback: vehicle type assumptions when max_axles is NULL
-                            WHEN v.vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code IN ('CA', 'VO'))
-                            THEN 0.0234 * POWER(v.net_mass_int, 4)
-                            WHEN v.vehicle_type_id IN (SELECT id FROM vehicle_type_enum WHERE code = 'AB')
-                            THEN 0.1935 * POWER(v.net_mass_int, 4)
-                            ELSE 0.125 * POWER(v.net_mass_int, 4)
-                        END
-                        """
+                    // Uses RWICalculator to generate SQL from user-configurable settings
+                    // Configuration managed via Settings → Road Wear Index tab
+                    let calculator = RWICalculator()
+                    let rwiCalculation = calculator.generateSQLCalculation()
                     if filters.roadWearIndexMode == .average {
                         selectClause = "AVG(\(rwiCalculation)) as value"
                         additionalWhereConditions = " AND v.net_mass_int IS NOT NULL"
@@ -813,7 +798,7 @@ class QueryManager {
                         """
                 }
 
-                print("🔍 Optimized query: \(query)")
+                print("🔍 Query: \(query)")
                 print("🔍 Bind values: \(bindValues.map { "(\($0.0), \($0.1))" }.joined(separator: ", "))")
 
                 var stmt: OpaquePointer?
@@ -836,18 +821,23 @@ class QueryManager {
                     }
 
                     let duration = Date().timeIntervalSince(startTime)
-                    print("✅ Optimized vehicle query completed in \(String(format: "%.3f", duration))s - \(dataPoints.count) data points")
+                    print("✅ Vehicle query completed in \(String(format: "%.3f", duration))s - \(dataPoints.count) data points")
 
                     // If we got empty results, this indicates an ID lookup issue
                     if dataPoints.isEmpty {
                         print("⚠️ Empty results - likely ID lookup problem or incompatible filter combination")
                     }
 
-                    // Apply normalization if enabled (works with all metrics)
-                    var transformedPoints = if filters.normalizeToFirstYear {
-                        self.databaseManager?.normalizeToFirstYear(points: dataPoints) ?? dataPoints
+                    // Fill missing years with zeroes if excludeZeroes is false
+                    var transformedPoints = if !filters.excludeZeroes {
+                        self.databaseManager?.fillMissingYearsWithZeroes(points: dataPoints, selectedYears: filters.years) ?? dataPoints
                     } else {
                         dataPoints
+                    }
+
+                    // Apply normalization if enabled (works with all metrics)
+                    if filters.normalizeToFirstYear {
+                        transformedPoints = self.databaseManager?.normalizeToFirstYear(points: transformedPoints) ?? transformedPoints
                     }
 
                     // Apply cumulative sum if enabled
@@ -856,7 +846,7 @@ class QueryManager {
                     }
 
                     let series = FilteredDataSeries(
-                        name: "Vehicle Count by Year (Optimized)",
+                        name: "Vehicle Count by Year",
                         filters: filters,
                         points: transformedPoints
                     )
@@ -864,7 +854,7 @@ class QueryManager {
                     continuation.resume(returning: series)
                 } else {
                     let error = String(cString: sqlite3_errmsg(db))
-                    continuation.resume(throwing: DatabaseError.queryFailed("Optimized query failed: \(error)"))
+                    continuation.resume(throwing: DatabaseError.queryFailed("Query failed: \(error)"))
                 }
             }
         }
@@ -872,16 +862,16 @@ class QueryManager {
 
     /// High-performance license data query using integer enumerations
     func queryLicenseData(filters: FilterConfiguration) async throws -> FilteredDataSeries {
-        print("🚀 Starting OPTIMIZED license query with integer enumerations...")
+        print("🚀 Starting license query with integer enumerations...")
 
         // First, convert filter strings to integer IDs
         let filterIds = try await convertFiltersToIds(filters: filters, isVehicle: false)
 
-        // Run the optimized query using integer columns
+        // Run the query using integer columns
         return try await queryLicenseData(filters: filters, filterIds: filterIds)
     }
 
-    /// Optimized license query using integer columns
+    /// License query using integer columns
     private func queryLicenseData(filters: FilterConfiguration, filterIds: FilterIds) async throws -> FilteredDataSeries {
         let startTime = Date()
 
@@ -892,7 +882,7 @@ class QueryManager {
                     return
                 }
 
-                // Build optimized query using integer columns
+                // Build query using integer columns
                 var whereClause = "WHERE 1=1"
                 var bindValues: [(Int32, Any)] = []
                 var bindIndex: Int32 = 1
@@ -999,7 +989,7 @@ class QueryManager {
                     ORDER BY y.year
                 """
 
-                print("🔍 Optimized license query: \(query)")
+                print("🔍 License query: \(query)")
                 print("🔍 Bind values: \(bindValues.map { "(\($0.0), \($0.1))" }.joined(separator: ", "))")
 
                 var stmt: OpaquePointer?
@@ -1022,13 +1012,18 @@ class QueryManager {
                     }
 
                     let duration = Date().timeIntervalSince(startTime)
-                    print("✅ Optimized license query completed in \(String(format: "%.3f", duration))s - \(dataPoints.count) data points")
+                    print("✅ License query completed in \(String(format: "%.3f", duration))s - \(dataPoints.count) data points")
 
-                    // Apply normalization if enabled (works with all metrics)
-                    var transformedPoints = if filters.normalizeToFirstYear {
-                        self.databaseManager?.normalizeToFirstYear(points: dataPoints) ?? dataPoints
+                    // Fill missing years with zeroes if excludeZeroes is false
+                    var transformedPoints = if !filters.excludeZeroes {
+                        self.databaseManager?.fillMissingYearsWithZeroes(points: dataPoints, selectedYears: filters.years) ?? dataPoints
                     } else {
                         dataPoints
+                    }
+
+                    // Apply normalization if enabled (works with all metrics)
+                    if filters.normalizeToFirstYear {
+                        transformedPoints = self.databaseManager?.normalizeToFirstYear(points: transformedPoints) ?? transformedPoints
                     }
 
                     // Apply cumulative sum if enabled (applied after normalization)
@@ -1037,7 +1032,7 @@ class QueryManager {
                     }
 
                     let series = FilteredDataSeries(
-                        name: "License Count by Year (Optimized)",
+                        name: "License Count by Year",
                         filters: filters,
                         points: transformedPoints
                     )
@@ -1045,7 +1040,7 @@ class QueryManager {
                     continuation.resume(returning: series)
                 } else {
                     let error = String(cString: sqlite3_errmsg(db))
-                    continuation.resume(throwing: DatabaseError.queryFailed("Optimized license query failed: \(error)"))
+                    continuation.resume(throwing: DatabaseError.queryFailed("License query failed: \(error)"))
                 }
             }
         }
