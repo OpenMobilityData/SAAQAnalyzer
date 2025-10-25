@@ -415,9 +415,9 @@ class DatabaseManager: ObservableObject {
       AppLogger.query.debug("Cannot apply cumulative sum: points array is empty")
       return points
     }
-    
+
     AppLogger.query.debug("Applying cumulative sum to \(points.count) points")
-    
+
     var runningTotal: Double = 0.0
     return points.map { point in
       runningTotal += point.value
@@ -428,7 +428,35 @@ class DatabaseManager: ObservableObject {
       )
     }
   }
-  
+
+  /// Fill in missing years with zero values
+  /// Ensures all years in the selected range appear in the chart, even if they have no data
+  func fillMissingYearsWithZeroes(points: [TimeSeriesPoint], selectedYears: Set<Int>) -> [TimeSeriesPoint] {
+    guard !selectedYears.isEmpty else {
+      AppLogger.query.debug("Cannot fill missing years: selected years set is empty")
+      return points
+    }
+
+    // Create a dictionary of existing points for quick lookup
+    let existingPoints = Dictionary(uniqueKeysWithValues: points.map { ($0.year, $0) })
+
+    // Create points for all selected years, using 0 for missing years
+    let filledPoints = selectedYears.sorted().map { year -> TimeSeriesPoint in
+      if let existingPoint = existingPoints[year] {
+        return existingPoint
+      } else {
+        return TimeSeriesPoint(year: year, value: 0.0, label: nil)
+      }
+    }
+
+    let addedCount = filledPoints.count - points.count
+    if addedCount > 0 {
+      AppLogger.query.debug("Filled \(addedCount) missing years with zero values")
+    }
+
+    return filledPoints
+  }
+
   /// Enhanced query output with index usage and performance classification
   private func printEnhancedQueryResult(
     queryType: String,
@@ -1274,8 +1302,15 @@ class DatabaseManager: ObservableObject {
     
     // Generate series name
     let seriesName = await generateSeriesNameAsync(from: filters)
-    
-    return FilteredDataSeries(name: seriesName, filters: filters, points: percentagePoints)
+
+    // Fill missing years with zeroes if excludeZeroes is false
+    let finalPoints = if !filters.excludeZeroes {
+      fillMissingYearsWithZeroes(points: percentagePoints, selectedYears: filters.years)
+    } else {
+      percentagePoints
+    }
+
+    return FilteredDataSeries(name: seriesName, filters: filters, points: finalPoints)
   }
   
   /// Raw query method that returns just the data points without creating a FilteredDataSeries

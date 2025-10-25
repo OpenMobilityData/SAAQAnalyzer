@@ -843,11 +843,16 @@ class QueryManager {
                         print("⚠️ Empty results - likely ID lookup problem or incompatible filter combination")
                     }
 
-                    // Apply normalization if enabled (works with all metrics)
-                    var transformedPoints = if filters.normalizeToFirstYear {
-                        self.databaseManager?.normalizeToFirstYear(points: dataPoints) ?? dataPoints
+                    // Fill missing years with zeroes if excludeZeroes is false
+                    var transformedPoints = if !filters.excludeZeroes {
+                        self.databaseManager?.fillMissingYearsWithZeroes(points: dataPoints, selectedYears: filters.years) ?? dataPoints
                     } else {
                         dataPoints
+                    }
+
+                    // Apply normalization if enabled (works with all metrics)
+                    if filters.normalizeToFirstYear {
+                        transformedPoints = self.databaseManager?.normalizeToFirstYear(points: transformedPoints) ?? transformedPoints
                     }
 
                     // Apply cumulative sum if enabled
@@ -1024,11 +1029,16 @@ class QueryManager {
                     let duration = Date().timeIntervalSince(startTime)
                     print("✅ License query completed in \(String(format: "%.3f", duration))s - \(dataPoints.count) data points")
 
-                    // Apply normalization if enabled (works with all metrics)
-                    var transformedPoints = if filters.normalizeToFirstYear {
-                        self.databaseManager?.normalizeToFirstYear(points: dataPoints) ?? dataPoints
+                    // Fill missing years with zeroes if excludeZeroes is false
+                    var transformedPoints = if !filters.excludeZeroes {
+                        self.databaseManager?.fillMissingYearsWithZeroes(points: dataPoints, selectedYears: filters.years) ?? dataPoints
                     } else {
                         dataPoints
+                    }
+
+                    // Apply normalization if enabled (works with all metrics)
+                    if filters.normalizeToFirstYear {
+                        transformedPoints = self.databaseManager?.normalizeToFirstYear(points: transformedPoints) ?? transformedPoints
                     }
 
                     // Apply cumulative sum if enabled (applied after normalization)

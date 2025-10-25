@@ -1073,6 +1073,7 @@ struct FilterConfiguration: Equatable, Sendable {
     var roadWearIndexMode: RoadWearIndexMode = .average  // average or sum for Road Wear Index
     var normalizeToFirstYear: Bool = false  // true = normalize to first year (first year = 1.0), false = show raw values
     var showCumulativeSum: Bool = false  // true = cumulative sum over time, false = raw year-by-year values
+    var excludeZeroes: Bool = false  // true = exclude years with zero values from chart, false = show all years including zeros
 
     // Regularization and filter UI configuration
     var limitToCuratedYears: Bool = false  // true = exclude uncurated years from queries and filter dropdowns

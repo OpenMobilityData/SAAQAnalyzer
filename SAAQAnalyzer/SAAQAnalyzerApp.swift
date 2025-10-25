@@ -101,6 +101,7 @@ struct ContentView: View {
     // Watch regularization settings to update preview when they change
     @AppStorage("regularizationEnabled") private var regularizationEnabled = false
     @AppStorage("limitToCuratedYears") private var limitToCuratedYears = true
+    @AppStorage("excludeZeroes") private var excludeZeroesStorage = false  // false = show all years including zeros
 
     // SwiftUI file dialog states - consolidated to avoid SwiftUI fileImporter bug
     enum FileImporterMode {
@@ -483,6 +484,9 @@ struct ContentView: View {
             updateQueryPreview()
         }
         .onAppear {
+            // Initialize configuration from stored preferences
+            selectedFilters.excludeZeroes = excludeZeroesStorage
+
             // Generate initial preview on appear
             // QueryManager now initializes from UserDefaults, so no delay needed
             updateQueryPreview()
@@ -490,6 +494,10 @@ struct ContentView: View {
         .onChange(of: regularizationEnabled) { _, _ in
             // Update preview when regularization toggle changes
             updateQueryPreview()
+        }
+        .onChange(of: selectedFilters.excludeZeroes) { _, newValue in
+            // Sync configuration changes back to storage
+            excludeZeroesStorage = newValue
         }
         .onChange(of: limitToCuratedYears) { _, _ in
             // Update preview when curated years toggle changes

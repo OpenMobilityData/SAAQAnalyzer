@@ -80,6 +80,7 @@ struct FilterPanel: View {
                                 roadWearIndexMode: $configuration.roadWearIndexMode,
                                 normalizeToFirstYear: $configuration.normalizeToFirstYear,
                                 showCumulativeSum: $configuration.showCumulativeSum,
+                                excludeZeroes: $configuration.excludeZeroes,
                                 currentFilters: configuration
                             )
                         } label: {
@@ -1908,6 +1909,7 @@ struct MetricConfigurationSection: View {
     @Binding var roadWearIndexMode: FilterConfiguration.RoadWearIndexMode
     @Binding var normalizeToFirstYear: Bool
     @Binding var showCumulativeSum: Bool
+    @Binding var excludeZeroes: Bool
     let currentFilters: FilterConfiguration
 
     @State private var selectedCategoryToRemove: FilterCategory?
@@ -2166,6 +2168,26 @@ struct MetricConfigurationSection: View {
                 Text(showCumulativeSum
                     ? "Each year shows total accumulated from all previous years"
                     : "Each year shows value for that year only")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(4)
+            }
+
+            // Exclude zeroes toggle (available for all metrics)
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(isOn: $excludeZeroes) {
+                    Text("Exclude zeroes")
+                        .font(.caption)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+                Text(excludeZeroes
+                    ? "Hide years with zero values from chart"
+                    : "Show all years including those with zero values (helps distinguish null data from unmatched filters)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 8)
